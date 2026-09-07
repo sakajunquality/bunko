@@ -7,7 +7,7 @@ M1 implements OCI Distribution push/pull and Docker-compatible credentials. Clou
 | Registry | Example `--repo` prefix | Authentication | Verification status |
 | --- | --- | --- | --- |
 | GitHub Container Registry | `ghcr.io/OWNER` | Docker login, PAT, or workflow token | Automated helper and Basic-to-scoped-Bearer tests; real service push not verified. |
-| Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | gcloud/gcr helper or access token | Automated helper/Bearer tests; real service push not verified. |
+| Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | gcloud/gcr helper or access token | Live helper-authenticated push, separate cache reuse, direct Docker pull, and amd64/arm64 runtime verified. [Report](LIVE_REGISTRY_VALIDATION.md). |
 | Docker Hub | `docker.io/USERNAME` | Docker login or credential store | Real public-base pull and automated host-alias/Bearer tests; account push not verified. |
 | Amazon ECR private | `ACCOUNT.dkr.ecr.REGION.amazonaws.com/PREFIX` | ecr-login helper or AWS password | Automated helper/Basic-challenge/credential-refresh tests; real service push not verified. |
 | OCI Distribution | `localhost:5000/demo` | Basic, Bearer, or anonymous | Real push/pull, cache reuse, and container execution with Distribution 3. |
@@ -96,7 +96,7 @@ This option does not disable TLS certificate verification.
 
 Cache tags default to `bunko-cache-v1-deps-<full-key>` and `bunko-cache-v1-assets-<full-key>` in the image repository. Use `--cache-repo` or `BUNKO_CACHE_REPO` for a separate cache repository. Unsupported custom OCI artifacts or denied cache writes produce diagnostics while image publication may still succeed. Disable Registry caching with `--no-registry-cache`.
 
-Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads use 8 MiB chunks and offset reconciliation. Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
+Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads normally use 8 MiB chunks and offset reconciliation. Artifact Registry uses a streamed, full-file PUT because it does not support multiple chunks. Interrupted full-file PUTs are checked by digest before retrying in a fresh session; permanent permission failures are not retried. [Artifact Registry API support](https://docs.cloud.google.com/artifact-registry/docs/reference/docker-api) Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
 
 Registry credentials and npm credentials are separate. Private npm uses HTTPS registry/scoped-registry configuration and `${ENV_NAME}` credentials from project .npmrc. Authentication files exist only in install staging and are removed afterward; values do not enter cache keys, images, or reports.
 
