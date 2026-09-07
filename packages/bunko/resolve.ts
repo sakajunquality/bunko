@@ -198,7 +198,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "success", references: Object.fromEntries(references), targets });
     return { output, targets };
   } catch (error) {
-    for (const batch of batches) for (const target of batch.results) if (target.publication?.published && !target.publication.pendingTags.length) completed.add(names.get(target.target)!);
+    for (const batch of batches) for (const target of batch.results) if (target.publication?.published && !target.publication.pendingTags.length && (!target.supplyChain || target.supplyChain.status === "complete")) completed.add(names.get(target.target)!);
     if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) });
     throw error;
   } finally { await Promise.all(batches.map((batch) => batch.dispose())); }

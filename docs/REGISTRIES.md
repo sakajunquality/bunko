@@ -14,7 +14,7 @@ M1 implements OCI Distribution push/pull and Docker-compatible credentials. Clou
 
 bunko appends `bunko.imageName` or the project name to the prefix. For an exact repository, use `--bare`, for example `--repo docker.io/USERNAME/app --bare`. Create GAR projects/repositories and exact ECR image repositories beforehand. ECR Public, Harbor-specific extensions, referrers, and signing require separate validation.
 
-Cloud publication tests require a user-selected repository and permissions. They were not run in M1/M2. Passing mock tests does not establish interoperability with a cloud service.
+Cloud publication tests require a user-selected repository and permissions. GHCR and GAR have linked live results above; Docker Hub account push and ECR remain unverified. Passing mock tests does not establish interoperability with a cloud service.
 
 ## Credential selection
 

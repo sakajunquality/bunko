@@ -24,6 +24,7 @@ export interface Descriptor {
   size: number;
   platform?: Platform;
   annotations?: Record<string, string>;
+  artifactType?: string;
 }
 
 export interface ImageIndex {

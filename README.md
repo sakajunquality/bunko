@@ -115,7 +115,9 @@ Resolve requires Registry publication. It rejects `--push=false`, export/local/k
 
 `--reproducible` requires a digest-pinned base or `--base-layout`. `--verify-deterministic` bypasses layer caches and compares two independent staging builds. Use `--git-metadata=false` to omit automatic Git metadata.
 
-Unsupported: nested workspaces, catalogs, file/link/git dependencies, compile/bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts, SBOM/provenance/signing, apply, and cache pruning. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
+See [M3 supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
+
+Unsupported: nested workspaces, catalogs, file/link/git dependencies, bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts, apply, and cache pruning. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
 
 ## Development and validation
 

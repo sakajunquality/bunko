@@ -55,7 +55,7 @@ A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different pri
 
 ## Manual installation
 
-Download all three assets from the same release into one directory, verify them, and run the CLI with Bun:
+Download all four assets from the same release into one directory, verify them, and run the CLI with Bun:
 
 ```sh
 # Linux

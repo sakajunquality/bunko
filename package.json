@@ -5,8 +5,12 @@
   "license": "MIT",
   "type": "module",
   "description": "Build OCI images from Bun applications without Dockerfiles",
-  "bin": { "bunko": "./packages/bunko/cli.ts" },
-  "engines": { "bun": ">=1.3.11 <1.4" },
+  "bin": {
+    "bunko": "./packages/bunko/cli.ts"
+  },
+  "engines": {
+    "bun": ">=1.3.11 <1.4"
+  },
   "scripts": {
     "dev": "bun packages/bunko/cli.ts",
     "build": "bun build packages/bunko/cli.ts --target=bun --minify --outfile=dist/bunko.js",
@@ -22,7 +26,8 @@
     "test:bundled-smoke": "bun test/bundled-smoke.ts",
     "test:m2b-smoke": "bun test/m2b-smoke.ts",
     "test:m2a-smoke": "bun test/m2a-smoke.ts",
-    "check": "bun run typecheck && bun test"
+    "check": "bun run typecheck && bun test",
+    "test:m3-smoke": "bun test/m3-smoke.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",

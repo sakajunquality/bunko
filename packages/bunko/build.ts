@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { dockerCredentials } from "../oci/credentials.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
-import { canonicalJSON } from "../oci/digest.ts";
+import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { assembleImage } from "../oci/image.ts";
 import { assertOutputAvailable, canonicalOutput, exportLayout, exportLayouts } from "../oci/layout.ts";
 import { Publisher, PublicationError, repository, repositoryName, type Publication } from "../oci/publish.ts";
@@ -20,12 +20,19 @@ import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
+import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
+import { spdx, provenance, sbomType, provenanceType, signImages } from "./attest.ts";
+
 export interface PlatformResult {
+  bundledInventory?: InventoryEntry[];
   platform: Platform; manifest: Descriptor; config: Descriptor; layers: Layer[];
   baseDigest: Digest; inventory: InventoryEntry[]; native: NativeBinary[];
 }
 export interface BuildResult {
   schemaVersion: 2;
+  mode?: "bundle" | "compile";
+  supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
+  attestations?: { subject: Descriptor; manifest: Descriptor }[];
   target: string;
   targetPath?: string;
   layout?: string;
@@ -98,6 +105,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const timestamp = epoch();
   const project = context.project;
   const push = options.local || options.kind ? false : options.push ?? (!output && !archive);
+  if (options.signKey && !push) throw new Error("Signing requires registry publication");
   const repo = options.repo ?? process.env.BUNKO_REPO;
   if (push && !repo) throw new Error("Registry push requires --repo or BUNKO_REPO");
   if (!push && !output && !archive && !options.local && !options.kind && !options.dryRun) throw new Error("--push=false requires --oci-layout, --tarball, --local, or --kind");
@@ -193,13 +201,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const appLayer = await packLayer(store, app, "app", timestamp);
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
-          platform, epoch: timestamp, entrypoint: [project.bunPath, `${project.workdir}/${application.entry}`],
+          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
           args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
-          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.mode": "bundle",
+          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        result.push({ platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native });
+        result.push({ platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory });
       }
       return result;
     }
@@ -214,12 +222,17 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? `${options.kind ? "kind.local" : "bunko.local"}/${project.name}:sha256-${root.digest.slice(7)}` : undefined;
     const result: BuildResult = {
-      schemaVersion: 2, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
+      schemaVersion: 2, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
       sourceDigest, baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision },
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
-    const descriptors = [...bases.flatMap((base) => base.manifest.layers), ...images.flatMap((image) => [...image.layers.map((l) => l.descriptor), image.config, image.manifest])];
+    const attestations: Artifact[] = [];
+    if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp)));
+    if (options.provenance) attestations.push(await artifact(store, root, provenanceType, provenance(result, plan.lock ? sha256(canonicalJSON(plan.lock)) : undefined)));
+    if (attestations.length || options.signKey) result.supplyChain = { status: "prepared" };
+    if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
+    const descriptors = [...attestations.flatMap((item) => [item.manifest, ...item.blobs]), ...bases.flatMap((base) => base.manifest.layers), ...images.flatMap((image) => [...image.layers.map((l) => l.descriptor), image.config, image.manifest])];
     const refName = `${destination ?? project.name}:latest`;
     return { result, store, descriptors, refName,
       dispose: () => rm(temporary, { recursive: true, force: true }),
@@ -234,14 +247,30 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         if (push && destination) {
           log(`${options.dryRun ? "Estimating transfer to" : "Publishing to"} ${destination}\n`);
-          try { result.publication = await new Publisher(destination, registry).publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun); }
+          try {
+            const publisher = new Publisher(destination, registry);
+            result.publication = await publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun);
+            if (options.dryRun) {
+              for (const item of attestations) {
+                const estimate = await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true);
+                result.publication.transfers.push(...estimate.transfers);
+              }
+            } else {
+              if (result.supplyChain) result.supplyChain.status = "attaching";
+              await publishArtifacts(publisher, store, attestations, (transfers) => result.publication!.transfers.push(...transfers));
+              if (options.signKey && result.supplyChain) result.supplyChain.status = "signing";
+              if (options.signKey) await signImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), options.signKey, options.cosignPath, options.registry?.insecure);
+              if (result.supplyChain) result.supplyChain.status = "complete";
+            }
+          }
           catch (error) {
-            if (error instanceof PublicationError) result.publication = error.result;
-            if (report && !context.multiple && error instanceof PublicationError) await writeReport(report, { ...result, status: "failed", publication: error.result, error: error.message });
+            if (error instanceof PublicationError && !result.publication) result.publication = error.result;
+            if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" });
             throw error;
           }
           if (!options.dryRun) await cache.publish();
         }
+        if (!push && !options.dryRun && result.supplyChain) result.supplyChain.status = "complete";
         if (report && !context.multiple) await writeReport(report, result);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
@@ -272,6 +301,10 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
+  if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
+  if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
+  if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;
