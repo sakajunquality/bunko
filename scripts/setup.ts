@@ -54,7 +54,7 @@ export async function setup(options: SetupOptions) {
       const assets = metadata.assets.filter((asset: { name?: string }) => asset.name === name);
       if (assets.length !== 1 || typeof assets[0].url !== "string") throw new Error(`Missing or ambiguous release asset: ${name}`);
       const url = new URL(assets[0].url);
-      if (url.origin !== "https://api.github.com" || !url.pathname.startsWith(`/repos/${repository}/releases/assets/`)) throw new Error("Unexpected release asset endpoint");
+      if (url.origin !== "https://api.github.com" || !url.pathname.toLowerCase().startsWith(`/repos/${repository.toLowerCase()}/releases/assets/`)) throw new Error("Unexpected release asset endpoint");
       return githubBytes(url, options.token, "application/octet-stream", options.fetcher);
     };
   }

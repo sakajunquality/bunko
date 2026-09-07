@@ -52,7 +52,7 @@ test("a checksummed artifact must still report the requested release version", a
 
 test("private release assets use authenticated API downloads and strip tokens on storage redirects", async () => {
   const names = ["SHA256SUMS", ...assetNames], token = "test-only-private-token", seen: string[] = [];
-  const installed = await setup({ version: metadata.version, token, temporary: root, fetcher: (async (input, init) => {
+  const installed = await setup({ version: metadata.version, repository: "SakaJunQuality/Bunko", token, temporary: root, fetcher: (async (input, init) => {
     const url = new URL(input), headers = new Headers(init?.headers); seen.push(url.toString());
     expect(url.toString()).not.toContain(token);
     if (url.hostname === "storage.example") {
