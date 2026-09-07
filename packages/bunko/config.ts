@@ -11,6 +11,8 @@ export const VERSION = "0.0.1";
 export interface BuildOptions {
   path: string;
   targets?: string[];
+  depsStrategy?: string;
+  sharedDeps?: boolean;
   output?: string;
   push?: boolean;
   repo?: string;
@@ -48,6 +50,7 @@ export interface Project {
   platform: Platform;
   platforms: Platform[];
   external: string[];
+  depsStrategy: "production" | "closure";
   base?: string;
   workdir: string;
   bunPath: string;
@@ -130,7 +133,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   validateDependencySpecs(manifest, workspace);
   if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M1");
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps"], "bunko");
+  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   if (config.mode !== undefined && config.mode !== "bundle") throw new Error("Only bundle mode is supported in M1");
   const external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
@@ -138,7 +141,9 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
   const deps = object(config.deps ?? {}, "deps");
   knownKeys(deps, ["strategy"], "deps");
-  if (deps.strategy !== undefined && deps.strategy !== "production") throw new Error("M1 supports deps.strategy=production only");
+  if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
+  const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");
+  if (depsStrategy !== "production" && depsStrategy !== "closure") throw new Error("deps.strategy must be production or closure");
   const build = config.build === undefined ? {} : object(config.build, "build");
   knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target"], "build");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
@@ -187,7 +192,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     ports = [...new Set(config.ports as number[])].sort((a, b) => a - b);
   }
   return {
-    directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external,
+    directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir: absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir"),
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),

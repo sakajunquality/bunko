@@ -22,6 +22,7 @@ jobs:
       - run: bun run check
       - run: bun run build
       - run: bun dist/bunko.js version
+      - run: bun run test:bundled-smoke
 
   integration:
     runs-on: ubuntu-latest
@@ -36,5 +37,11 @@ jobs:
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
       - run: bun run test:m2a-smoke
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:m2b-smoke
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:m2c-smoke
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64

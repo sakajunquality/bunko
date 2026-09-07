@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { parseAllDocuments } from "yaml";
 import type { BuildResult } from "../packages/bunko/build.ts";
 import { platform as parsePlatform } from "../packages/bunko/config.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
@@ -10,7 +11,7 @@ import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { exportDockerArchive, loadArchive } from "../packages/oci/archive.ts";
 import { command } from "./m1-smoke.ts";
 
-async function smoke() {
+export async function workspaceSmoke(options: { closure?: boolean; resolve?: boolean } = {}) {
   const temporary = await mkdtemp(join(tmpdir(), "bunko-m2a-smoke-"));
   const id = randomUUID(), registryName = `bunko-m2a-registry-${id}`;
   const containers = new Set<string>(), images = new Set<string>();
@@ -28,17 +29,25 @@ async function smoke() {
     const source = join(temporary, "source"), dockerConfig = join(temporary, "docker.json");
     await cp(resolve("examples/workspace"), source, { recursive: true, filter: (path) => !path.split("/").includes("node_modules") });
     await writeFile(dockerConfig, "{}");
+    const manifest = join(temporary, "services.yaml");
+    if (options.resolve) await writeFile(manifest, "# preserve this comment\nimage: &api bunko://services/api\ncopy: *api\n---\nimage: bunko://services/worker\n");
     const base = "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
-    async function build(iteration: number) {
+    async function build(iteration: number, shared = false) {
       const report = join(temporary, `report-${iteration}.json`);
       const args = [process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--repo", repo, "--base", base, "--platform", "linux/amd64,linux/arm64", "--no-local-cache", "--git-metadata=false", "--insecure-registry", host, "--report", report, "--install-cache", process.env.BUNKO_SMOKE_NPM_CACHE ?? join(temporary, "npm-cache")];
+      if (options.resolve) args.splice(2, 2, "resolve", "--context", source, "-f", manifest);
+      if (options.closure) args.push("--deps-strategy", "closure");
+      if (shared) args.push("--shared-deps");
       if (iteration === 1) args.push("--verify-deterministic");
       const child = Bun.spawn(args, { stdout: "pipe", stderr: "inherit", env: { ...process.env, BUNKO_DOCKER_CONFIG: dockerConfig } });
       const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
       if (code !== 0) throw new Error(`Workspace CLI failed (exit ${code})`);
       const result = JSON.parse(await readFile(report, "utf8")) as { schemaVersion: number; targets: BuildResult[] };
-      if (result.schemaVersion !== 3 || result.targets.length !== 2) throw new Error("Expected a two-target report");
-      if (stdout !== result.targets.map((target) => target.publication!.reference + "\n").join("")) throw new Error("CLI stdout must contain exactly one ordered digest line per target");
+      if (result.schemaVersion !== (options.resolve ? 4 : 3) || result.targets.length !== 2) throw new Error("Expected a two-target report");
+      if (options.resolve) {
+        const docs = parseAllDocuments(stdout);
+        if (docs.length !== 2 || docs.some((d) => d.errors.length) || docs[0]!.toJS().image !== result.targets[0]!.publication!.reference || docs[0]!.toJS().copy !== result.targets[0]!.publication!.reference || docs[1]!.toJS().image !== result.targets[1]!.publication!.reference || !stdout.startsWith("# preserve this comment\n")) throw new Error("Resolve output did not preserve documents/anchors or published references");
+      } else if (stdout !== result.targets.map((target) => target.publication!.reference + "\n").join("")) throw new Error("CLI stdout must contain exactly one ordered digest line per target");
       return result.targets;
     }
     const first = await build(1);
@@ -49,9 +58,14 @@ async function smoke() {
       if (!target.cache.length || !target.cache.every((event) => event.status === "registry")) throw new Error("Expected workspace Registry cache hits");
       if (target.publication!.transfers.some((transfer) => ["deps", "assets"].includes(transfer.kind) && transfer.uploaded !== 0)) throw new Error("Workspace deps/assets uploaded after source-only edit");
     }
+    const shared = options.closure ? await build(3, true) : [];
+    if (options.closure) {
+      if (second.find((r) => r.target === "worker")!.images.some((i) => i.native.length)) throw new Error("Unrelated API native dependencies leaked into worker closure");
+      for (let i = 0; i < shared[0]!.images.length; i++) if (shared[0]!.images[i]!.layers[0]!.descriptor.digest !== shared[1]!.images[i]!.layers[0]!.descriptor.digest) throw new Error("sharedDeps union layers differ");
+    }
     const runtime: unknown[] = [];
-    for (const target of second) for (const platform of process.env.BUNKO_SMOKE_PLATFORMS?.split(",") ?? ["linux/amd64", "linux/arm64"]) {
-      const name = `bunko-m2a-${id}-${target.target}-${platform.split("/")[1]}`;
+    for (const [targetIndex, target] of [...second, ...shared].entries()) for (const platform of process.env.BUNKO_SMOKE_PLATFORMS?.split(",") ?? ["linux/amd64", "linux/arm64"]) {
+      const name = `bunko-m2a-${id}-${targetIndex}-${target.target}-${platform.split("/")[1]}`;
       const store = new BlobStore(join(temporary, name));
       const pulled = await resolveBase(new RegistrySource(target.publication!.reference, { insecure: [host], credentials: async () => undefined }), parsePlatform(platform), store);
       const tag = `bunko.local/${name}:smoke`, archive = join(temporary, `${name}.tar`);
@@ -73,7 +87,7 @@ async function smoke() {
       if (state.ExitCode !== 0) throw new Error("Workspace SIGTERM shutdown failed");
       runtime.push({ target: target.target, platform, body, user: info.Config.User, readOnly: true, exitCode: state.ExitCode });
     }
-    const report = { base, first: first.map((r) => ({ target: r.target, root: r.root.digest })), second: second.map((r) => ({ target: r.target, root: r.root.digest, cache: r.cache, transfers: r.publication!.transfers })), runtime };
+    const report = { base, resolve: Boolean(options.resolve), closure: Boolean(options.closure), shared: shared.map((r) => ({ target: r.target, root: r.root.digest, layers: r.images.map((i) => i.layers[0]!.descriptor.digest) })), first: first.map((r) => ({ target: r.target, root: r.root.digest })), second: second.map((r) => ({ target: r.target, root: r.root.digest, cache: r.cache, transfers: r.publication!.transfers })), runtime };
     if (process.env.BUNKO_SMOKE_REPORT) await writeFile(process.env.BUNKO_SMOKE_REPORT, JSON.stringify(report, null, 2), { flag: "wx" });
     console.log(JSON.stringify(report, null, 2));
     console.log("PASS: workspace CLI, multi-target publication, shared package, distinct versions, native runtime, Registry cache, amd64/arm64 build");
@@ -84,4 +98,4 @@ async function smoke() {
     await rm(temporary, { recursive: true, force: true });
   }
 }
-if (import.meta.main) await smoke();
+if (import.meta.main) await workspaceSmoke();

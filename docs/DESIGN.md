@@ -1,6 +1,6 @@
 # bunko 詳細設計案
 
-2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a・M0b・M1・M2a を実装、M2b 以降は設計案**。
+2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a・M0b・M1・M2 を実装、M3 以降は設計案**。
 
 元の仕様書は archive に入力ファイルのまま保存している。M2a までに採用した変更と実際の対応範囲は [現行実装仕様](SPEC.md) に統合した。本書は将来の契約も含む。実装との差分は以下と SPEC.md を優先する。実機で確認した結果と残る検証は [VALIDATION.md](VALIDATION.md) に分けた。
 
@@ -634,3 +634,13 @@ root の workspaces は正の相対 glob 配列のみ。nested workspace、objec
 | cache tag 増大 | 同一 repo 既定 + 専用 repo を明示可能。retention policy の例を用意 | M1 |
 
 大きな技術リスクは OCI manifest の JSON 組み立てよりも、**Bun の解決結果を壊さず runtime dependencies を切り出すこと**にある。M0 で bundle-first の価値を出し、依存投影の正しさは独立した fixture 群で積み上げる構成がよい。
+
+
+### M2b の実装上の選択
+
+closure は Linux production install の concrete instance graph を投影し、target alias を app layer に分離して sharedDeps の共通 layer を実現した。key は lock subset の再解釈ではなく、投影 file bytes/mode/path/edges を hash する。そのため無関係な lock の変更でも layer を再利用できる一方、cache hit 時も Linux install と graph の確認を行う。production strategy の install 省略は維持する。詳細は [現行仕様 §9](SPEC.md#9-dependency-closure--shareddepsm2b)。
+
+
+### M2c の実装上の選択
+
+yaml 2.9.0 の AST/CST の range から value だけを置換し、元 text のコメント・anchor・数値を維持する。通常の build を prepare/finish に分け、複数 context でも全構築と文書検査が完了してから公開する。resolve は Registry 公開専用とし、dry-run/local/apply との組み合わせは提供しない。複数 JSON input は配列にする。[現行仕様 §10](SPEC.md#10-resolvem2c) と [parser の公式 API](https://eemeli.org/yaml/) を参照。
