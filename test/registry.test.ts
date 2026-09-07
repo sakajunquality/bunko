@@ -108,6 +108,58 @@ describe("Docker-compatible authentication", () => {
 });
 
 describe("Distribution publication", () => {
+  test.each(["asia-northeast1-docker.pkg.dev", "us-docker.pkg.dev:443"])("streams full blobs to Artifact Registry at %s", async (host) => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const bytes = Buffer.alloc(9 * 1024 * 1024, 7), d = await store.put(bytes, media.gzip);
+    const publisher = new Publisher(`${host}/project/repository/image`, { credentials: anonymous, fetcher: async (input, init) => {
+      if (init?.method === "PATCH") throw new Error("Artifact Registry does not support chunked uploads");
+      if (init?.method === "PUT") {
+        expect(init.body).toBeInstanceOf(Blob);
+        expect(new Headers(init.headers).get("Content-Length")).toBe(String(bytes.length));
+        expect(new URL(input).searchParams.get("state")).toBe("opaque");
+      }
+      return registry.fetch(input, init);
+    } });
+    expect((await publisher.blob(store, d)).uploaded).toBe(bytes.length);
+    const key = `${new URL(publisher.client.origin).host}/project/repository/image/${d.digest}`;
+    expect(registry.blobs.get(key)).toEqual(bytes);
+    expect(registry.requests.filter((r) => r.method === "PUT")).toHaveLength(1);
+    expect(registry.requests.some((r) => r.method === "GET" && r.url.pathname.includes("/uploads/"))).toBe(false);
+  });
+
+  test.each(["before", "after"])("reconciles a monolithic PUT disconnected %s commit", async (phase) => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const bytes = Buffer.from("complete file must be replayed"), d = await store.put(bytes, media.gzip);
+    registry.disconnectFinish = phase === "after";
+    let puts = 0;
+    const publisher = new Publisher("us-docker.pkg.dev/project/repository/image", { credentials: anonymous, fetcher: async (input, init) => {
+      if (init?.method === "PUT" && ++puts === 1 && phase === "before") {
+        // Simulate a server that consumed the body and invalidated the session.
+        await new Response(init.body as Blob).arrayBuffer();
+        await registry.fetch(input, { method: "DELETE" });
+        throw new Error("connection closed before commit");
+      }
+      return registry.fetch(input, init);
+    } });
+    await publisher.blob(store, d);
+    expect(registry.blobs.get(`us-docker.pkg.dev/project/repository/image/${d.digest}`)).toEqual(bytes);
+    expect(puts).toBe(phase === "before" ? 2 : 1);
+    expect(registry.requests.filter((r) => r.method === "POST")).toHaveLength(phase === "before" ? 2 : 1);
+  });
+
+  test.each([403, 503])("bounds monolithic retries for HTTP %s", async (status) => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const d = await store.put(Buffer.from("rejected upload"), media.gzip);
+    let puts = 0;
+    const publisher = new Publisher("us-docker.pkg.dev/project/repository/image", { credentials: anonymous, fetcher: async (input, init) => {
+      if (init?.method === "PUT") { puts++; return new Response(null, { status }); }
+      return registry.fetch(input, init);
+    } });
+    await expect(publisher.blob(store, d)).rejects.toThrow(`Registry PUT failed (${status})`);
+    expect(puts).toBe(status === 403 ? 1 : 3);
+    expect(registry.requests.filter((r) => r.method === "DELETE")).toHaveLength(puts);
+  });
+
   test("empty upload Range 0-0 is restarted without skipping the first byte", async () => {
     const store = new BlobStore(await dir()), registry = new MockRegistry();
     registry.disconnectBeforePatch = true;

@@ -65,6 +65,7 @@ export class MockRegistry {
         return new Response(null, { status: 202, headers: { Location: location, Range: `0-${session.bytes.length - 1}` } });
       }
       if (method === "PUT") {
+        session.bytes = Buffer.concat([session.bytes, await body()]);
         const digest = sha256(session.bytes);
         if (url.searchParams.get("digest") !== digest) return new Response(null, { status: 400 });
         this.blobs.set(`${session.key}/${digest}`, session.bytes);
