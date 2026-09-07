@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
 import { VERSION } from "./config.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (M2a preview)
+const help = `bunko ${VERSION} — Bun to OCI images (M2b preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
@@ -12,6 +12,8 @@ Usage:
 
 Options:
   --target <name/path>     Select a workspace member; repeatable, root invocation only
+  --deps-strategy <name>   production (default) or closure
+  --shared-deps           Share the union of selected workspace closures
   --repo <prefix>          Destination prefix (or BUNKO_REPO)
   --bare                   Use --repo as the exact image repository
   --tag <tag>              Repeatable tag (default: latest and Git revision)
@@ -43,7 +45,7 @@ Options:
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
 Supports standalone apps and Bun workspaces with production dependencies.
-Dependency closure/compile/attestation support is planned for later milestones.
+Compile/attestation support is planned for later milestones.
 Logs go to stderr; successful publication prints one repo@digest line per target.
 `;
 
@@ -57,6 +59,8 @@ export async function main(argv: string[]): Promise<number> {
         version: { type: "boolean" },
         push: { type: "boolean", default: true },
         repo: { type: "string" },
+        "deps-strategy": { type: "string" },
+        "shared-deps": { type: "boolean" },
         target: { type: "string", multiple: true },
         bare: { type: "boolean" },
         tag: { type: "string", multiple: true },
@@ -92,7 +96,7 @@ export async function main(argv: string[]): Promise<number> {
     if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
     const results = await buildTargets({
-      targets: values.target,
+      targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,

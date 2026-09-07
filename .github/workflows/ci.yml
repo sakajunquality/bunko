@@ -38,3 +38,6 @@ jobs:
       - run: bun run test:m2a-smoke
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:m2b-smoke
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64

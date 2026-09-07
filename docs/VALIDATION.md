@@ -350,3 +350,12 @@ CI は従来の M1 smoke に M2a smoke を追加する。両 platform を build 
 ### M2b に残す最適化
 
 M2a の runtime は workspace 全体の production tree なので、worker に api 用の native package も含まれる。closure による package 削減、sharedDeps、必要な target graph だけの cache key、source digest の対象縮小は未実装。現時点の挙動と制約は SPEC.md §8 に記載した。
+
+
+## 11. M2b: closure / sharedDeps（2026-09-07）
+
+Bun 1.3.11 / macOS arm64 / Docker Desktop で `bun run test:m2b-smoke` が成功。実 Distribution Registry に 2 target × amd64/arm64 を publish し、source 編集後の Registry cache hit と deps/assets の追加 upload 0 を確認。worker の closure から API 専用 native addon が除外された。sharedDeps の再構築では platform ごとに両 target の deps digest が一致した。
+
+削減後と共有後の計 8 image/platform を RegistrySource で検証付き pull → Docker archive → Docker load/run し、API の native xxhash、is-number 7/6 の使い分け、共通 workspace JSON、nonroot/read-only、SIGTERM exit 0 を確認。初回 closure は独立 install を使う決定性比較にも成功。CI に同じ smoke を追加し、実行 platform は amd64 に限定する。
+
+通常テストには同名異版・peer context、bundled workspace の除外、optional 欠落、required 欠落、symlink 脱出、bin link、package data、checkout 深さの独立性、無関係な dev lock 変更の cache hit、reachable workspace source 変更の miss を追加。closure は cache hit 時も Linux install を行い、install 回避や速度向上の測定結果は主張しない。クラウド Registry 個別の実 push 状況は M1 と同じ。

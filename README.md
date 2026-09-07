@@ -2,7 +2,7 @@
 
 Bun プロジェクトを Dockerfile・Docker daemon なしで OCI イメージにするビルダー。Go の [ko](https://ko.build/) に着想を得ています。
 
-現在は **M2a preview**。単一アプリ・Bun workspace の bundle、npm dependencies、明示的な runtime external、Registry push、deps/assets cache、multi-platform、Docker/kind load に対応しています。GHCR・Google Artifact Registry・Docker Hub・ECR は Docker の認証設定を利用します。各サービスへの実 push の検証状況は [Registry 対応表](docs/REGISTRIES.md) を参照してください。
+現在は **M2b preview**。単一アプリ・Bun workspace の bundle、npm dependencies、明示的な runtime external、Registry push、deps/assets cache、multi-platform、Docker/kind load に対応しています。GHCR・Google Artifact Registry・Docker Hub・ECR は Docker の認証設定を利用します。各サービスへの実 push の検証状況は [Registry 対応表](docs/REGISTRIES.md) を参照してください。
 
 ## 試す
 
@@ -48,7 +48,15 @@ root からの自動選択では `bunko.enabled:false` を除き、`bunko` 設�
 
 全 target の構築成功後に公開を始め、stdout に target 順の digest を一行ずつ返します。公開途中の失敗は `--report` に記録します。`--bare` / `--tarball` は単一 target 限定です。
 
-共通 package は既定で bundle します。明示 external にした workspace も収録でき、同名異版と peer dependencies は Bun の install 配置を保持します。M2a の production strategy は **workspace 全体の production tree** を収録するため、他 service の依存も入ります。必要な依存だけに絞る closure と `sharedDeps` は M2b で実装する予定です。
+共通 package は既定で bundle します。明示 external にした workspace も収録でき、同名異版と peer dependencies は Bun の install 配置を保持します。M2a の production strategy は **workspace 全体の production tree** を収録するため、他 service の依存も入ります。`--deps-strategy closure`（または各 service の `bunko.deps.strategy: "closure"`）で、external から到達する実際の package instance だけに絞れます。
+
+```sh
+bun run dev build examples/workspace --repo ghcr.io/OWNER --deps-strategy closure
+# 選択した service の依存の和集合を同じ deps layer に収録
+bun run dev build examples/workspace --repo ghcr.io/OWNER --shared-deps
+```
+
+`--shared-deps` または root の `bunko.sharedDeps:true` は closure を既定にし、workdir/base/platform が一致する target 間で deps layer を共有します。各 service の external link は app layer に分離するため、同名異版も維持します。closure は毎回 Linux production install で graph を確認しますが、対象 package の bytes・mode・link が同じなら、無関係な lock/source の変更後も layer cache を再利用できます。
 
 対応する workspace 宣言は相対・正の glob を並べた配列です。nested workspace、catalog、file/link dependencies は未対応。npm 認証・override・patch の設定は root にまとめます。
 
@@ -88,7 +96,7 @@ bun run dev build examples/hello --kind --kind-cluster kind --platform linux/arm
 
 `--reproducible` は digest 固定 base または `--base-layout` を要求します。`--verify-deterministic` は layer cache を迂回し、別々の staging で二度構築して比較します。Git 情報を出力から外す場合は `--git-metadata=false`。
 
-未対応: closure/sharedDeps、nested workspaces、catalog、file/link/git dependencies、compile/bytecode、source symlink、project bunfig.toml、import attributes/macros、computed application imports、install scripts が必要な runtime packages、SBOM/provenance/sign、resolve/apply、cache prune。構文検出は保守的で、文字列やコメントを誤検出する場合があります。未知・未対応の指定はエラーにします。
+未対応: nested workspaces、catalog、file/link/git dependencies、compile/bytecode、source symlink、project bunfig.toml、import attributes/macros、computed application imports、install scripts が必要な runtime packages、SBOM/provenance/sign、resolve/apply、cache prune。構文検出は保守的で、文字列やコメントを誤検出する場合があります。未知・未対応の指定はエラーにします。
 
 ## 開発・検証
 
@@ -100,6 +108,7 @@ bun dist/bunko.js --help
 # Docker とネットワークが必要: 実 Registry への公開・再利用・pull・実行
 bun run test:m1-smoke
 bun run test:m2a-smoke
+bun run test:m2b-smoke
 ```
 
 通常テストはネットワーク/Docker 不要で、Python 3 の tarfile による独立検査も含みます。CI は Linux/macOS の型チェック・テスト・CLI bundle と、Linux 上の実 Registry integration を実行します。smoke は専用 Registry/container/tag を作り、終了時に削除します。既定で amd64/arm64 を実行し、`BUNKO_SMOKE_PLATFORMS=linux/amd64` で実行対象だけを絞れます。

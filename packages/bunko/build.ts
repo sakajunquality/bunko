@@ -16,6 +16,7 @@ import { assetEntries, assertNoLayerCollision, fileEntries, snapshot } from "./f
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
+import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
@@ -73,6 +74,8 @@ async function writeReport(path: string, value: unknown) {
 interface BuildContext {
   project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
+  closureProjects: Project[];
+  closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
   sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor } }>>;
 }
 interface PreparedBuild {
@@ -152,7 +155,19 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
-        if (project.external.length) {
+        let aliases: Awaited<ReturnType<typeof dependencyClosure>>["entries"] = [];
+        if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
+          const content = await context.closure(context.closureProjects, platform, iteration);
+          aliases = content.aliases.get(project.targetPath) ?? [];
+          inventory = content.inventory; native = content.native;
+          const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`,
+            strategy: "closure-v1", entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
+            toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
+          const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
+          depsEntries = content.entries;
+          depsLayer = hit?.layer ?? await packLayer(store, depsEntries, "deps", timestamp);
+          if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
+        } else if (project.external.length) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
           if (hit) { depsLayer = hit.layer; inventory = hit.inventory; native = hit.native; }
@@ -172,7 +187,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const application = await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root);
         const app = await fileEntries(application.outdir, prefix);
         // Reserve node_modules even on a cache hit whose tree is never materialized.
-        if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
+        if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
+        app.push(...aliases);
         assertNoLayerCollision([depsEntries, assets, app]);
         const appLayer = await packLayer(store, app, "app", timestamp);
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
@@ -244,9 +260,15 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
 export async function buildTargets(options: BuildOptions, single = false): Promise<BuildResult[]> {
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
+  const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;
+  if (rootConfig?.sharedDeps !== undefined && typeof rootConfig.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
+  const sharedDeps = options.sharedDeps ?? rootConfig?.sharedDeps === true;
+  options = { ...options, sharedDeps };
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
+  if (sharedDeps && (!discovered.workspace || projects.some((p) => p.depsStrategy !== "closure"))) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
+  if (sharedDeps && new Set(projects.map((p) => JSON.stringify([p.workdir, p.base, p.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
   if (new Set(projects.map((project) => project.name.toLowerCase())).size !== projects.length) throw new Error("Workspace image name collision; set distinct bunko.imageName values");
   if (discovered.workspace) for (const pkg of discovered.workspace.packages) {
     validateDependencySpecs(pkg.manifest, discovered.workspace);
@@ -283,7 +305,19 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
     const sources: BuildContext["sources"] = new Map();
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
-    for (const project of projects) prepared.push(await prepareBuild({ ...options, registry }, { project, source, sourceDigest, plan, toolchain, git, multiple, sources }));
+    const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
+    const closure: BuildContext["closure"] = (selected, platform, iteration) => {
+      const key = JSON.stringify([selected.map((p) => p.targetPath), platform, iteration]);
+      if (!closures.has(key)) closures.set(key, (async () => {
+        const runtime = join(temporary, `closure-${closures.size}`);
+        options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
+        await cp(source, runtime, { recursive: true });
+        await installDependencies(runtime, plan, toolchain, platform, options.installCache);
+        return dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+      })());
+      return closures.get(key)!;
+    };
+    for (const project of projects) prepared.push(await prepareBuild({ ...options, registry }, { project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }));
     // No target is exported or published until every selected build succeeds.
     if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
     for (const item of prepared) { await item.finish(); finished.add(item.result.target); }

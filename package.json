@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test:smoke": "bun test/smoke.ts",
     "test:m1-smoke": "bun test/m1-smoke.ts",
+    "test:m2b-smoke": "bun test/m2b-smoke.ts",
     "test:m2a-smoke": "bun test/m2a-smoke.ts",
     "check": "bun run typecheck && bun test"
   },
