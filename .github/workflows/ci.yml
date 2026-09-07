@@ -23,6 +23,11 @@ jobs:
       - run: bun run build
       - run: bun dist/bunko.js version
       - run: bun run test:bundled-smoke
+      - run: bun run release:prepare
+      - uses: ./
+        with:
+          distribution-directory: dist/release
+      - run: bunko version
 
   integration:
     runs-on: ubuntu-latest

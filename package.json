@@ -1,6 +1,6 @@
 {
   "name": "bunko",
-  "version": "0.0.1",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
   "description": "Build OCI images from Bun applications without Dockerfiles",
@@ -10,6 +10,7 @@
     "dev": "bun packages/bunko/cli.ts",
     "build": "bun build packages/bunko/cli.ts --target=bun --outfile=dist/bunko.js",
     "test": "bun test",
+    "release:prepare": "bun scripts/release.ts",
     "typecheck": "tsc --noEmit",
     "test:smoke": "bun test/smoke.ts",
     "test:registry": "bun test/registry-conformance.ts",
