@@ -4,8 +4,8 @@ The owner requested completion through M6, followed by a researched ko gap analy
 
 ## Completion gates
 
-- [ ] M3: deterministic SPDX inventory and SLSA provenance; OCI subject artifact publication/discovery and layout export; explicit private signing and verification; base inspection; Linux cross compilation; distribution smoke checks.
-- [ ] M4: validated external dependency artifacts; apply after complete resolution; preview-first cache pruning with explicit deletion; provider interoperability coverage.
+- [x] M3: deterministic SPDX inventory and SLSA provenance; OCI subject artifact publication/discovery and layout export; explicit private signing and verification; base inspection; Linux cross compilation; distribution smoke checks.
+- [x] M4: validated external dependency artifacts; apply after complete resolution; preview-first cache pruning with explicit deletion; Distribution interoperability coverage (cloud account/policy gaps remain documented).
 - [ ] M5: bounded jobs; shared content validation; reusable application output; concurrent cache safety; scale/failure regression coverage.
 - [ ] M6: diagnostics and configuration usability; executable/installation guidance; runtime compatibility matrix and migration documentation; realistic project fixtures.
 - [ ] Research current ko behavior using primary sources, record supported/intentional/inapplicable gaps, implement applicable high-value gaps, and verify them.
@@ -19,4 +19,6 @@ No repository/package visibility changes, public transparency-log submissions, p
 
 - Starting point: merged PR #10, main `4198f57`; main CI passed. MIT distribution, M2, GHCR/GAR live conformance already implemented.
 - Claude Code 2.1.263 is installed; a read-only design review has been requested.
-- M3 implementation passed unit/type checks, independent amd64/arm64 compile determinism and container execution, pinned base runtime checks, real Distribution 3 referrers plus cosign 3.1.3 private signing/verification, official SPDX 2.3 schema validation, and bundled release smoke checks. Claude implementation review is pending; no visibility changes were made.
+- M3 is PR #11. Claude findings were fixed; CI passed. See M3_REVIEW.md.
+- M4 passed amd64/arm64 external-artifact runtime checks, disposable kind apply, and real Distribution tag deletion with runnable-image retention. Claude findings were fixed; see M4_REVIEW.md.
+- M5 performance and concurrent cache work is next.

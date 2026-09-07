@@ -152,6 +152,7 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
 }
 
 export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+  if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");
   if (options.push === false || options.local || options.kind || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication; export/local/kind/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (report) await assertFileAvailable(report, "Report");

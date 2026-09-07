@@ -18,6 +18,7 @@ export interface BuildOptions {
   signKey?: string;
   cosignPath?: string;
   depsStrategy?: string;
+  externalDeps?: Record<string, string>;
   sharedDeps?: boolean;
   output?: string;
   push?: boolean;
@@ -100,7 +101,7 @@ export function relativePath(value: string, name: string): string {
   return normalized;
 }
 
-function absolutePath(value: string, name: string): string {
+export function absolutePath(value: string, name: string): string {
   if (!posix.isAbsolute(value) || value === "/" || posix.normalize(value) !== value || value.includes("\\") || /[\x00-\x1f]/.test(value)) throw new Error(`${name} must be a normalized absolute path other than /`);
   return value;
 }

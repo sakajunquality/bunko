@@ -24,6 +24,13 @@ THE SOFTWARE.
 import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
 import { VERSION, type BuildOptions } from "./config.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { pushLayout } from "./push-layout.ts";
+import { pruneLocal, pruneRegistry } from "./prune.ts";
+import { applyDocuments } from "./apply.ts";
+import { packDependencies } from "./external-deps.ts";
+import { platform as parsePlatform } from "./config.ts";
 import { checkBase } from "./check-base.ts";
 import { verifyImage } from "./attest.ts";
 import { resolveDocuments } from "./resolve.ts";
@@ -34,6 +41,10 @@ Usage:
   bunko build [path] --repo <registry/prefix> [options]
   bunko build [path] --push=false --oci-layout <directory>
   bunko resolve -f <file|directory|-> --repo <registry/prefix>
+  bunko apply -f <file|directory|-> --repo <registry/prefix> [--kube-dry-run server]
+  bunko push-layout <directory> --repo <exact-repository> [--tag <tag>]
+  bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
+  bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko version
@@ -43,6 +54,10 @@ Options:
   --context <dir>         Base directory for bunko:// references (default: cwd)
   --recursive             Include nested input directories for resolve
   --target <name/path>     Select a workspace member; repeatable, root invocation only
+  --execute               Execute prune deletions (default: preview only)
+  --older-than <seconds>  Local prune age (default: 604800)
+  --kube-dry-run <mode>   apply only: client, server or none
+  --deps-artifact <platform=ref>  Prepared dependency OCI artifact; repeat per platform
   --deps-strategy <name>   production (default) or closure
   --shared-deps           Share the union of selected workspace closures
   --repo <prefix>          Destination prefix (or BUNKO_REPO)
@@ -124,6 +139,17 @@ export async function main(argv: string[]): Promise<number> {
       "runtime-path": { type: "string" },
       "verify-key": { type: "string" },
       "private-signatures": { type: "boolean" },
+      "deps-artifact": { type: "string", multiple: true },
+      "kubectl-path": { type: "string" },
+      "kube-context": { type: "string" },
+      namespace: { type: "string" },
+      "server-side": { type: "boolean" },
+      "field-manager": { type: "string" },
+      "kube-dry-run": { type: "string" },
+      execute: { type: "boolean" },
+      "older-than": { type: "string" },
+      lockfile: { type: "string" },
+      workdir: { type: "string" },
       mode: { type: "string" },
       sbom: { type: "boolean" },
       provenance: { type: "boolean" },
@@ -163,6 +189,26 @@ export async function main(argv: string[]): Promise<number> {
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
+    if (command === "push-layout") {
+      if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");
+      const result = await pushLayout(path, values.repo, values.tag, { insecure: values["insecure-registry"] });
+      process.stdout.write(`${result.reference}\n`); return 0;
+    }
+    if (command === "prune") {
+      if (positionals.length !== 1 || values.execute && values["dry-run"]) throw new Error("prune accepts no positional path; --execute and --dry-run cannot be combined");
+      if (values["cache-repo"] && (values["cache-dir"] || values["older-than"])) throw new Error("Remote prune cannot be combined with local cache/age options");
+      if (values["older-than"] !== undefined && !/^\d+$/.test(values["older-than"])) throw new Error("--older-than must be non-negative integer seconds");
+      const result = values["cache-repo"] ? await pruneRegistry(values["cache-repo"], values.execute, { insecure: values["insecure-registry"] })
+        : await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), values.execute, values["older-than"] === undefined ? undefined : Number(values["older-than"]));
+      process.stdout.write(JSON.stringify(result) + "\n"); return 0;
+    }
+    if (values.execute || values["older-than"]) throw new Error("--execute/--older-than require prune");
+    if (command === "pack-deps") {
+      if (positionals.length !== 2 || !values.lockfile || !values["oci-layout"]) throw new Error("pack-deps requires a prepared directory, --lockfile and --oci-layout");
+      const result = await packDependencies(path, values.lockfile, parsePlatform(values.platform ?? "linux/amd64"), values["oci-layout"], values.workdir);
+      process.stdout.write(JSON.stringify(result) + "\n"); return 0;
+    }
+    if (values.lockfile || values.workdir) throw new Error("--lockfile/--workdir require pack-deps");
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
       const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], registry: { insecure: values["insecure-registry"] } });
@@ -177,12 +223,20 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (values.run || values["runtime-path"]) throw new Error("--run/--runtime-path require check-base");
     if (values["verify-key"] || values["private-signatures"]) throw new Error("--verify-key/--private-signatures require verify");
-    if (command !== "build" && command !== "resolve") throw new Error(`Unknown command: ${command ?? "(missing)"}`);
+    if (!["build", "resolve", "apply"].includes(command!)) throw new Error(`Unknown command: ${command ?? "(missing)"}`);
     if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
     if (command === "build" && (values.filename || values.context || values.recursive)) throw new Error("-f/--context/--recursive require resolve");
-    if (command === "resolve" && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
+    if (["resolve", "apply"].includes(command!) && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
+    if (command !== "build" && values["deps-artifact"]) throw new Error("--deps-artifact currently requires build; resolve/apply need per-target artifact mapping");
+    const externalDeps: Record<string, string> = {};
+    for (const value of values["deps-artifact"] ?? []) {
+      const equal = value.indexOf("="), key = value.slice(0, equal), reference = value.slice(equal + 1);
+      if (equal < 1 || !reference || !["linux/amd64", "linux/arm64"].includes(key) || externalDeps[key]) throw new Error("Use one --deps-artifact linux/ARCH=layout:DIR or linux/ARCH=REPO@sha256:DIGEST per platform");
+      externalDeps[key] = reference;
+    }
     const buildOptions: BuildOptions = {
+      externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
       mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
@@ -198,6 +252,13 @@ export async function main(argv: string[]): Promise<number> {
       gitMetadata: values["git-metadata"], noIndex: !values.index,
       log: (message) => process.stderr.write(message),
     };
+    if (command === "apply") {
+      const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive,
+        kubectlPath: values["kubectl-path"], kubeContext: values["kube-context"], namespace: values.namespace, serverSide: values["server-side"],
+        fieldManager: values["field-manager"], kubeDryRun: values["kube-dry-run"] as "none" | "client" | "server" | undefined });
+      process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.exit;
+    }
+    if (values["kubectl-path"] || values["kube-context"] || values.namespace || values["server-side"] || values["field-manager"] || values["kube-dry-run"]) throw new Error("Kubernetes options require apply");
     if (command === "resolve") {
       const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive });
       process.stdout.write(result.output);

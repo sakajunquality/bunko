@@ -1,4 +1,4 @@
-# bunko implementation specification — M3
+# bunko implementation specification — M4
 
 2026-09-08. This document describes the implemented contract. See [DESIGN.md](DESIGN.md) for future design, [the archived v0.1 proposal](archive/SPEC-v0.1.md) for the original concept, and [VALIDATION.md](VALIDATION.md) for measurements and unverified behavior.
 
@@ -8,7 +8,7 @@ Bundle standalone and workspace Bun applications, compose them with base images,
 
 A build can target `linux/amd64` and `linux/arm64` together. An omitted arm64 variant means v8. Platforms have a stable index order. Building never executes target binaries or emulators. Docker archives, local/kind loading, and `--no-index` require one platform.
 
-Supported dependencies are registry npm packages, constrained workspace references, and explicit production runtime externals. Opt-in SBOM/provenance, private key signing, base checks, and constrained Linux compile mode are implemented in M3; see [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md). Bytecode, apply, external dependency artifacts, and pruning remain future milestones.
+Supported dependencies are registry npm packages, constrained workspace references, and explicit production runtime externals. Opt-in SBOM/provenance, private key signing, base checks, and constrained Linux compile mode are implemented in M3; see [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md). M4 adds explicit apply, prepared dependency artifacts, layout publication, and preview-first pruning; see [OPERATIONS.md](OPERATIONS.md). Bytecode remains unsupported.
 
 ## 2. CLI and results
 
@@ -208,3 +208,7 @@ The [correctness review follow-up](REVIEW_FIXES.md) records transfer deadlines, 
 ## 11. Supply-chain metadata and compile (M3)
 
 [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md) defines the implemented metadata, private signing, compile, and check-base contract, including coverage limits and validation commands. Metadata is opt-in and is attached by subject without changing runnable image identity. Required attachment/signing failures fail publication as a whole and withhold stdout, even if the image itself has already been published.
+
+## 12. Operations (M4)
+
+[OPERATIONS.md](OPERATIONS.md) defines prepared dependency artifact validation, apply ordering, and local/remote pruning. Mutation requires explicit commands. Ordinary build/resolve behavior does not implicitly apply resources or delete caches.
