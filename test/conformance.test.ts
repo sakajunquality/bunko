@@ -1,3 +1,4 @@
+import { command } from "./command.ts";
 import { expect, test } from "bun:test";
 import { conformanceOptions, validateRepository } from "./registry-conformance.ts";
 import { pullImage } from "./docker-pull.ts";
@@ -39,4 +40,18 @@ test("retries transient prerequisite pulls without retrying authentication failu
   attempts = 0;
   await expect(pullImage("registry:3", undefined, async () => { attempts++; throw new Error("HTTP 503"); }, async () => {})).rejects.toThrow("503");
   expect(attempts).toBe(3);
+});
+
+test("subprocesses receive credential environment updates made after earlier commands", async () => {
+  const original = process.env.BUNKO_TEST_COMMAND_ENV;
+  const args = [process.execPath, "-e", "console.log(process.env.BUNKO_TEST_COMMAND_ENV ?? 'unset')"];
+  try {
+    delete process.env.BUNKO_TEST_COMMAND_ENV;
+    expect(await command(args)).toBe("unset");
+    process.env.BUNKO_TEST_COMMAND_ENV = "updated-after-first-spawn";
+    expect(await command(args)).toBe("updated-after-first-spawn");
+  } finally {
+    if (original === undefined) delete process.env.BUNKO_TEST_COMMAND_ENV;
+    else process.env.BUNKO_TEST_COMMAND_ENV = original;
+  }
 });
