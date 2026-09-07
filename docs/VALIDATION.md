@@ -359,3 +359,12 @@ Bun 1.3.11 / macOS arm64 / Docker Desktop で `bun run test:m2b-smoke` が成功
 削減後と共有後の計 8 image/platform を RegistrySource で検証付き pull → Docker archive → Docker load/run し、API の native xxhash、is-number 7/6 の使い分け、共通 workspace JSON、nonroot/read-only、SIGTERM exit 0 を確認。初回 closure は独立 install を使う決定性比較にも成功。CI に同じ smoke を追加し、実行 platform は amd64 に限定する。
 
 通常テストには同名異版・peer context、bundled workspace の除外、optional 欠落、required 欠落、symlink 脱出、bin link、package data、checkout 深さの独立性、無関係な dev lock 変更の cache hit、reachable workspace source 変更の miss を追加。closure は cache hit 時も Linux install を行い、install 回避や速度向上の測定結果は主張しない。クラウド Registry 個別の実 push 状況は M1 と同じ。
+
+
+## 12. M2c: resolve（2026-09-07）
+
+`bun run test:m2c-smoke` が macOS arm64 / Bun 1.3.11 / Docker Desktop で成功。2 document と anchor/alias を持つ YAML を実 CLI resolve に渡し、2 service × amd64/arm64 の公開 reference と出力 scalar の一致を確認した。重複 alias は追加 target を作らず、コメントを保持した。source 編集後の Registry cache、closure/sharedDeps の 8 runtime checks、native addon、異なる依存 version、nonroot/read-only、SIGTERM exit 0 も成功した。
+
+通常テストは YAML multi-doc、コメント、block scalar、CRLF、複雑な mapping key、anchor/alias、template/部分文字列の除外、JSON 数値の bytes 維持、複数 JSON 配列、directory 順序/再帰、stdin、canonical target 重複排除、workspace sharedDeps、構文/名前衝突/途中 build 失敗で Registry 書き込みなし、target identity 変更の拒否、部分公開の report と stdout 空を確認する。YAML 1.1 と 1.2 の別入力を連結する際の directive 継承も検査する。
+
+`bun run build && bun run test:bundled-smoke` は dist/bunko.js だけを外部 node_modules のない一時 directory にコピーし、stdin resolve と YAML license の同梱を確認する。CI に bundled smoke と実 Registry M2c smoke を追加した。kubectl apply や各クラウド Registry 個別の実 push はこの検証に含まない。
