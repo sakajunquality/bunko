@@ -18,12 +18,18 @@ export async function readPackage(directory: string, path = ""): Promise<Workspa
   return { path, text, manifest: object(JSON.parse(text), "package.json") };
 }
 
+// Glob.scan accepts leading ./ segments, but Glob.match does not. Use the
+// same spelling for discovery and membership checks without resolving globs.
+function workspacePattern(pattern: string): string {
+  return pattern.replace(/^(?:\.\/+)+/, "").replace(/\/+$/, "") || ".";
+}
+
 export async function workspaceAt(directory: string, root: WorkspacePackage): Promise<Workspace> {
   const patterns = root.manifest.workspaces;
   if (!Array.isArray(patterns) || !patterns.length || !patterns.every((p) => typeof p === "string" && p && !isAbsolute(p) && !/[\\\0]/.test(p) && !p.split("/").includes("..") && !p.startsWith("!"))) throw new Error("M2a requires a non-empty workspaces array of relative, positive glob patterns");
   const paths = new Set<string>();
   for (const pattern of patterns) {
-    for await (const path of new Bun.Glob(`${pattern.replace(/\/$/, "")}/package.json`).scan({ cwd: directory, dot: false, followSymlinks: false })) {
+    for await (const path of new Bun.Glob(`${workspacePattern(pattern)}/package.json`).scan({ cwd: directory, dot: false, followSymlinks: false })) {
       if (path.split("/").some((p) => ["node_modules", ".git", ".bunko-output", ".bunko-build"].includes(p))) continue;
       const member = dirname(path);
       if (member === ".") throw new Error("A workspace cannot include its own root as a member");
@@ -57,7 +63,7 @@ export async function discover(options: BuildOptions): Promise<{ directory: stri
     catch { /* An unreadable or malformed ancestor cannot establish membership. */ }
     const localPath = relative(cursor, directory);
     const patterns = pkg?.manifest.workspaces;
-    const declared = cursor === directory || Array.isArray(patterns) && patterns.some((pattern) => typeof pattern === "string" && new Bun.Glob(pattern.replace(/\/$/, "")).match(localPath));
+    const declared = cursor === directory || Array.isArray(patterns) && patterns.some((pattern) => typeof pattern === "string" && new Bun.Glob(workspacePattern(pattern)).match(localPath));
     if (pkg?.manifest.workspaces !== undefined && declared) {
       const workspace = await workspaceAt(cursor, pkg);
       const local = relative(cursor, directory);

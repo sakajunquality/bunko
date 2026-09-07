@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const assetNames = ["bunko.js", "THIRD_PARTY_NOTICES.md"] as const;
+export const assetNames = ["bunko.js", "LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
 export const maxAssetBytes = 64 * 1024 * 1024;
 export const checksum = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
@@ -14,7 +14,7 @@ export function releaseTag(value: string): string {
 export function verifyAssets(manifest: string, assets: Map<string, Uint8Array>): void {
   const hashes = new Map<string, string>();
   for (const line of manifest.trim().split(/\r?\n/)) {
-    const match = /^([a-f0-9]{64})  (bunko\.js|THIRD_PARTY_NOTICES\.md)$/.exec(line);
+    const match = /^([a-f0-9]{64})  (bunko\.js|LICENSE|THIRD_PARTY_NOTICES\.md)$/.exec(line);
     if (!match || hashes.has(match[2]!)) throw new Error("Invalid or duplicate release checksum entry");
     hashes.set(match[2]!, match[1]!);
   }
