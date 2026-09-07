@@ -41,6 +41,7 @@ export function provenance(result: BuildResult, lockDigest?: string) {
         internalParameters: {}, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
           ...(lockDigest ? [dependency("urn:bunko:lock", lockDigest)] : []),
           ...result.images.map((image) => dependency(`urn:bunko:base:${image.platform.architecture}`, image.baseDigest)),
+          ...result.images.flatMap((image) => image.dependencyArtifact ? [dependency(`urn:bunko:dependencies:${image.platform.architecture}`, image.dependencyArtifact)] : []),
           { uri: `https://github.com/oven-sh/bun/tree/${result.toolchain.revision}`, annotations: { version: result.toolchain.version } },
         ] },
       runDetails: { builder: { id: `https://github.com/sakajunquality/bunko/tree/v${VERSION}` }, metadata: {} },

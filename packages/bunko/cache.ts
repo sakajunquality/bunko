@@ -10,6 +10,7 @@ import { RegistryError, type RegistryOptions } from "../oci/registry.ts";
 import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { hashFile } from "./files.ts";
+import { withCacheLock } from "./cache-lock.ts";
 import { mapFiles } from "./concurrency.ts";
 import type { TarEntry } from "../oci/tar.ts";
 import type { InventoryEntry, NativeBinary } from "./deps.ts";
@@ -34,6 +35,7 @@ export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
 
 export class LayerCache {
   readonly events: CacheEvent[] = [];
+  private readonly remoteHits = new Set<Digest>();
   private readonly records = new Map<Digest, CacheRecord>();
   private readonly local?: BlobStore;
   private readonly remote?: Publisher;
@@ -67,8 +69,8 @@ export class LayerCache {
     if (memory) { this.events.push({ key, kind, status: "local" }); return memory; }
     if (this.local) {
       try {
-        const record = this.validate(JSON.parse(await readFile(join(this.local.root, "keys", kind, `${key.slice(7)}.json`), "utf8")), key, kind, expected);
-        await this.store.copyFrom(this.local, record.layer.descriptor);
+        const record = this.validate(JSON.parse(await readFile(join(this.local!.root, "keys", kind, `${key.slice(7)}.json`), "utf8")), key, kind, expected);
+        await this.store.copyFrom(this.local!, record.layer.descriptor);
         await decodeLayer(this.store, record.layer.descriptor, record.layer.diffId);
         this.records.set(key, record);
         this.events.push({ key, kind, status: "local" });
@@ -95,6 +97,7 @@ export class LayerCache {
           return createReadStream(staging.path(layer.digest));
         }, source.ref);
         this.records.set(key, record);
+        this.remoteHits.add(key);
         this.events.push({ key, kind, status: "registry" });
         return record;
       } catch (error) { if (!(error instanceof RegistryError && error.status === 404)) this.options.log(`Registry ${kind} cache unavailable; rebuilding\n`); }
@@ -108,17 +111,20 @@ export class LayerCache {
     const dir = join(this.local.root, "keys", record.kind);
     const temporary = join(dir, `.tmp-${randomUUID()}`);
     try {
-      await this.local.copyFrom(this.store, record.layer.descriptor);
+      await withCacheLock(this.local.root, async () => {
+      await this.local!.copyFrom(this.store, record.layer.descriptor);
       await mkdir(dir, { recursive: true });
       await writeFile(temporary, canonicalJSON(record), { flag: "wx" });
       await rename(temporary, join(dir, `${record.key.slice(7)}.json`));
-    } catch { this.options.log(`Could not persist local ${record.kind} cache\n`); }
+      });
+    } catch { this.options.log(`Could not persist local ${record.kind} cache; check write permissions or .bunko-lock/owner.json for a stale lock\n`); }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
 
   async publish(): Promise<void> {
     if (!this.remote) return;
     for (const record of this.records.values()) {
+      if (this.remoteHits.has(record.key)) continue;
       try {
         const config = await this.store.put(canonicalJSON(record), configMedia);
         const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);

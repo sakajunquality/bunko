@@ -20,11 +20,13 @@ import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
+import { importDependencies } from "./external-deps.ts";
 import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages } from "./attest.ts";
 
 export interface PlatformResult {
   bundledInventory?: InventoryEntry[];
+  dependencyArtifact?: Digest;
   platform: Platform; manifest: Descriptor; config: Descriptor; layers: Layer[];
   baseDigest: Digest; inventory: InventoryEntry[]; native: NativeBinary[];
 }
@@ -164,7 +166,15 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
         let aliases: Awaited<ReturnType<typeof dependencyClosure>>["entries"] = [];
-        if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
+        let dependencyArtifactDigest: Digest | undefined;
+        const dependencyArtifact = options.externalDeps?.[`${platform.os}/${platform.architecture}`];
+        if (dependencyArtifact) {
+          const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry);
+          dependencyArtifactDigest = content.artifactDigest;
+          depsEntries = content.entries; inventory = content.inventory; native = content.native;
+          for (const name of project.external) if (!inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
+          depsLayer = await packLayer(store, depsEntries, "deps", timestamp);
+        } else if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
           const content = await context.closure(context.closureProjects, platform, iteration);
           aliases = content.aliases.get(project.targetPath) ?? [];
           inventory = content.inventory; native = content.native;
@@ -207,7 +217,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        result.push({ platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory });
+        result.push({ platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
       }
       return result;
     }
@@ -314,6 +324,11 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
+  if (options.externalDeps) {
+    if (discovered.workspace || sharedDeps || projects.some((p) => p.mode === "compile" || !p.external.length)) throw new Error("External dependency artifacts require a standalone bundle with explicit runtime externals");
+    const required = projects[0]!.platforms.map((p) => `${p.os}/${p.architecture}`);
+    if (Object.keys(options.externalDeps).length !== required.length || required.some((p) => !options.externalDeps![p])) throw new Error("Supply exactly one --deps-artifact for every selected platform");
+  }
   if (sharedDeps && (!discovered.workspace || projects.some((p) => p.depsStrategy !== "closure"))) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
   if (sharedDeps && new Set(projects.map((p) => JSON.stringify([p.workdir, p.base, p.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
   if (new Set(projects.map((project) => project.name.toLowerCase())).size !== projects.length) throw new Error("Workspace image name collision; set distinct bunko.imageName values");
@@ -332,7 +347,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
-  const exclusions = [output, report, archive, cacheDirectory, options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const exclusions = [output, report, archive, cacheDirectory, ...Object.values(options.externalDeps ?? {}).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -342,7 +357,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
-    if (multiple && report && !(await Bun.file(report).exists())) await writeReport(report, {
+    if (report && !(await Bun.file(report).exists())) await writeReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
       targets: prepared.map((item) => item.result),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),

@@ -193,7 +193,7 @@ export async function inspectELF(path: string, platform: Platform): Promise<Nati
   } finally { await file.close(); }
 }
 
-export async function runtimeEntries(root: string, prefix: string, platform: Platform): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[] }> {
+export async function runtimeEntries(root: string, prefix: string, platform: Platform, prepared = false): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[] }> {
   const modules = await realpath(join(root, "node_modules"));
   const entries: TarEntry[] = [];
   const inventory: InventoryEntry[] = [];
@@ -218,7 +218,7 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
         if (typeof pkg.name === "string" && typeof pkg.version === "string") {
           inventory.push({ path: dirname(path), name: pkg.name, version: pkg.version });
           const scripts = object(pkg.scripts ?? {}, "Dependency scripts");
-          if (["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; M1 requires packages that ship ready-to-run files`);
+          if (!prepared && ["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; M1 requires packages that ship ready-to-run files`);
         }
       }
       const elf = await inspectELF(file, platform);
