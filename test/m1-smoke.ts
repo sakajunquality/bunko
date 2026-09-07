@@ -44,8 +44,12 @@ export async function smoke() {
     await writeFile(file, (await readFile(file, "utf8")).replace("Hello from bunko dependencies!", "Hello from bunko dependencies, rebuilt!"));
     const warmStart = performance.now();
     const second = await build(options), warmMs = Math.round(performance.now() - warmStart);
-    if (!second.cache.every((event) => event.status === "registry")) throw new Error("Expected registry cache hits");
+    if (!second.cache.filter((event) => event.kind !== "app").every((event) => event.status === "registry")) throw new Error("Expected registry cache hits");
     if (second.publication!.transfers.some((transfer) => ["deps", "assets"].includes(transfer.kind) && transfer.uploaded !== 0)) throw new Error("Deps/assets were uploaded again after a source-only change");
+    let reusedLog = "";
+    const third = await build({ ...options, log: (message) => { reusedLog += message; } });
+    if (third.root.digest !== second.root.digest || !third.cache.some((event) => event.kind === "app" && event.status === "registry")) throw new Error("Expected a stable remote application cache hit");
+    if (reusedLog.includes("Bundling") || reusedLog.includes("Preparing build dependencies")) throw new Error("Application cache hit repeated build preparation");
     const reference = second.publication!.reference;
     const runtime: unknown[] = [];
     const platforms = process.env.BUNKO_SMOKE_PLATFORMS?.split(",") ?? ["linux/amd64", "linux/arm64"];

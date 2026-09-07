@@ -76,6 +76,7 @@ Options:
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
   --cache-repo <repo>      Registry cache repository (default: image repository)
   --no-cache               Disable persistent local and registry layer caches
+  --no-app-cache           Disable reusable application output
   --no-local-cache         Disable persistent local layer cache
   --no-registry-cache      Disable registry cache reads/writes
   --install-cache <dir>    Bun package download cache (separate from layer cache)
@@ -85,6 +86,7 @@ Options:
   --verify-deterministic   Build twice independently, bypassing layer cache
   --git-metadata=false     Omit automatic Git labels and Git-derived tags
   --no-index               Produce one manifest (single platform only)
+  --jobs <count>          Concurrent target builds, 1–32 (default: 1 or BUNKO_JOBS)
   --mode <mode>           bundle (default) or compile (Linux executable)
   --sbom                   Attach per-platform SPDX package inventories
   --provenance             Attach SLSA provenance to the image root
@@ -150,6 +152,8 @@ export async function main(argv: string[]): Promise<number> {
       "older-than": { type: "string" },
       lockfile: { type: "string" },
       workdir: { type: "string" },
+      "app-cache": { type: "boolean", default: true },
+      jobs: { type: "string" },
       mode: { type: "string" },
       sbom: { type: "boolean" },
       provenance: { type: "boolean" },
@@ -229,6 +233,8 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "build" && (values.filename || values.context || values.recursive)) throw new Error("-f/--context/--recursive require resolve");
     if (["resolve", "apply"].includes(command!) && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
     if (command !== "build" && values["deps-artifact"]) throw new Error("--deps-artifact currently requires build; resolve/apply need per-target artifact mapping");
+    const jobsText = values.jobs ?? process.env.BUNKO_JOBS;
+    if (jobsText !== undefined && !/^\d+$/.test(jobsText)) throw new Error("--jobs must be an integer from 1 to 32");
     const externalDeps: Record<string, string> = {};
     for (const value of values["deps-artifact"] ?? []) {
       const equal = value.indexOf("="), key = value.slice(0, equal), reference = value.slice(equal + 1);
@@ -236,6 +242,8 @@ export async function main(argv: string[]): Promise<number> {
       externalDeps[key] = reference;
     }
     const buildOptions: BuildOptions = {
+      appCache: values.cache && values["app-cache"],
+      jobs: jobsText === undefined ? undefined : Number(jobsText),
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
       mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],

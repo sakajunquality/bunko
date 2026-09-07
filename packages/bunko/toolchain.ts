@@ -4,6 +4,7 @@ import { isBuiltin } from "node:module";
 import { canonicalJSON, object } from "../oci/digest.ts";
 import type { Project } from "./config.ts";
 import { type InventoryEntry, inspectELF, packageRoot } from "./deps.ts";
+import type { SyntaxCache } from "./syntax-cache.ts";
 import { OUTPUT_DIRECTORY, rejectMacros } from "./files.ts";
 
 export interface Toolchain { path: string; version: string; revision: string }
@@ -43,9 +44,9 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[] }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[] }> {
   await validateTsconfigs(contextRoot);
-  for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path);
+  for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path, syntax);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const args = [toolchain.path, "build", `./${project.entrypoint}`, "--target=bun", "--format=esm", "--packages=bundle", "--root=.",

@@ -12,6 +12,8 @@ export const VERSION = packageMetadata.version;
 export interface BuildOptions {
   path: string;
   mode?: string;
+  jobs?: number;
+  appCache?: boolean;
   targets?: string[];
   sbom?: boolean;
   provenance?: boolean;
