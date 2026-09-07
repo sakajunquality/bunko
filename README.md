@@ -2,7 +2,7 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**M2 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-alpha.1 / M2 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
 ## Quick start
 
@@ -139,3 +139,5 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 - [Detailed design and roadmap](docs/DESIGN.md)
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
+
+Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.

@@ -1,3 +1,4 @@
+import packageMetadata from "../../package.json";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { object } from "../oci/digest.ts";
@@ -6,7 +7,7 @@ import type { RegistryOptions } from "../oci/registry.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Workspace } from "./workspace.ts";
 
-export const VERSION = "0.0.1";
+export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   path: string;

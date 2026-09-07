@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build as rawBuild } from "../packages/bunko/build.ts";
-import { epoch, loadProject } from "../packages/bunko/config.ts";
+import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { sha256 } from "../packages/oci/digest.ts";
 import { media, type Descriptor, type ImageConfig, type ImageIndex, type ImageManifest } from "../packages/oci/types.ts";
@@ -119,7 +119,7 @@ describe("Bun to OCI layout", () => {
     expect(index.manifests[0]!.mediaType).toBe(media.manifest);
     expect((await cli(["build", source])).stderr).toContain("Registry push requires --repo");
     expect((await cli(["build", source, "--unknown"])).exit).toBe(1);
-    expect((await cli(["version"])).stdout).toBe("0.0.1\n");
+    expect((await cli(["version"])).stdout).toBe(`${VERSION}\n`);
   });
 
   test("does not overwrite existing output or report files", async () => {
