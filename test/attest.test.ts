@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { build } from "../packages/bunko/build.ts";
-import { provenanceType, sbomType, signImages, verifyImage } from "../packages/bunko/attest.ts";
+import { provenanceType, sbomType, signImages, verifyImage, signingEnvironment } from "../packages/bunko/attest.ts";
 import { checkBase } from "../packages/bunko/check-base.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { LayoutSource, resolveBase } from "../packages/oci/source.ts";
@@ -63,7 +63,7 @@ test("signing pins digests, disables transparency upload and propagates failure"
   await signImages([reference], "private.key", exe);
   expect(JSON.parse(await readFile(log, "utf8"))).toEqual(["sign", "--yes", "--key", "private.key", "--use-signing-config=false", "--tlog-upload=false", reference]);
   await writeFile(exe, `#!${process.execPath}\nprocess.exit(1);`, { mode: 0o755 });
-  await expect(signImages([reference], "private.key", exe)).rejects.toThrow("signing failed");
+  await expect(signImages([reference], "private.key", exe)).rejects.toThrow("cosign sign failed");
   await expect(verifyImage("registry.test/private:latest", "public.key", true, exe)).rejects.toThrow("immutable");
 });
 
@@ -86,4 +86,29 @@ test("attachment failure records an incomplete supply-chain phase after image pu
   expect(result.publication.published).toBe(true);
   expect(result.status).toBe("failed");
   expect(result.supplyChain.status).toBe("attaching");
+});
+
+test("cosign environment cannot redirect signatures or public service configuration", () => {
+  const old = process.env.COSIGN_REPOSITORY;
+  process.env.COSIGN_REPOSITORY = "public.example/leak";
+  try { expect(signingEnvironment().COSIGN_REPOSITORY).toBeUndefined(); }
+  finally { if (old === undefined) delete process.env.COSIGN_REPOSITORY; else process.env.COSIGN_REPOSITORY = old; }
+});
+
+test("referrer verification follows same-subject pages and rejects foreign pagination", async () => {
+  const root = await fixture(), store = new BlobStore(root), mock = new MockRegistry();
+  const subject = { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: `sha256:${"b".repeat(64)}` as const, size: 123 };
+  const item = await artifact(store, subject, sbomType, {});
+  let foreign = false;
+  const publisher = new Publisher("registry.test/demo", { credentials: async () => undefined, fetcher: async (input, init) => {
+    const url = new URL(input);
+    if (!url.pathname.includes("/referrers/")) return mock.fetch(input, init);
+    if (url.searchParams.has("page")) return new Response(JSON.stringify({ mediaType: "application/vnd.oci.image.index.v1+json", manifests: [item.manifest] }));
+    return new Response(JSON.stringify({ mediaType: "application/vnd.oci.image.index.v1+json", manifests: [] }), {
+      headers: { Link: `<${foreign ? "https://foreign.test" : ""}${url.pathname}?page=2>; rel="next"` },
+    });
+  } });
+  await publishArtifacts(publisher, store, [item]);
+  foreign = true;
+  await expect(publishArtifacts(publisher, store, [item])).rejects.toThrow("escaped");
 });

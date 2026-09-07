@@ -105,6 +105,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const timestamp = epoch();
   const project = context.project;
   const push = options.local || options.kind ? false : options.push ?? (!output && !archive);
+  if (options.signKey && !push) throw new Error("Signing requires registry publication");
   const repo = options.repo ?? process.env.BUNKO_REPO;
   if (push && !repo) throw new Error("Registry push requires --repo or BUNKO_REPO");
   if (!push && !output && !archive && !options.local && !options.kind && !options.dryRun) throw new Error("--push=false requires --oci-layout, --tarball, --local, or --kind");
@@ -258,12 +259,12 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
               if (result.supplyChain) result.supplyChain.status = "attaching";
               await publishArtifacts(publisher, store, attestations, (transfers) => result.publication!.transfers.push(...transfers));
               if (options.signKey && result.supplyChain) result.supplyChain.status = "signing";
-              if (options.signKey) await signImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), options.signKey, options.cosignPath);
+              if (options.signKey) await signImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), options.signKey, options.cosignPath, options.registry?.insecure);
               if (result.supplyChain) result.supplyChain.status = "complete";
             }
           }
           catch (error) {
-            if (error instanceof PublicationError) result.publication = error.result;
+            if (error instanceof PublicationError && !result.publication) result.publication = error.result;
             if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" });
             throw error;
           }

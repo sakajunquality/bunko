@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { repositoryName } from "../oci/publish.ts";
 import { BlobStore } from "../oci/blob-store.ts";
 import { dockerCredentials } from "../oci/credentials.ts";
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
@@ -25,7 +26,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
       const base = await resolveBase({ root: async () => pinned, blob: source.blob.bind(source) }, selected, new BlobStore(directory), true);
       let runtimeRevision: string | undefined;
       if (options.run && source instanceof RegistrySource) {
-        const image = `${source.ref.registry}/${source.ref.repository}@${base.descriptor.digest}`;
+        const image = `${repositoryName(source.ref)}@${base.descriptor.digest}`;
         const pull = Bun.spawn(["docker", "pull", "--platform", `${selected.os}/${selected.architecture}`, image], { stdout: "ignore", stderr: "ignore" });
         if (await pull.exited) throw new Error("Docker could not pull the pinned base for runtime verification");
         const container = `bunko-check-${randomUUID()}`;

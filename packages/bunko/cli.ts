@@ -171,7 +171,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === "verify") {
       if (positionals.length !== 2 || !values["verify-key"]) throw new Error("verify requires an image@digest and --verify-key");
-      await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"]);
+      await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"], values["insecure-registry"]);
       process.stdout.write(`${path}\n`);
       return 0;
     }

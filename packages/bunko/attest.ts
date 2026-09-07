@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { sha256 } from "../oci/digest.ts";
 import type { BuildResult, PlatformResult } from "./build.ts";
 import type { InventoryEntry } from "./deps.ts";
@@ -21,7 +24,7 @@ export function spdx(name: string, image: PlatformResult, timestamp: number) {
     filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
   return { spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", name: `${name}-${image.platform.architecture}`,
     documentNamespace: `urn:bunko:spdx:${image.manifest.digest}`,
-    creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(timestamp * 1000).toISOString() },
+    creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(timestamp * 1000).toISOString().replace(".000Z", "Z") },
     comment: "Application package inventory from bundled inputs and runtime dependencies. Base OS packages and runtime-loaded undeclared packages are not inventoried. Licenses are not inferred.",
     packages: [root, ...packages], relationships: [
       { spdxElementId: "SPDXRef-DOCUMENT", relationshipType: "DESCRIBES", relatedSpdxElement: root.SPDXID },
@@ -44,21 +47,46 @@ export function provenance(result: BuildResult, lockDigest?: string) {
     } };
 }
 
-export async function signImages(references: string[], key: string, executable = "cosign"): Promise<void> {
+/** Keep cloud credential-helper configuration, but never inherit cosign's
+ * destination or public-service overrides. Raw helper output may contain secrets. */
+export function signingEnvironment(): Record<string, string> {
+  const env: Record<string, string> = { HOME: homedir(), PATH: process.env.PATH ?? "" };
+  for (const [key, value] of Object.entries(process.env)) if (value !== undefined &&
+    (/^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key) || ["HOME", "PATH", "COSIGN_PASSWORD", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"].includes(key))) env[key] = value;
+  return env;
+}
+
+async function cosignCommand(executable: string, args: string[]): Promise<void> {
+  const env = signingEnvironment();
+  let directory: string | undefined;
+  try {
+    if (process.env.BUNKO_DOCKER_CONFIG) {
+      directory = await mkdtemp(join(tmpdir(), "bunko-sign-auth-"));
+      await writeFile(join(directory, "config.json"), await readFile(process.env.BUNKO_DOCKER_CONFIG), { mode: 0o600, flag: "wx" });
+      env.DOCKER_CONFIG = directory;
+    }
+    const child = Bun.spawn([executable, ...args], { env, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const timer = setTimeout(() => child.kill(), 120_000);
+    try {
+      const code = await child.exited;
+      if (code) throw new Error(`cosign ${args[0]} failed (exit ${code}); check key password, registry credentials and cosign v3.1.3 compatibility`);
+    } finally { clearTimeout(timer); }
+  } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+}
+
+export async function signImages(references: string[], key: string, executable = "cosign", insecure: string[] = []): Promise<void> {
   for (const reference of [...new Set(references)]) {
-    if (!parseReference(reference).reference.startsWith("sha256:")) throw new Error("Signing requires an immutable image@digest");
+    const ref = parseReference(reference);
+    if (!ref.reference.startsWith("sha256:")) throw new Error("Signing requires an immutable image@digest");
     // Key-based signatures stay in the selected registry. Never submit to Rekor.
-    const child = Bun.spawn([executable, "sign", "--yes", "--key", key, "--use-signing-config=false", "--tlog-upload=false", reference],
-      { env: process.env, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-    if (await child.exited) throw new Error(`Image signing failed for ${reference}; image publication may already have succeeded`);
+    await cosignCommand(executable, ["sign", "--yes", "--key", key, "--use-signing-config=false", "--tlog-upload=false",
+      ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference]);
   }
 }
 
-
-export async function verifyImage(reference: string, key: string, privateSignatures = false, executable = "cosign"): Promise<void> {
+export async function verifyImage(reference: string, key: string, privateSignatures = false, executable = "cosign", insecure: string[] = []): Promise<void> {
   const ref = parseReference(reference);
   if (!ref.reference.startsWith("sha256:")) throw new Error("Signature verification requires an immutable image@digest");
-  const child = Bun.spawn([executable, "verify", "--key", key, ...(privateSignatures ? ["--insecure-ignore-tlog=true"] : []), reference],
-    { env: process.env, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  if (await child.exited) throw new Error("Image signature verification failed");
+  await cosignCommand(executable, ["verify", "--key", key, ...(privateSignatures ? ["--insecure-ignore-tlog=true"] : []),
+    ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference]);
 }

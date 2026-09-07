@@ -26,11 +26,28 @@ export async function publishArtifacts(publisher: Publisher, store: BlobStore, a
       throw error;
     }
     const path = `/v2/${publisher.ref.repository}/referrers/${item.subject.digest}`;
-    const response = await publisher.client.request(path, {}, [publisher.scope], [404, 405]);
+    let url = new URL(path, publisher.client.origin);
+    url.searchParams.set("artifactType", item.manifest.artifactType!);
+    let response = await publisher.client.request(url, {}, [publisher.scope], [404, 405]);
     if (response.ok) {
-      const index = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Referrers index");
-      if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid referrers response");
-      if (!index.manifests.some((value) => descriptor(value).digest === item.manifest.digest)) throw new Error("Registry referrers API did not retain the published attachment");
+      const pages = new Set<string>();
+      let found = false;
+      while (true) {
+        if (pages.has(url.href) || pages.size >= 100) throw new Error("Invalid referrers pagination");
+        pages.add(url.href);
+        const index = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Referrers index");
+        if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid referrers response");
+        found ||= index.manifests.some((value) => descriptor(value).digest === item.manifest.digest);
+        const link = response.headers.get("Link");
+        if (!link) break;
+        const next = /<([^>]+)>;\s*rel="?next"?/.exec(link)?.[1];
+        if (!next) throw new Error("Invalid referrers pagination Link");
+        const destination = new URL(next, url);
+        if (destination.origin !== url.origin || destination.pathname !== path) throw new Error("Referrers pagination escaped its registry subject");
+        url = destination;
+        response = await publisher.client.request(url, {}, [publisher.scope]);
+      }
+      if (!found) throw new Error("Registry referrers API did not retain the published attachment");
       continue;
     }
     await response.body?.cancel();
@@ -43,8 +60,8 @@ export async function publishArtifacts(publisher: Publisher, store: BlobStore, a
       if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Referrers fallback tag is occupied by a non-index");
       return index.manifests.map((value) => {
         const d = descriptor(value), raw = object(value, "Referrer");
-        if (typeof raw.artifactType !== "string") throw new Error("Referrer has no artifactType");
-        return { ...d, artifactType: raw.artifactType };
+        if (raw.artifactType !== undefined && typeof raw.artifactType !== "string") throw new Error("Invalid referrer artifactType");
+        return d;
       });
     };
     let retained = await read();
