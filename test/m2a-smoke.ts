@@ -9,7 +9,8 @@ import { platform as parsePlatform } from "../packages/bunko/config.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { exportDockerArchive, loadArchive } from "../packages/oci/archive.ts";
-import { command } from "./m1-smoke.ts";
+import { command } from "./command.ts";
+import { pullImage } from "./docker-pull.ts";
 
 export async function workspaceSmoke(options: { closure?: boolean; resolve?: boolean } = {}) {
   const temporary = await mkdtemp(join(tmpdir(), "bunko-m2a-smoke-"));
@@ -17,7 +18,8 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
   const containers = new Set<string>(), images = new Set<string>();
   let registryStarted = false;
   try {
-    await command(["docker", "run", "--detach", "--name", registryName, "--publish", "127.0.0.1::5000", "registry:3"]);
+    await pullImage("registry:3");
+    await command(["docker", "run", "--pull=never", "--detach", "--name", registryName, "--publish", "127.0.0.1::5000", "registry:3"]);
     registryStarted = true;
     const registryInfo = JSON.parse(await command(["docker", "inspect", registryName]))[0];
     const host = `127.0.0.1:${registryInfo.NetworkSettings.Ports["5000/tcp"][0].HostPort}`, repo = `${host}/workspace`;

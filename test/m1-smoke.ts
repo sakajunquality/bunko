@@ -10,12 +10,9 @@ import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { exportDockerArchive, loadArchive } from "../packages/oci/archive.ts";
 import { platform as parsePlatform } from "../packages/bunko/config.ts";
 
-export async function command(args: string[]): Promise<string> {
-  const child = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (code !== 0) throw new Error(`${args.slice(0, 3).join(" ")} failed: ${stderr || stdout}`);
-  return (args[1] === "logs" ? stdout + stderr : stdout).trim();
-}
+import { command } from "./command.ts";
+export { command } from "./command.ts";
+import { pullImage } from "./docker-pull.ts";
 
 export async function smoke() {
   const temporary = await mkdtemp(join(tmpdir(), "bunko-m1-smoke-"));
@@ -24,7 +21,8 @@ export async function smoke() {
   let registryStarted = false;
   try {
     const base = "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
-    await command(["docker", "run", "--detach", "--name", registryName, "--publish", "127.0.0.1::5000", "registry:3"]);
+    await pullImage("registry:3");
+    await command(["docker", "run", "--pull=never", "--detach", "--name", registryName, "--publish", "127.0.0.1::5000", "registry:3"]);
     registryStarted = true;
     const info = JSON.parse(await command(["docker", "inspect", registryName]))[0];
     const port = info.NetworkSettings.Ports["5000/tcp"][0].HostPort;
