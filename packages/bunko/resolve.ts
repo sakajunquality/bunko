@@ -163,6 +163,11 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
 }
 
 export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+  if (options.jobs !== undefined && (!Number.isSafeInteger(options.jobs) || options.jobs < 1 || options.jobs > 32)) throw new Error("--jobs must be an integer from 1 to 32");
+  if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
+  if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
+  const configuredRepo = options.repo ?? process.env.BUNKO_REPO;
+  if (configuredRepo !== undefined) repository(options.bare ? configuredRepo : `${configuredRepo}/bunko-validation`);
   if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");
   if (options.push === false || options.local || options.kind || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication; export/local/kind/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;

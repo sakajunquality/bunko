@@ -30,15 +30,22 @@ export async function hashFile(path: string): Promise<Digest> {
   } finally { await file.close(); }
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache): Promise<Digest> {
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = []): Promise<Digest> {
   const records: { path: string; type: string; digest?: Digest; executable?: boolean }[] = [];
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
   async function walk(path: string) {
     const current = join(source, path);
-    if (exclude.some((p) => current === p || current.startsWith(`${p}/`))) return;
+    const strictAsset = strictAssetRoots.some((root) => path === root || path.startsWith(`${root}/`));
+    if (exclude.some((p) => current === p || current.startsWith(`${p}/`))) {
+      if (strictAsset) throw new Error(`Output/cache exclusion overlaps bunkodata: ${path}`);
+      return;
+    }
     const name = path.split("/").at(-1)!;
-    if (omitted.has(name) || name.startsWith(".env")) return;
+    if (omitted.has(name) || name.startsWith(".env")) {
+      if (strictAsset) throw new Error(`Excluded source name inside bunkodata: ${path}`);
+      return;
+    }
     if (path) {
       archivePath(path);
       if (names.has(path.toLowerCase())) throw new Error(`Case-colliding source path: ${path}`);

@@ -1,4 +1,4 @@
-import { parseAllDocuments } from "yaml";
+import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Document, type Node, type Scalar } from "yaml";
 
 function valueValid(value: string): boolean { return value.length <= 63 && (!value || /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(value)); }
 function keyValid(key: string): boolean {
@@ -39,14 +39,42 @@ export function labelSelector(selector: string): (labels: Record<string, string>
   return (labels) => requirements.every((requirement) => requirement(labels));
 }
 
+class FloatLiteral {
+  constructor(readonly source: string) {}
+  toString() { return this.source; }
+}
+
+function mappingValue(node: unknown, key: string, document: Document, seen = new Set<unknown>()): unknown {
+  if (seen.has(node)) throw new Error("Cyclic metadata label aliases");
+  if (seen.size > 100) throw new Error("Excessive metadata label aliases");
+  seen.add(node);
+  if (isAlias(node)) return mappingValue(node.resolve(document), key, document, seen);
+  if (!isMap(node)) return;
+  if (node.has(key)) return node.get(key, true);
+  for (const pair of node.items) if (isScalar(pair.key) && typeof pair.key.addToJSMap === "function") {
+    const sources = isSeq(pair.value) ? pair.value.items : [pair.value];
+    for (const source of sources) {
+      const value = mappingValue(source, key, document, new Set(seen));
+      if (value !== undefined) return value;
+    }
+  }
+}
+
 /** Selection may normalize YAML formatting; unfiltered resolution stays lossless. */
 export function selectDocuments(name: string, source: string, match: (labels: Record<string, string>) => boolean): string | undefined {
-  const documents = parseAllDocuments(source, { prettyErrors: true, intAsBigInt: true, logLevel: "silent" });
+  const documents = parseAllDocuments(source, { prettyErrors: true, intAsBigInt: true, merge: true, logLevel: "silent",
+    customTags: (tags) => tags.map((tag) => typeof tag !== "string" && tag.collection === undefined && tag.tag === "tag:yaml.org,2002:float" ? {
+      ...tag, identify: (value: unknown) => value instanceof FloatLiteral,
+      resolve: (value: string) => new FloatLiteral(value), stringify: (node: Scalar) => String(node.value),
+    } : tag),
+  });
   const selected = [];
   for (const document of documents) {
     if (document.errors.length || document.warnings.length) throw new Error(`${name}: ${[...document.errors, ...document.warnings][0]!.message}`);
-    const value = document.toJS({ maxAliasCount: 100 });
-    const labels = value?.metadata?.labels ?? {};
+    if (!document.contents || isScalar(document.contents) && document.contents.value === null) continue;
+    const metadata = mappingValue(document.contents, "metadata", document);
+    const labelsNode = mappingValue(metadata, "labels", document) as Node | undefined;
+    const labels = labelsNode?.toJS(document, { maxAliasCount: 100 }) ?? {};
     if (!labels || typeof labels !== "object" || Array.isArray(labels) || !Object.values(labels).every((value) => typeof value === "string")) throw new Error(`${name}: metadata.labels must be a string map`);
     if (match(labels)) selected.push(document);
   }
@@ -55,8 +83,6 @@ export function selectDocuments(name: string, source: string, match: (labels: Re
   return selected.map((document) => {
     document.directives.docStart = true;
     document.directives.docEnd = true;
-    // Keep an inherited YAML version explicit after dropping earlier documents.
-    document.directives.yaml.explicit = true;
     return document.toString();
   }).join("");
 }

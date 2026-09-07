@@ -89,3 +89,21 @@ test("selector normalization preserves YAML versions and aliases; empty apply st
   const result = await applyDocuments({ files: ["-"], stdin: async () => "metadata: {labels: {app: ignored}}\nimage: bunko://missing\n", selector: "app=keep", context: f.root, kubectlPath: kubectl });
   expect(result.exit).toBe(0); expect(result.stdout).toBe(""); expect(await Bun.file(marker).exists()).toBe(false);
 });
+
+test("selector output accepts merge labels without expanding unrelated aliases or rounding decimal literals", () => {
+  const source = `common: &common {app: api}\nmetadata:\n  labels:\n    <<: *common\nvalue: &value example\nrepeated: [${Array(150).fill("*value").join(", ")}]\nprecise: 1.00000000000000000001\nexponent: 1.234567890123456789e-20\n`;
+  const output = selectDocuments("data.yaml", source, labelSelector("app=api"))!;
+  expect(output).not.toContain("%YAML 1.2"); expect(output).toContain("1.00000000000000000001"); expect(output).toContain("1.234567890123456789e-20");
+  expect(selectDocuments("merged.yaml", "defaults: &defaults {metadata: {labels: {app: api}}}\n<<: *defaults\n", labelSelector("app=api"))).toBeDefined();
+  expect(selectDocuments("literal.yaml", '"<<": {metadata: {labels: {app: api}}}\n', labelSelector("app=api"))).toBeUndefined();
+  expect(output).toContain("*value"); expect(output).toContain("*common");
+  expect(selectDocuments("empty.yaml", "# comment\n---\n", labelSelector("!app"))).toBeUndefined();
+});
+
+test("bunkodata rejects omitted files and no-match still validates explicit execution options", async () => {
+  const f = await fixture(); await mkdir(join(f.source, "bunkodata")); await writeFile(join(f.source, "bunkodata/.env"), "EXAMPLE=fixture");
+  await expect(build({ path: f.source, baseLayout: f.base, output: join(f.root, "image"), push: false, localCache: false })).rejects.toThrow("Excluded source name inside bunkodata");
+  let read = false;
+  await expect(resolveDocuments({ files: ["-"], selector: "!app", jobs: 0, stdin: async () => { read = true; return ""; } })).rejects.toThrow("--jobs");
+  expect(read).toBe(false);
+});

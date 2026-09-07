@@ -2,14 +2,14 @@
 
 Research baseline: ko v0.19.1, commit `e388f65a1f036f19703b8aff13e1aa5521bc6988`, released 2026-06-29; GitHub reported it as the latest stable release at inspection on 2026-09-08 JST. Official docs and the release-tag source were read. This is a feature/contract comparison, not a performance or security equivalence claim. [Release](https://github.com/ko-build/ko/releases/tag/v0.19.1).
 
-## Applicable gaps to close in this increment
+## Applicable gaps closed in this increment
 
 | Gap at M6 | Planned Bunko behavior | Verification |
 | --- | --- | --- |
-| CLI image labels/user and OCI annotations | Repeated `--image-label KEY=VALUE`, `--image-annotation KEY=VALUE`, `--image-user`; config annotations; strict validation and CLI precedence | Config/manifest/index assertions, reserved keys and deterministic builds |
-| Published reference list file | `--image-refs FILE` for build/resolve/apply, written only after successful publication/resolution; preflight output conflicts | Immutable refs, no clobber, no file on partial failure |
-| Kubernetes document selection | `--selector` with equality/inequality requirements for resolve/apply; only matched documents build and appear in output | No-match empty output/no registry access, malformed selector before build, matching stream preservation |
-| Conventional static data | Include a real project `bunkodata/` directory and expose its runtime path as `BUNKO_DATA_PATH` | Nested data, cache/source invalidation, collisions, symlink policy and runtime |
+| CLI image labels/user and OCI annotations | Implemented: repeated `--image-label KEY=VALUE`, `--image-annotation KEY=VALUE`, `--image-user`; config annotations; strict validation and CLI precedence | Config/manifest/index assertions, reserved keys and deterministic builds |
+| Published reference list file | Implemented: `--image-refs FILE` for build/resolve/apply, written only after successful publication/resolution; preflight output conflicts | Immutable refs, no clobber, no file on partial failure |
+| Kubernetes document selection | Implemented: `--selector` with equality/inequality requirements for resolve/apply; only matched documents build and appear in output | No-match empty output/no registry access, malformed selector before build, matched values/aliases and kubectl compatibility |
+| Conventional static data | Implemented: include a real project `bunkodata/` directory and expose its runtime path as `BUNKO_DATA_PATH` | Nested data, cache/source invalidation, collisions, symlink policy and runtime |
 
 These address portable capabilities exposed by ko's [build CLI](https://ko.build/reference/ko_build/), [resolve CLI](https://ko.build/reference/ko_resolve/) and [static asset convention](https://ko.build/features/static-assets/). Bunko keeps its existing defaults unless an additive option/convention is explicitly used.
 
@@ -22,6 +22,7 @@ These address portable capabilities exposed by ko's [build CLI](https://ko.build
 | Image naming variants | Package/imageName naming plus `--bare`; explicit collision errors. Go import-path/MD5 naming is not copied because Bun package identity has different semantics |
 | Multiple platforms / `all` | Explicit Linux amd64/arm64; no claim to support every architecture/OS in an arbitrary base index |
 | Build cache and bounded jobs | Implemented with verified application/deps/assets caches and an all-target preparation gate |
+| Standalone SBOM directory | Metadata is available in exported OCI layouts with the image graph; a separate `--sbom-dir` interface is not provided |
 | SPDX SBOM | Implemented as opt-in OCI subject artifacts; ko enables SPDX by default. Scope excludes base OS packages and undeclared runtime packages |
 | Kubernetes resolve/apply | Implemented; source-preserving URI substitution and explicit partial reports |
 | `--tag-only` | Intentionally retain immutable digest references; callers can retag/copy images explicitly |
@@ -61,4 +62,4 @@ Reference files contain unique immutable registry references in result order, on
 
 Selectors support `=`, `==`, `!=`, key existence, `!key`, and nonempty `in (...)` / `notin (...)` sets; comma-separated requirements are ANDed. Missing keys satisfy inequality/notin. Filtering validates YAML syntax for every input and label-map types, but resolves/builds only selected documents. No match yields empty output and no registry access; apply skips kubectl. With a selector, YAML formatting is normalized through its AST while aliases, schema versions and large integer values are retained. Without a selector, existing source-preserving replacement is unchanged. Kubernetes `List.items` are not flattened: selection applies to the document's own `metadata.labels`.
 
-A real `bunkodata/` directory beside the target package.json is automatically included as assets under the configured workdir. `BUNKO_DATA_PATH` points to that location; conflicting runtime overrides are rejected. The normal source exclusion/symlink rules apply, including rejection of source symlinks. Explicit assets remain supported and overlapping selections deduplicate. There is no following of arbitrary external asset symlinks.
+A real `bunkodata/` directory beside the target package.json is automatically included as assets under the configured workdir. `BUNKO_DATA_PATH` points to that location; conflicting `bunko.env` values are rejected. The normal source exclusion/symlink rules apply, including rejection of source symlinks. Excluded source names inside bunkodata are errors, so they cannot silently disappear. Explicit assets remain supported and overlapping selections deduplicate. There is no following of arbitrary external asset symlinks.

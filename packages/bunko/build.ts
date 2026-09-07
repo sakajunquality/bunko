@@ -396,7 +396,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
-    const sourceDigest = await snapshot(discovered.directory, source, exclusions, syntax);
+    const sourceDigest = await snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }
