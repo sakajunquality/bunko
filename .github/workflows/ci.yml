@@ -65,6 +65,9 @@ jobs:
       - run: bun run test:m6-smoke
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:ko-smoke
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
       - run: bun run test:registry-local
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64

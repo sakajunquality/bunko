@@ -1,0 +1,26 @@
+[
+  {
+    "platform": "linux/amd64",
+    "mode": "bundle",
+    "digest": "sha256:5d405c5f15d3246300520ffa14fe70cedd17af9d91c005659707329d9b75add6",
+    "data": "passed"
+  },
+  {
+    "platform": "linux/amd64",
+    "mode": "compile",
+    "digest": "sha256:cad4e5d227c9fd5dc3bbc774ac038e34b5255e9e2ccfe7c88f3c993b84f819d2",
+    "data": "passed"
+  },
+  {
+    "platform": "linux/arm64",
+    "mode": "bundle",
+    "digest": "sha256:4b8f91243aef7466a26bae3df35d7ad1bf7ce0b89c1264761256e4bff153a295",
+    "data": "passed"
+  },
+  {
+    "platform": "linux/arm64",
+    "mode": "compile",
+    "digest": "sha256:0a05c21cd05e651163546986b4a31cc70b8d47fe72c2a02843315011040eb0b7",
+    "data": "passed"
+  }
+]

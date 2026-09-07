@@ -1,3 +1,4 @@
+import { referenceOutput } from "./references.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,7 @@ export interface ApplyOptions extends ResolveOptions {
 /** Resolve and publish all targets before starting kubectl. Kubernetes itself
  * does not provide an atomic multi-resource apply transaction. */
 export async function applyDocuments(options: ApplyOptions): Promise<{ exit: number; stdout: string; stderr: string }> {
+  await referenceOutput(options.imageRefs, [options.report]);
   const kubectl = Bun.which(options.kubectlPath ?? "kubectl");
   if (!kubectl) throw new Error("apply requires kubectl on PATH or --kubectl-path");
   if (options.kubeDryRun !== undefined && !["none", "client", "server"].includes(options.kubeDryRun)) throw new Error("--kube-dry-run must be none, client or server");
@@ -26,6 +28,10 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   try {
     const resolved = await resolveDocuments({ ...options, report: resolutionReport });
     resolution = JSON.parse(await readFile(resolutionReport, "utf8")); phase = "apply";
+    if (!resolved.output.trim()) {
+      if (report) await writeReport(report, { schemaVersion: 5, command: "apply", status: "success", phase: "skipped", exit: 0, resolution });
+      return { exit: 0, stdout: "", stderr: "" };
+    }
     const args = [kubectl, "apply", "-f", "-"];
     for (const [flag, value] of [["--context", options.kubeContext], ["--namespace", options.namespace], ["--field-manager", options.fieldManager]]) if (value !== undefined) args.push(flag!, value);
     if (options.serverSide) args.push("--server-side");

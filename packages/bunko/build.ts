@@ -1,3 +1,4 @@
+import { referenceOutput, writeReferences } from "./references.ts";
 import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -236,7 +237,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
-          args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
+          annotations: project.annotations, args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
@@ -253,7 +254,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     }
     for (const record of records) await cache.remember(record);
     const first = images[0]!;
-    const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
+    const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? `${options.kind ? "kind.local" : "bunko.local"}/${project.name}:sha256-${root.digest.slice(7)}` : undefined;
     const result: BuildResult = {
       schemaVersion: 2, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
@@ -305,7 +306,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!options.dryRun) await cache.publish();
         }
         if (!push && !options.dryRun && result.supplyChain) result.supplyChain.status = "complete";
-        if (report && !context.multiple) await writeReport(report, result);
+        if (report && !context.multiple && !options.imageRefs) await writeReport(report, result);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
         if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)}\n`);
@@ -335,6 +336,8 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
+  if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
   const jobs = options.jobs ?? 1;
   if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
   if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
@@ -373,7 +376,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
-  const exclusions = [output, report, archive, cacheDirectory, ...Object.values(options.externalDeps ?? {}).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const exclusions = [output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDeps ?? {}).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -433,6 +436,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         // No target is exported or published until every selected build succeeds.
         if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
         for (const item of prepared) { await item.finish(); finished.add(item.result.target); }
+        if (imageRefs) await writeReferences(imageRefs, results.map((result) => result.publication!.reference));
+        if (!multiple && report && imageRefs) await writeReport(report, results[0]);
         if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });
         return results;
       } catch (error) { await failure(error); throw error; }

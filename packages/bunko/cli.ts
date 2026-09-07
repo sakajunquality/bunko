@@ -56,6 +56,7 @@ Usage:
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
   --context <dir>         Base directory for bunko:// references (default: cwd)
+  -l, --selector <query>  Select manifest documents by metadata.labels
   --recursive             Include nested input directories for resolve
   --target <name/path>     Select a workspace member; repeatable, root invocation only
   --execute               Execute prune deletions (default: preview only)
@@ -75,6 +76,10 @@ Options:
   --deps-artifact <platform=ref>  Prepared dependency OCI artifact; repeat per platform
   --deps-strategy <name>   production (default) or closure
   --shared-deps           Share the union of selected workspace closures
+  --image-label <key=value>       Image config label; repeatable
+  --image-annotation <key=value>  OCI manifest/index annotation; repeatable
+  --image-user <user>             Override the runtime user
+  --image-refs <file>             Write published immutable references
   --repo <prefix>          Destination prefix (or BUNKO_REPO)
   --bare                   Use --repo as the exact image repository
   --tag <tag>              Repeatable tag (default: latest and Git revision)
@@ -143,8 +148,13 @@ export function booleanArguments(argv: string[], options: Record<string, { type:
 export async function main(argv: string[]): Promise<number> {
   try {
     const options = {
+      "image-label": { type: "string", multiple: true },
+      "image-annotation": { type: "string", multiple: true },
+      "image-user": { type: "string" },
+      "image-refs": { type: "string" },
       filename: { type: "string", short: "f", multiple: true },
       context: { type: "string" },
+      selector: { type: "string", short: "l" },
       recursive: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean" },
@@ -264,7 +274,13 @@ export async function main(argv: string[]): Promise<number> {
       if (equal < 1 || !reference || !["linux/amd64", "linux/arm64"].includes(key) || externalDeps[key]) throw new Error("Use one --deps-artifact linux/ARCH=layout:DIR or linux/ARCH=REPO@sha256:DIGEST per platform");
       externalDeps[key] = reference;
     }
+    const keyValues = (items: string[] | undefined) => Object.fromEntries((items ?? []).map((item) => {
+      const equal = item.indexOf("=");
+      if (equal < 1) throw new Error("Image labels/annotations require KEY=VALUE");
+      return [item.slice(0, equal), item.slice(equal + 1)];
+    }));
     const buildOptions: BuildOptions = {
+      imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
       jobs: jobsText === undefined ? undefined : Number(jobsText),
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
@@ -284,14 +300,14 @@ export async function main(argv: string[]): Promise<number> {
       log: (message) => process.stderr.write(message),
     };
     if (command === "apply") {
-      const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive,
+      const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector,
         kubectlPath: values["kubectl-path"], kubeContext: values["kube-context"], namespace: values.namespace, serverSide: values["server-side"],
         fieldManager: values["field-manager"], kubeDryRun: values["kube-dry-run"] as "none" | "client" | "server" | undefined });
       process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.exit;
     }
     if (values["kubectl-path"] || values["kube-context"] || values.namespace || values["server-side"] || values["field-manager"] || values["kube-dry-run"]) throw new Error("Kubernetes options require apply");
     if (command === "resolve") {
-      const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive });
+      const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector });
       process.stdout.write(result.output);
       return 0;
     }

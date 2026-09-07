@@ -1,5 +1,5 @@
 import packageMetadata from "../../package.json";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat, lstat } from "node:fs/promises";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { object } from "../oci/digest.ts";
 import { packageRoot } from "./deps.ts";
@@ -11,6 +11,10 @@ export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   path: string;
+  imageLabels?: Record<string, string>;
+  imageAnnotations?: Record<string, string>;
+  imageUser?: string;
+  imageRefs?: string;
   mode?: string;
   jobs?: number;
   appCache?: boolean;
@@ -67,6 +71,8 @@ export interface Project {
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
+  annotations: Record<string, string>;
+  dataPath?: string;
   ports?: number[];
   args: string[];
   assets: string[];
@@ -143,7 +149,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   validateDependencySpecs(manifest, workspace);
   if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M1");
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
+  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
   if (mode !== "bundle" && mode !== "compile") throw new Error("mode must be bundle or compile");
@@ -168,8 +174,10 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported in M1");
   const env = stringMap(config.env, "env");
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
-  const labels = stringMap(config.labels, "labels");
-  if (Object.keys(labels).some((key) => key.startsWith("org.bunko.") || ["org.opencontainers.image.created", "org.opencontainers.image.revision"].includes(key))) throw new Error("Cannot override bunko's reserved labels");
+  const labels = { ...stringMap(config.labels, "labels"), ...stringMap(options.imageLabels, "image labels") };
+  const annotations = { ...stringMap(config.annotations, "annotations"), ...stringMap(options.imageAnnotations, "image annotations") };
+  if (Object.keys(annotations).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || key === "org.opencontainers.image.ref.name")) throw new Error("Invalid or reserved image annotation key");
+  if (Object.keys(labels).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || ["org.opencontainers.image.created", "org.opencontainers.image.revision"].includes(key))) throw new Error("Cannot override bunko's reserved labels");
   let entrypoint = optionalString(config.entrypoint, "entrypoint");
   if (!entrypoint && manifest.bin !== undefined) {
     if (typeof manifest.bin === "string") entrypoint = optionalString(manifest.bin, "bin");
@@ -204,14 +212,23 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     if (!Array.isArray(config.ports) || !config.ports.every((port) => Number.isInteger(port) && port >= 1 && port <= 65535)) throw new Error("ports must contain integers from 1 to 65535");
     ports = [...new Set(config.ports as number[])].sort((a, b) => a - b);
   }
+  const workdir = absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir");
+  let dataPath: string | undefined;
+  try {
+    const info = await lstat(join(directory, "bunkodata"));
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("bunkodata must be a real directory");
+    dataPath = `${workdir}/bunkodata`;
+    if (env.BUNKO_DATA_PATH !== undefined && env.BUNKO_DATA_PATH !== dataPath) throw new Error("BUNKO_DATA_PATH is reserved when bunkodata exists");
+    env.BUNKO_DATA_PATH = dataPath;
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return {
     mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
-    workdir: absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir"),
+    workdir, dataPath, annotations,
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),
-    user: optionalString(config.user, "user"), env, labels, ports,
+    user: optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user"), env, labels, ports,
     args: strings(config.args, "args"),
-    assets: strings(config.assets, "assets").map((p) => relativePath(p, "assets pattern")),
+    assets: [...new Set([...strings(config.assets, "assets").map((p) => relativePath(p, "assets pattern")), ...(dataPath ? ["bunkodata"] : [])])],
     build: { minify: build.minify as boolean | undefined ?? true, sourcemap: build.sourcemap as "none" | "external" | undefined ?? "none", define: stringMap(build.define, "build.define") },
   };
 }

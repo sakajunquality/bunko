@@ -220,3 +220,9 @@ Target preparation accepts bounded `--jobs` (1–32, default 1). All targets pre
 ## M6 diagnostics
 
 `check-config [path]` validates manifests, workspace/target selection and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
+
+## Portable ko feature additions
+
+Repeated `--image-label`, `--image-annotation` and `--image-user` override matching package metadata. `bunko.annotations` is a string map applied to platform manifests and the runnable index. `--image-refs` atomically creates a new newline-delimited immutable registry reference list after successful publication; partial publication stays in the JSON report. Apply emits publication references independently of later Kubernetes success.
+
+`resolve`/`apply --selector` filter top-level documents by metadata.labels using equality, inequality, existence and nonempty set requirements. No matches produce no output or Kubernetes operation. Selector mode may normalize YAML formatting; ordinary resolution preserves source text. A real target `bunkodata/` directory is included as assets and sets BUNKO_DATA_PATH under the workdir, subject to existing source/symlink exclusions. See KO_GAPS.md for exact syntax, researched ko differences and limits.
