@@ -43,9 +43,9 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void): Promise<{ outdir: string; entry: string }> {
-  await validateTsconfigs(root);
-  for await (const path of new Bun.Glob("node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: root, dot: true, followSymlinks: false })) await rejectMacros(join(root, path), path);
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root): Promise<{ outdir: string; entry: string }> {
+  await validateTsconfigs(contextRoot);
+  for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const args = [toolchain.path, "build", `./${project.entrypoint}`, "--target=bun", "--format=esm", "--packages=bundle", "--root=.",
@@ -75,7 +75,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   const outputs = object(meta.outputs, "Bun metafile outputs");
   const inputs = new Set(Object.keys(object(meta.inputs, "Bun metafile inputs")).map((path) => resolve(root, path)));
   for (const path of inputs) {
-    if (!inside(root, path)) throw new Error(`Build input escaped the project snapshot: ${path}`);
+    if (!inside(contextRoot, path)) throw new Error(`Build input escaped the project snapshot: ${path}`);
   }
   const candidates = Object.entries(outputs).filter(([path, value]) => {
     const output = object(value, "Bun output");
@@ -104,7 +104,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
       // Bun 1.3.11 can make sources relative to outdir even for nested .map files.
       const candidates = [...new Set([resolve(dirname(full), sourceRoot, source), resolve(outdir, sourceRoot, source)])].filter((path) => inputs.has(path));
       if (candidates.length !== 1) throw new Error(`Cannot resolve sourcemap source: ${source}`);
-      const local = relative(root, candidates[0]!);
+      const local = relative(contextRoot, candidates[0]!);
       if (local.startsWith("..")) throw new Error("Sourcemap source escaped the project");
       return `bunko:///${local}`;
     });

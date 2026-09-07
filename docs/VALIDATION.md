@@ -311,3 +311,60 @@ kind 0.33.0 の公式 macOS arm64 binary の checksum を照合し、一時 clus
 cloud アカウントへの GHCR / GAR / Docker Hub / ECR の実 push、private npm のサービス実認証、mount のサービス固有挙動は未検証。認証設定と対応表は [REGISTRIES.md](REGISTRIES.md)。HTML のコンテナ配信、汎用 native ABI、musl、別 Bun version、繰り返し benchmark / buildx 比較も未実施。
 
 CI は Linux/macOS の型チェック・unit/integration・CLI bundle と、Linux の実 Distribution smoke を実行する。Linux の smoke は両 platform を build し、amd64 を runtime 検証する。手元の amd64/arm64 runtime 検証と区別する。
+
+## 10. M2a workspace 実装の検証
+
+M1 の後続として、共通 lock の検証、workspace target の自動/明示選択、複数 image の構築・公開、production runtime 配置の保持を追加した。
+
+### 自動試験
+
+Bun 1.3.11 で型チェックと **97 tests** を実行。既存 M1 の 86 tests を維持し、次を追加した。
+
+- root 自動選択、package 名/path の --target、member directory からの共通 lock 利用。
+- shared package と異なる fixture-msg 1.0.0/2.0.0、同じ fixture-adapter が要求する peer の解決を保持。両 service の image layer を Python tarfile で展開し、Bun で実行して各 version の結果を確認。
+- external workspace の TypeScript と相対 file、root tsconfig extends、別 checkout depth の sourcemap/digest 再現性。
+- source のみ変更で deps/assets hit、runtime shared source の変更で deps miss。
+- stale child manifest / membership / workspace lock reference、image 名の衝突、runtime の外へ出る symlink、assets と内部配置の衝突。
+- 後続 target が build 失敗した場合の export/publish 防止、複数 target の dry-run、部分 tag 更新の report / pendingTargets。
+- CLI の複数 target export と stdout、単一 target 限定の tarball、layout 内の report 拒否。
+
+fixture は自作 package を隔離 download cache に配置し、通常試験のネットワーク依存を避ける。semver の再解決器を bunko 内に作らず、Bun が実際に install した store と symlink を検査する。
+
+### 実 Registry / CLI / runtime
+
+`bun run test:m2a-smoke` を macOS arm64 / Bun 1.3.11 / Docker 29.3.1 で実行した。専用 Distribution 3 に CLI から二つの multi-platform image を公開し、stdout が target 順の二つの digest 行だけになることを確認。初回は二つの staging で決定性を検証した。
+
+| target | 共通 package | npm dependency | Linux runtime |
+| --- | --- | --- | --- |
+| api | @example/shared を bundle | is-number 7.0.0、@node-rs/xxhash 1.7.7 external | amd64 / arm64 とも HTTP 200、version 7.0.0、hash 510391394 |
+| worker | @example/shared を external、JSON file を含む | is-number 6.0.0 external | amd64 / arm64 とも HTTP 200、version 6.0.0 |
+
+base は M1 と同じ Bun slim index `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`。4 通りとも nonroot `65532:65532`、read-only rootfs、tmpfs /tmp、cap-drop ALL、SIGTERM exit 0 を確認した。
+
+api の応答文字列だけを変更して再公開すると、両 target/platform の deps は Registry cache hit・upload 0 になった。worker の app layer も upload 0。共通 source digest を使うため worker の config は更新された。新しい layer/config payload は api 9,552 bytes / worker 9,167 bytes で、HTTP overhead・manifest/index・cache metadata を含まない。この fixture には assets layer はなく、assets の再利用は自動試験で検証する。
+
+Registry から host 側 client で全 bytes を再取得・検証し、Docker archive を load/run する方式は M1 smoke と同じ。Docker CLI の直接 pull を検証した記録ではない。一時 Registry/container/tag は cleanup 済み。
+
+CI は従来の M1 smoke に M2a smoke を追加する。両 platform を build し、Linux runner では amd64 の二つの service を実行する。手元では上記 4 通りを実行した。
+
+### M2b に残す最適化
+
+M2a の runtime は workspace 全体の production tree なので、worker に api 用の native package も含まれる。closure による package 削減、sharedDeps、必要な target graph だけの cache key、source digest の対象縮小は未実装。現時点の挙動と制約は SPEC.md §8 に記載した。
+
+
+## 11. M2b: closure / sharedDeps（2026-09-07）
+
+Bun 1.3.11 / macOS arm64 / Docker Desktop で `bun run test:m2b-smoke` が成功。実 Distribution Registry に 2 target × amd64/arm64 を publish し、source 編集後の Registry cache hit と deps/assets の追加 upload 0 を確認。worker の closure から API 専用 native addon が除外された。sharedDeps の再構築では platform ごとに両 target の deps digest が一致した。
+
+削減後と共有後の計 8 image/platform を RegistrySource で検証付き pull → Docker archive → Docker load/run し、API の native xxhash、is-number 7/6 の使い分け、共通 workspace JSON、nonroot/read-only、SIGTERM exit 0 を確認。初回 closure は独立 install を使う決定性比較にも成功。CI に同じ smoke を追加し、実行 platform は amd64 に限定する。
+
+通常テストには同名異版・peer context、bundled workspace の除外、optional 欠落、required 欠落、symlink 脱出、bin link、package data、checkout 深さの独立性、無関係な dev lock 変更の cache hit、reachable workspace source 変更の miss を追加。closure は cache hit 時も Linux install を行い、install 回避や速度向上の測定結果は主張しない。クラウド Registry 個別の実 push 状況は M1 と同じ。
+
+
+## 12. M2c: resolve（2026-09-07）
+
+`bun run test:m2c-smoke` が macOS arm64 / Bun 1.3.11 / Docker Desktop で成功。2 document と anchor/alias を持つ YAML を実 CLI resolve に渡し、2 service × amd64/arm64 の公開 reference と出力 scalar の一致を確認した。重複 alias は追加 target を作らず、コメントを保持した。source 編集後の Registry cache、closure/sharedDeps の 8 runtime checks、native addon、異なる依存 version、nonroot/read-only、SIGTERM exit 0 も成功した。
+
+通常テストは YAML multi-doc、コメント、block scalar、CRLF、複雑な mapping key、anchor/alias、template/部分文字列の除外、JSON 数値の bytes 維持、複数 JSON 配列、directory 順序/再帰、stdin、canonical target 重複排除、workspace sharedDeps、構文/名前衝突/途中 build 失敗で Registry 書き込みなし、target identity 変更の拒否、部分公開の report と stdout 空を確認する。YAML 1.1 と 1.2 の別入力を連結する際の directive 継承も検査する。
+
+`bun run build && bun run test:bundled-smoke` は dist/bunko.js だけを外部 node_modules のない一時 directory にコピーし、stdin resolve と YAML license の同梱を確認する。CI に bundled smoke と実 Registry M2c smoke を追加した。kubectl apply や各クラウド Registry 個別の実 push はこの検証に含まない。

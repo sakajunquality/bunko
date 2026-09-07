@@ -1,16 +1,24 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { build } from "./build.ts";
-import { VERSION } from "./config.ts";
+import { buildTargets } from "./build.ts";
+import { VERSION, type BuildOptions } from "./config.ts";
+import { resolveDocuments } from "./resolve.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (M1 preview)
+const help = `bunko ${VERSION} — Bun to OCI images (M2 preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
   bunko build [path] --push=false --oci-layout <directory>
+  bunko resolve -f <file|directory|-> --repo <registry/prefix>
   bunko version
 
 Options:
+  -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
+  --context <dir>         Base directory for bunko:// references (default: cwd)
+  --recursive             Include nested input directories for resolve
+  --target <name/path>     Select a workspace member; repeatable, root invocation only
+  --deps-strategy <name>   production (default) or closure
+  --shared-deps           Share the union of selected workspace closures
   --repo <prefix>          Destination prefix (or BUNKO_REPO)
   --bare                   Use --repo as the exact image repository
   --tag <tag>              Repeatable tag (default: latest and Git revision)
@@ -41,9 +49,9 @@ Options:
 
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
-M1 supports standalone apps, registry npm packages, and explicit production externals.
-Workspace/compile/attestation support is planned for later milestones.
-Logs go to stderr; successful publication prints one repo@digest line to stdout.
+Supports standalone apps and Bun workspaces with production dependencies.
+Compile/attestation support is planned for later milestones.
+Logs go to stderr; successful publication prints one repo@digest line per target.
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -52,10 +60,16 @@ export async function main(argv: string[]): Promise<number> {
       args: argv.map((arg) => arg.replace(/^--(push|git-metadata|cache|local-cache|registry-cache)=(true|false)$/, (_, key: string, value: string) => `--${value === "false" ? "no-" : ""}${key}`)),
       allowPositionals: true, strict: true, allowNegative: true,
       options: {
+        filename: { type: "string", short: "f", multiple: true },
+        context: { type: "string" },
+        recursive: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
         push: { type: "boolean", default: true },
         repo: { type: "string" },
+        "deps-strategy": { type: "string" },
+        "shared-deps": { type: "boolean" },
+        target: { type: "string", multiple: true },
         bare: { type: "boolean" },
         tag: { type: "string", multiple: true },
         tarball: { type: "string" },
@@ -86,10 +100,13 @@ export async function main(argv: string[]): Promise<number> {
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
-    if (command !== "build") throw new Error(`Unknown command: ${command ?? "(missing)"}`);
-    if (rest.length) throw new Error("M1 supports one build target per invocation");
+    if (command !== "build" && command !== "resolve") throw new Error(`Unknown command: ${command ?? "(missing)"}`);
+    if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
-    const result = await build({
+    if (command === "build" && (values.filename || values.context || values.recursive)) throw new Error("-f/--context/--recursive require resolve");
+    if (command === "resolve" && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
+    const options: BuildOptions = {
+      targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
@@ -102,8 +119,14 @@ export async function main(argv: string[]): Promise<number> {
       reproducible: values.reproducible, verifyDeterministic: values["verify-deterministic"],
       gitMetadata: values["git-metadata"], noIndex: !values.index,
       log: (message) => process.stderr.write(message),
-    });
-    if (!result.dryRun) {
+    };
+    if (command === "resolve") {
+      const result = await resolveDocuments({ ...options, files: values.filename ?? [], context: values.context, recursive: values.recursive });
+      process.stdout.write(result.output);
+      return 0;
+    }
+    const results = await buildTargets(options);
+    for (const result of results) if (!result.dryRun) {
       if (result.publication?.published) process.stdout.write(`${result.publication.reference}\n`);
       else if (result.localReference) process.stdout.write(`${result.localReference}\n`);
     }

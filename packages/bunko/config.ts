@@ -4,11 +4,15 @@ import { object } from "../oci/digest.ts";
 import { packageRoot } from "./deps.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import type { Platform } from "../oci/types.ts";
+import type { Workspace } from "./workspace.ts";
 
 export const VERSION = "0.0.1";
 
 export interface BuildOptions {
   path: string;
+  targets?: string[];
+  depsStrategy?: string;
+  sharedDeps?: boolean;
   output?: string;
   push?: boolean;
   repo?: string;
@@ -39,11 +43,14 @@ export interface BuildOptions {
 export interface Project {
   directory: string;
   manifestText: string;
+  workspace?: Workspace;
+  targetPath: string;
   name: string;
   entrypoint: string;
   platform: Platform;
   platforms: Platform[];
   external: string[];
+  depsStrategy: "production" | "closure";
   base?: string;
   workdir: string;
   bunPath: string;
@@ -105,20 +112,28 @@ export function epoch(value = process.env.SOURCE_DATE_EPOCH): number {
   return number;
 }
 
-export async function loadProject(options: BuildOptions): Promise<Project> {
-  const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
-  const manifestText = await readFile(join(directory, "package.json"), "utf8");
-  const manifest = object(JSON.parse(manifestText), "package.json");
-  if (manifest.workspaces !== undefined) throw new Error("Workspaces are not supported in M1; select a standalone package");
+export function validateDependencySpecs(manifest: Record<string, unknown>, workspace?: Workspace): void {
   for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
     for (const [name, specifier] of Object.entries(object(manifest[field] ?? {}, field))) {
       packageRoot(name);
+      if (typeof specifier === "string" && specifier.startsWith("workspace:")) {
+        if (!workspace?.packages.some((p) => p.path && p.manifest.name === name) || /[\/\\\0]/.test(specifier.slice(10)) || !specifier.slice(10)) throw new Error(`Invalid workspace dependency: ${name}`);
+        continue;
+      }
       if (typeof specifier !== "string" || !specifier || /^(?:file:|link:|workspace:|catalog:|git|github:|https?:|\.|\/)/.test(specifier) || (specifier.includes("/") && !specifier.startsWith("npm:"))) throw new Error(`M1 supports registry dependencies only: ${name}`);
     }
   }
+}
+
+export async function loadProject(options: BuildOptions, workspace?: Workspace): Promise<Project> {
+  const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
+  const manifestText = await readFile(join(directory, "package.json"), "utf8");
+  const manifest = object(JSON.parse(manifestText), "package.json");
+  if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
+  validateDependencySpecs(manifest, workspace);
   if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M1");
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps"], "bunko");
+  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   if (config.mode !== undefined && config.mode !== "bundle") throw new Error("Only bundle mode is supported in M1");
   const external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
@@ -126,7 +141,9 @@ export async function loadProject(options: BuildOptions): Promise<Project> {
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
   const deps = object(config.deps ?? {}, "deps");
   knownKeys(deps, ["strategy"], "deps");
-  if (deps.strategy !== undefined && deps.strategy !== "production") throw new Error("M1 supports deps.strategy=production only");
+  if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
+  const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");
+  if (depsStrategy !== "production" && depsStrategy !== "closure") throw new Error("deps.strategy must be production or closure");
   const build = config.build === undefined ? {} : object(config.build, "build");
   knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target"], "build");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
@@ -175,7 +192,7 @@ export async function loadProject(options: BuildOptions): Promise<Project> {
     ports = [...new Set(config.ports as number[])].sort((a, b) => a - b);
   }
   return {
-    directory, manifestText, name, entrypoint, platform: selected[0]!, platforms: selected, external,
+    directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir: absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir"),
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),
