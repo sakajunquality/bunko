@@ -1,0 +1,9 @@
+{
+  "name": "hello",
+  "type": "module",
+  "module": "src/server.ts",
+  "bunko": {
+    "ports": [3000],
+    "user": "65532:65532"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "bunko",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Build OCI images from Bun applications without Dockerfiles",
+  "bin": { "bunko": "./packages/bunko/cli.ts" },
+  "engines": { "bun": ">=1.3.11 <1.4" },
+  "scripts": {
+    "dev": "bun packages/bunko/cli.ts",
+    "build": "bun build packages/bunko/cli.ts --target=bun --outfile=dist/bunko.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "bun test/smoke.ts",
+    "test:m1-smoke": "bun test/m1-smoke.ts",
+    "test:m2c-smoke": "bun test/m2c-smoke.ts",
+    "test:bundled-smoke": "bun test/bundled-smoke.ts",
+    "test:m2b-smoke": "bun test/m2b-smoke.ts",
+    "test:m2a-smoke": "bun test/m2a-smoke.ts",
+    "check": "bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "typescript": "5.9.3",
+    "yaml": "2.9.0"
+  }
+}

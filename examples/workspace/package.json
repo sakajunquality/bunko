@@ -1,0 +1,5 @@
+{
+  "name": "bunko-workspace-example",
+  "private": true,
+  "workspaces": ["services/*", "packages/*"]
+}
