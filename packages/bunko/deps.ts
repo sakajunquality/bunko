@@ -59,7 +59,7 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown, 
   return lock;
 }
 
-export async function dependencyPlan(project: Project, root: string): Promise<DependencyPlan> {
+export async function dependencyPlan(project: Project, root: string, validateCredentials = true): Promise<DependencyPlan> {
   const workspace = project.workspace;
   const manifest = workspace?.packages[0]!.manifest ?? object(JSON.parse(project.manifestText), "package.json");
   const hasDependencies = dependencyFields.some((field) => Object.keys(object(manifest[field] ?? {}, field)).length);
@@ -87,6 +87,7 @@ export async function dependencyPlan(project: Project, root: string): Promise<De
       if (equals < 1) throw new Error("Unsupported .npmrc line");
       const key = line.slice(0, equals).trim();
       const value = line.slice(equals + 1).trim().replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
+        if (!validateCredentials && !/^(?:@[^:]+:)?registry$/.test(key)) return "bunko-credential-placeholder";
         const value = process.env[name];
         if (value === undefined || /[\r\n]/.test(value)) throw new Error(`Missing or invalid .npmrc environment variable: ${name}`);
         return value;

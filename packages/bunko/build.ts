@@ -86,6 +86,7 @@ export async function writeReport(path: string, value: unknown) {
 interface BuildContext {
   syntax: SyntaxCache;
   toolchainDigest: Digest;
+  cachePersistence: { disabled?: boolean };
   project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
   closureProjects: Project[];
@@ -134,7 +135,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const tags = [...new Set(options.tags ?? ["latest", ...(git["org.opencontainers.image.revision"] ? [git["org.opencontainers.image.revision"].slice(0, 12) + (git["org.bunko.git.dirty"] === "true" ? "-dirty" : "")] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
-    const cache = new LayerCache(store, { directory: cacheDirectory, repository: cacheRepo, registry, log });
+    const cache = new LayerCache(store, { persistence: context.cachePersistence, directory: cacheDirectory, repository: cacheRepo, registry, log });
     log(`Resolving base ${options.baseLayout ?? baseRef}\n`);
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
@@ -416,8 +417,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       })());
       return closures.get(key)!;
     };
+    const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
-      const item = await prepareBuild({ ...options, registry }, { syntax, toolchainDigest, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] });
+      const item = await prepareBuild({ ...options, registry }, { syntax, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] });
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

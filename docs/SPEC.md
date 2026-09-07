@@ -216,3 +216,7 @@ The [correctness review follow-up](REVIEW_FIXES.md) records transfer deadlines, 
 ## M5 performance contract
 
 Target preparation accepts bounded `--jobs` (1–32, default 1). All targets prepare before publication; output/report target ordering is stable. Application cache hits reuse verified packed output and skip build-only installation/bundling. Keys include source, toolchain executable, host/target, base, dependency/alias and build inputs. `--no-app-cache` disables this cache; `--verify-deterministic` bypasses every layer cache. Syntax validation is content-keyed within an invocation, rereading bytes on every check. Local writers serialize with prune; conflicting valid outputs under a key are rejected. Registry hits are verified during preparation, with a 2 GiB compressed/decompressed limit. See PERFORMANCE.md.
+
+## M6 diagnostics
+
+`check-config [path]` validates manifests, workspace/target selection and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.

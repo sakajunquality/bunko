@@ -149,3 +149,7 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Private preview operations
+
+Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md). Repository and distribution visibility remain private during development.

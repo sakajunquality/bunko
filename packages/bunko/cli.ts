@@ -21,6 +21,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+import { checkConfig, doctor } from "./diagnostics.ts";
+import { validateCommandOptions } from "./command-options.ts";
 import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
 import { VERSION, type BuildOptions } from "./config.ts";
@@ -35,7 +37,7 @@ import { checkBase } from "./check-base.ts";
 import { verifyImage } from "./attest.ts";
 import { resolveDocuments } from "./resolve.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (M3 preview)
+const help = `bunko ${VERSION} — Bun to OCI images (private preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
@@ -47,6 +49,8 @@ Usage:
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
+  bunko check-config [path] [--target <name/path>]
+  bunko doctor [path] [--bun-path <file>]
   bunko version
 
 Options:
@@ -56,6 +60,17 @@ Options:
   --target <name/path>     Select a workspace member; repeatable, root invocation only
   --execute               Execute prune deletions (default: preview only)
   --older-than <seconds>  Local prune age (default: 604800)
+  --kubectl-path <file>   kubectl executable for apply
+  --kube-context <name>   Kubernetes context for apply
+  --namespace <name>      Namespace for apply
+  --server-side          Use server-side apply
+  --field-manager <name> Field manager for apply
+  --lockfile <file>       Text Bun lock for pack-deps
+  --workdir <path>        Image workdir for pack-deps (default: /app)
+  --run                  Execute check-base runtime validation through Docker
+  --runtime-path <path>  Runtime path checked by check-base
+  --verify-key <file>     Public key for verify
+  --private-signatures  Verify signatures without transparency-log evidence
   --kube-dry-run <mode>   apply only: client, server or none
   --deps-artifact <platform=ref>  Prepared dependency OCI artifact; repeat per platform
   --deps-strategy <name>   production (default) or closure
@@ -187,18 +202,26 @@ export async function main(argv: string[]): Promise<number> {
     } as const;
     const parsed = parseArgs({
       args: booleanArguments(argv, options),
-      allowPositionals: true, strict: true, allowNegative: true, options,
+      allowPositionals: true, strict: true, allowNegative: true, tokens: true, options,
     });
     const { values, positionals } = parsed;
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
+    validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
+    if (command === "check-config" || command === "doctor") {
+      if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
+      const options = { path, targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
+    }
     if (command === "push-layout") {
       if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");
-      const result = await pushLayout(path, values.repo, values.tag, { insecure: values["insecure-registry"] });
+      const result = await pushLayout(path, values.repo, values.tag, { insecure: values["insecure-registry"] }, values.report);
       process.stdout.write(`${result.reference}\n`); return 0;
     }
     if (command === "prune") {
+      if (values["dry-run"] === false) throw new Error("prune requires --execute for deletion; --dry-run=false is unsupported");
+      if (values["insecure-registry"] && !values["cache-repo"]) throw new Error("--insecure-registry requires remote prune with --cache-repo");
       if (positionals.length !== 1 || values.execute && values["dry-run"]) throw new Error("prune accepts no positional path; --execute and --dry-run cannot be combined");
       if (values["cache-repo"] && (values["cache-dir"] || values["older-than"])) throw new Error("Remote prune cannot be combined with local cache/age options");
       if (values["older-than"] !== undefined && !/^\d+$/.test(values["older-than"])) throw new Error("--older-than must be non-negative integer seconds");

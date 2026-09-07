@@ -5,13 +5,13 @@ import { join, resolve } from "node:path";
  * copied blobs and treat concurrent deletion as a cache miss. Crashed
  * locks are never broken automatically: recovery requires inspecting the owner. */
 const queues = new Map<string, Promise<void>>();
-export async function withCacheLock<T>(directory: string, operation: () => Promise<T>): Promise<T> {
+export async function withCacheLock<T>(directory: string, operation: () => Promise<T>, enabled: () => boolean = () => true): Promise<T> {
   const key = resolve(directory), previous = queues.get(key) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((done) => { release = done; });
   queues.set(key, current);
   await previous;
-  try { return await lockDirectory(directory, operation); }
+  try { if (!enabled()) throw new Error("Cache persistence disabled for this invocation"); return await lockDirectory(directory, operation); }
   finally { release(); if (queues.get(key) === current) queues.delete(key); }
 }
 async function lockDirectory<T>(directory: string, operation: () => Promise<T>): Promise<T> {
