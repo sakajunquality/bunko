@@ -12,7 +12,7 @@ import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { packLayer } from "../oci/tar.ts";
 import { media, type BaseImage, type Descriptor, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
-import { assetEntries, assertNoLayerCollision, fileEntries, snapshot } from "./files.ts";
+import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
@@ -20,6 +20,8 @@ import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
+import { mapJobs } from "./concurrency.ts";
+import { SyntaxCache } from "./syntax-cache.ts";
 import { importDependencies } from "./external-deps.ts";
 import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages } from "./attest.ts";
@@ -33,6 +35,7 @@ export interface PlatformResult {
 export interface BuildResult {
   schemaVersion: 2;
   mode?: "bundle" | "compile";
+  syntaxValidation?: { parsed: number; reused: number; bytes: number };
   supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
   attestations?: { subject: Descriptor; manifest: Descriptor }[];
   target: string;
@@ -81,6 +84,8 @@ export async function writeReport(path: string, value: unknown) {
 }
 
 interface BuildContext {
+  syntax: SyntaxCache;
+  toolchainDigest: Digest;
   project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
   closureProjects: Project[];
@@ -93,7 +98,7 @@ interface PreparedBuild {
 }
 
 async function prepareBuild(options: BuildOptions, context: BuildContext): Promise<PreparedBuild> {
-  const log = options.log ?? (() => {});
+  const log = options.log ? (message: string) => options.log!((options.jobs ?? 1) > 1 ? `[${context.project.name}] ${message}` : message) : () => {};
   const output = options.output ? await canonicalOutput(options.output) : undefined;
   const archive = options.tarball ? await canonicalOutput(options.tarball) : undefined;
   const report = options.report ? await canonicalOutput(options.report) : undefined;
@@ -160,8 +165,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const base = bases[index]!;
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         await cp(snapshotRoot, root, { recursive: true });
-        log(`Preparing build dependencies (${platform.architecture})\n`);
-        await installDependencies(root, plan, toolchain, undefined, options.installCache);
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
@@ -201,14 +204,34 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
-        log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-        const application = await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root);
-        const app = await fileEntries(application.outdir, prefix);
-        // Reserve node_modules even on a cache hit whose tree is never materialized.
+        const appKey = cacheKey({ kind: "app", format: "application-v1", packFormat, epoch: timestamp,
+          sourceDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, mode: project.mode, build: project.build,
+          destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
+          aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
+        const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform });
+        let application: { entry: string; inventory: InventoryEntry[] };
+        let app: Awaited<ReturnType<typeof fileEntries>>;
+        let applicationMetadata: CacheRecord["application"];
+        if (appHit) {
+          applicationMetadata = appHit.application!;
+          application = { entry: applicationMetadata.entry, inventory: appHit.inventory };
+          app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
+          log(`Reusing application output (${platform.architecture})\n`);
+        } else {
+          log(`Preparing build dependencies (${platform.architecture})\n`);
+          await installDependencies(root, plan, toolchain, undefined, options.installCache);
+          log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
+          const built = await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax);
+          application = built;
+          app = await fileEntries(built.outdir, prefix);
+          applicationMetadata = { entry: built.entry, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
+        }
+        // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
         app.push(...aliases);
         assertNoLayerCollision([depsEntries, assets, app]);
-        const appLayer = await packLayer(store, app, "app", timestamp);
+        const appLayer = appHit?.layer ?? await packLayer(store, app, "app", timestamp);
+        if (!appHit && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
@@ -311,6 +334,8 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  const jobs = options.jobs ?? 1;
+  if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
   if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
   if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
@@ -359,14 +384,15 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const failure = async (error: unknown) => {
     if (report && !(await Bun.file(report).exists())) await writeReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
-      targets: prepared.map((item) => item.result),
+      targets: projects.flatMap((project) => prepared.filter((item) => item.result.target === project.name).map((item) => item.result)),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
     });
   };
   try {
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
-    const sourceDigest = await snapshot(discovered.directory, source, exclusions);
+    const syntax = new SyntaxCache();
+    const sourceDigest = await snapshot(discovered.directory, source, exclusions, syntax);
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }
@@ -375,6 +401,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       if (JSON.stringify(captured.packages.map((pkg) => pkg.path)) !== JSON.stringify(discovered.workspace.packages.map((pkg) => pkg.path))) throw new Error("Workspace membership changed while creating the snapshot; retry the build");
     }
     const plan = await dependencyPlan(projects[0]!, source), toolchain = await selectToolchain(options.bunPath);
+    const toolchainDigest = await hashFile(toolchain.path);
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
@@ -389,7 +416,12 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       })());
       return closures.get(key)!;
     };
-    for (const project of projects) prepared.push(await prepareBuild({ ...options, registry }, { project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }));
+    const ordered = await mapJobs(projects, jobs, async (project) => {
+      const item = await prepareBuild({ ...options, registry }, { syntax, toolchainDigest, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] });
+      prepared.push(item); return item;
+    });
+    prepared.splice(0, prepared.length, ...ordered);
+    for (const item of prepared) item.result.syntaxValidation = { ...syntax.stats };
     const results = prepared.map((item) => item.result);
     let finishedOnce = false;
     return { results, dispose, finish: async () => {

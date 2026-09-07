@@ -142,7 +142,7 @@ describe("M2a workspace builds", () => {
     const first = await buildTargets({ ...options(f), localCache: true, cacheDir });
     await writeFile(join(f.source, "services/api/src/server.ts"), (await readFile(join(f.source, "services/api/src/server.ts"), "utf8")).replace("'api'", "'api-v2'"));
     const second = await buildTargets({ ...options(f, "second"), localCache: true, cacheDir });
-    expect(second.every((r) => r.cache.every((event) => event.status === "local"))).toBe(true);
+    expect(second.every((r) => r.cache.filter((event) => event.kind !== "app").every((event) => event.status === "local"))).toBe(true);
     expect(second.map((r) => r.layers[0]!.descriptor.digest)).toEqual(first.map((r) => r.layers[0]!.descriptor.digest));
     await writeFile(join(f.source, "packages/shared/index.ts"), 'export const message = "shared-v2";\n');
     const third = await buildTargets({ ...options(f, "third"), localCache: true, cacheDir });

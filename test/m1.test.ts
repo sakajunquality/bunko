@@ -15,22 +15,22 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p,
 async function dir() { const root = await temporary(); directories.push(root); return root; }
 
 describe("M1 build/cache/export integration", () => {
-  test("a source edit reuses remote deps/assets with zero layer download and zero upload", async () => {
+  test("a source edit verifies remote deps/assets before reuse with zero upload", async () => {
     const root = await dir(), fixture = await dependencyFixture(root), base = await baseLayout(join(root, "base")), remote = new MockRegistry();
     const options = { path: fixture.source, baseLayout: base, repo: "registry.example/team", push: true, gitMetadata: false, localCache: false,
       registry: { fetcher: remote.fetch, credentials: async () => undefined }, installCache: fixture.cache };
     const first = await build(options);
     expect(first.publication?.published).toBe(true);
     expect(first.publication?.reference).toBe(`registry.example/team/hello@${first.root.digest}`);
-    expect(first.cache.map((c) => c.status)).toEqual(["miss", "miss"]);
+    expect(first.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["miss", "miss"]);
     const reusable = first.layers.filter((l) => l.kind !== "app").map((l) => l.descriptor.digest);
     await writeFile(join(fixture.source, "src/server.ts"), 'import message from "fixture-msg"; console.log(message, "changed");\n');
     remote.requests.length = 0;
     const second = await build(options);
     expect(second.root.digest).not.toBe(first.root.digest);
-    expect(second.cache.map((c) => c.status)).toEqual(["registry", "registry"]);
+    expect(second.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["registry", "registry"]);
     expect(second.publication!.transfers.filter((t) => ["deps", "assets"].includes(t.kind)).every((t) => t.uploaded === 0 && t.action === "reused")).toBe(true);
-    expect(remote.requests.filter((r) => r.method === "GET" && reusable.some((digest) => r.url.pathname.endsWith(`/blobs/${digest}`)))).toHaveLength(0);
+    expect(remote.requests.filter((r) => r.method === "GET" && reusable.some((digest) => r.url.pathname.endsWith(`/blobs/${digest}`)))).toHaveLength(reusable.length);
     expect(second.publication!.transfers.filter((t) => t.action === "uploaded").map((t) => t.kind).sort()).toEqual(["app", "config"]);
   });
 
@@ -39,12 +39,12 @@ describe("M1 build/cache/export integration", () => {
     const options = { path: fixture.source, baseLayout: base, gitMetadata: false, cacheDir: cache, installCache: fixture.cache };
     const first = await build({ ...options, output: join(root, "one") });
     const second = await build({ ...options, output: join(root, "two") });
-    expect(second.cache.map((c) => c.status)).toEqual(["local", "local"]);
+    expect(second.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["local", "local"]);
     expect(second.root.digest).toBe(first.root.digest);
     const assets = first.layers.find((l) => l.kind === "assets")!;
     await writeFile(new BlobStore(cache).path(assets.descriptor.digest), "corrupt");
     const third = await build({ ...options, output: join(root, "three") });
-    expect(third.cache.map((c) => c.status)).toEqual(["miss", "local"]);
+    expect(third.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["miss", "local"]);
     expect(third.root.digest).toBe(first.root.digest);
     const checked = await build({ ...options, output: join(root, "four"), verifyDeterministic: true });
     expect(checked.cache.every((c) => c.status === "bypass")).toBe(true);
@@ -59,7 +59,7 @@ describe("M1 build/cache/export integration", () => {
     for (const [key, value] of remote.manifests) if (key.includes("/bunko-cache-")) remote.manifests.set(key, { ...value, bytes: canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, layers: [] }) });
     remote.cacheWritable = false;
     const second = await build(options);
-    expect(second.cache.map((c) => c.status)).toEqual(["miss", "miss"]);
+    expect(second.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["miss", "miss"]);
     expect(second.publication!.published).toBe(true);
     expect(second.root.digest).toBe(first.root.digest);
   });

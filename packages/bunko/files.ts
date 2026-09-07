@@ -5,12 +5,14 @@ import { join, posix, relative, resolve } from "node:path";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Digest } from "../oci/types.ts";
+import type { SyntaxCache } from "./syntax-cache.ts";
 import { rejectMacroSyntax } from "./syntax.ts";
 
 export const OUTPUT_DIRECTORY = ".bunko-build";
 const omitted = new Set([".git", ".cursor", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
 
-export async function rejectMacros(file: string, name: string): Promise<void> {
+export async function rejectMacros(file: string, name: string, cache?: SyntaxCache): Promise<void> {
+  if (cache) return cache.check(file, name);
   const code = await readFile(file, "utf8");
   rejectMacroSyntax(code, name);
 }
@@ -21,7 +23,7 @@ export async function hashFile(path: string): Promise<Digest> {
   return `sha256:${hash.digest("hex")}`;
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = []): Promise<Digest> {
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache): Promise<Digest> {
   const records: { path: string; type: string; digest?: Digest; executable?: boolean }[] = [];
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
@@ -48,7 +50,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       // Bun 1.3.11's CLI does not reliably honor --no-macros. Reject import
       // attributes before invoking the bundler; parsing never executes source code.
       if (/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) {
-        await rejectMacros(copied, path);
+        await rejectMacros(copied, path, syntax);
         const code = (await readFile(copied, "utf8")).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
         if (/\b(?:require|import)\s*\(\s*(?![\s"'])/.test(code) || /\b(?:require|import)\s*\(\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*[^)\s]/.test(code)) throw new Error(`Computed require/import is not supported in application source: ${path}`);
       }

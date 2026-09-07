@@ -1,0 +1,71 @@
+{
+  "bun": "1.3.11",
+  "os": "darwin",
+  "architecture": "arm64",
+  "files": 504,
+  "scanMs": [
+    {
+      "mode": "uncached",
+      "milliseconds": 2535.218542
+    },
+    {
+      "mode": "memoized-first",
+      "milliseconds": 1553.153542
+    },
+    {
+      "mode": "memoized-repeat",
+      "milliseconds": 124.69937500000015
+    }
+  ],
+  "validation": {
+    "parsed": 504,
+    "reused": 504,
+    "bytes": 46706024
+  },
+  "fixtureBuilds": [
+    {
+      "name": "cold",
+      "milliseconds": 338.30025000000023,
+      "root": "sha256:cd007c90292312fbd1351f444b0bf6c1fe95caa30dbcc9d0a26c439f07040361",
+      "cache": [
+        {
+          "key": "sha256:cfe2e459d67b98c0c9b0f3821969ac806c7e0239deb48d6bc0e1b5d2f64a5d41",
+          "kind": "assets",
+          "status": "miss"
+        },
+        {
+          "key": "sha256:96f148540f6977809267a830b3c61e51c2e7ef4c5a6eec855537ab32c1e4deed",
+          "kind": "deps",
+          "status": "miss"
+        },
+        {
+          "key": "sha256:b7345dcfc7e1751705fbe7f83143efb65c031fc6f9474c94f999c9795593a401",
+          "kind": "app",
+          "status": "miss"
+        }
+      ]
+    },
+    {
+      "name": "warm",
+      "milliseconds": 178.51170899999943,
+      "root": "sha256:cd007c90292312fbd1351f444b0bf6c1fe95caa30dbcc9d0a26c439f07040361",
+      "cache": [
+        {
+          "key": "sha256:cfe2e459d67b98c0c9b0f3821969ac806c7e0239deb48d6bc0e1b5d2f64a5d41",
+          "kind": "assets",
+          "status": "local"
+        },
+        {
+          "key": "sha256:96f148540f6977809267a830b3c61e51c2e7ef4c5a6eec855537ab32c1e4deed",
+          "kind": "deps",
+          "status": "local"
+        },
+        {
+          "key": "sha256:b7345dcfc7e1751705fbe7f83143efb65c031fc6f9474c94f999c9795593a401",
+          "kind": "app",
+          "status": "local"
+        }
+      ]
+    }
+  ]
+}

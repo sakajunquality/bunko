@@ -19,7 +19,7 @@ try {
   const base = await baseLayout(join(root, "base")), registry = { insecure: [host], credentials: async () => undefined };
   const image = await build({ path: source, baseLayout: base, repo: `${host}/image`, bare: true, cacheRepo: `${host}/cache`, localCache: false, registry, gitMetadata: false });
   const preview = await pruneRegistry(`${host}/cache`, false, registry);
-  if (preview.tags.length !== 1 || preview.deleted.length) throw new Error("Prune preview mismatch");
+  if (preview.tags.length !== 2 || preview.deleted.length) throw new Error("Prune preview mismatch");
   let supported = true;
   try { await pruneRegistry(`${host}/cache`, true, registry); }
   catch (error) { if (!(error instanceof Error) || !error.message.includes("No manifest deletion was attempted")) throw error; supported = false; }
