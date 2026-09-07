@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, readdir, readFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readdir, readFile, open } from "node:fs/promises";
 import { join, posix, relative, resolve } from "node:path";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
@@ -18,9 +17,17 @@ export async function rejectMacros(file: string, name: string, cache?: SyntaxCac
 }
 
 export async function hashFile(path: string): Promise<Digest> {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return `sha256:${hash.digest("hex")}`;
+  const hash = createHash("sha256"), file = await open(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(256 * 1024);
+    let offset = 0;
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead)); offset += bytesRead;
+    }
+    return `sha256:${hash.digest("hex")}`;
+  } finally { await file.close(); }
 }
 
 export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache): Promise<Digest> {
