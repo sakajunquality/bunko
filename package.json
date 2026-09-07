@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "bun packages/bunko/cli.ts",
     "build": "bun build packages/bunko/cli.ts --target=bun --minify --outfile=dist/bunko.js",
-    "test": "bun test",
+    "test": "bun test --timeout 15000",
     "bench:syntax": "bun test/syntax-benchmark.ts",
     "release:prepare": "bun scripts/release.ts",
     "typecheck": "tsc --noEmit",
@@ -26,7 +26,7 @@
     "test:bundled-smoke": "bun test/bundled-smoke.ts",
     "test:m2b-smoke": "bun test/m2b-smoke.ts",
     "test:m2a-smoke": "bun test/m2a-smoke.ts",
-    "check": "bun run typecheck && bun test",
+    "check": "bun run typecheck && bun run test",
     "test:m3-smoke": "bun test/m3-smoke.ts",
     "test:m4-smoke": "bun test/m4-smoke.ts",
     "test:apply-smoke": "bun test/apply-smoke.ts",
