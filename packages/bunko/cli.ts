@@ -47,6 +47,8 @@ Options:
   --report <file>          Write a JSON result, including transfers/cache/partial publication
   --help                   Show this help
 
+Boolean options accept --flag, --no-flag, and --flag=true|false.
+
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
 Supports standalone apps and Bun workspaces with production dependencies.
@@ -54,47 +56,68 @@ Compile/attestation support is planned for later milestones.
 Logs go to stderr; successful publication prints one repo@digest line per target.
 `;
 
+/** Normalize explicit boolean values without rewriting option values or positionals. */
+export function booleanArguments(argv: string[], options: Record<string, { type: "string" | "boolean"; short?: string }>): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "--") { result.push(...argv.slice(i)); break; }
+    const explicit = /^--(.*)=(true|false)$/.exec(arg);
+    if (explicit) {
+      const raw = explicit[1]!, negative = raw.startsWith("no-"), key = negative ? raw.slice(3) : raw;
+      if (options[key]?.type === "boolean") {
+        result.push(`--${(explicit[2] === "false") !== negative ? "no-" : ""}${key}`);
+        continue;
+      }
+    }
+    result.push(arg);
+    const option = arg.startsWith("--") ? options[arg.slice(2)] : Object.values(options).find((option) => arg === `-${option.short}`);
+    if (option?.type === "string" && i + 1 < argv.length) result.push(argv[++i]!);
+  }
+  return result;
+}
+
 export async function main(argv: string[]): Promise<number> {
   try {
+    const options = {
+      filename: { type: "string", short: "f", multiple: true },
+      context: { type: "string" },
+      recursive: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+      version: { type: "boolean" },
+      push: { type: "boolean", default: true },
+      repo: { type: "string" },
+      "deps-strategy": { type: "string" },
+      "shared-deps": { type: "boolean" },
+      target: { type: "string", multiple: true },
+      bare: { type: "boolean" },
+      tag: { type: "string", multiple: true },
+      tarball: { type: "string" },
+      local: { type: "boolean" },
+      kind: { type: "boolean" },
+      "kind-cluster": { type: "string" },
+      cache: { type: "boolean", default: true },
+      "local-cache": { type: "boolean", default: true },
+      "registry-cache": { type: "boolean", default: true },
+      "cache-dir": { type: "string" },
+      "cache-repo": { type: "string" },
+      "install-cache": { type: "string" },
+      "insecure-registry": { type: "string", multiple: true },
+      "dry-run": { type: "boolean" },
+      "oci-layout": { type: "string" },
+      "base-layout": { type: "string" },
+      base: { type: "string" },
+      platform: { type: "string" },
+      "bun-path": { type: "string" },
+      reproducible: { type: "boolean" },
+      "verify-deterministic": { type: "boolean" },
+      "git-metadata": { type: "boolean", default: true },
+      index: { type: "boolean", default: true },
+      report: { type: "string" },
+    } as const;
     const parsed = parseArgs({
-      args: argv.map((arg) => arg.replace(/^--(push|git-metadata|cache|local-cache|registry-cache)=(true|false)$/, (_, key: string, value: string) => `--${value === "false" ? "no-" : ""}${key}`)),
-      allowPositionals: true, strict: true, allowNegative: true,
-      options: {
-        filename: { type: "string", short: "f", multiple: true },
-        context: { type: "string" },
-        recursive: { type: "boolean" },
-        help: { type: "boolean", short: "h" },
-        version: { type: "boolean" },
-        push: { type: "boolean", default: true },
-        repo: { type: "string" },
-        "deps-strategy": { type: "string" },
-        "shared-deps": { type: "boolean" },
-        target: { type: "string", multiple: true },
-        bare: { type: "boolean" },
-        tag: { type: "string", multiple: true },
-        tarball: { type: "string" },
-        local: { type: "boolean" },
-        kind: { type: "boolean" },
-        "kind-cluster": { type: "string" },
-        cache: { type: "boolean", default: true },
-        "local-cache": { type: "boolean", default: true },
-        "registry-cache": { type: "boolean", default: true },
-        "cache-dir": { type: "string" },
-        "cache-repo": { type: "string" },
-        "install-cache": { type: "string" },
-        "insecure-registry": { type: "string", multiple: true },
-        "dry-run": { type: "boolean" },
-        "oci-layout": { type: "string" },
-        "base-layout": { type: "string" },
-        base: { type: "string" },
-        platform: { type: "string" },
-        "bun-path": { type: "string" },
-        reproducible: { type: "boolean" },
-        "verify-deterministic": { type: "boolean" },
-        "git-metadata": { type: "boolean", default: true },
-        index: { type: "boolean", default: true },
-        report: { type: "string" },
-      },
+      args: booleanArguments(argv, options),
+      allowPositionals: true, strict: true, allowNegative: true, options,
     });
     const { values, positionals } = parsed;
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
@@ -105,7 +128,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
     if (command === "build" && (values.filename || values.context || values.recursive)) throw new Error("-f/--context/--recursive require resolve");
     if (command === "resolve" && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
-    const options: BuildOptions = {
+    const buildOptions: BuildOptions = {
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
@@ -121,11 +144,11 @@ export async function main(argv: string[]): Promise<number> {
       log: (message) => process.stderr.write(message),
     };
     if (command === "resolve") {
-      const result = await resolveDocuments({ ...options, files: values.filename ?? [], context: values.context, recursive: values.recursive });
+      const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive });
       process.stdout.write(result.output);
       return 0;
     }
-    const results = await buildTargets(options);
+    const results = await buildTargets(buildOptions);
     for (const result of results) if (!result.dryRun) {
       if (result.publication?.published) process.stdout.write(`${result.publication.reference}\n`);
       else if (result.localReference) process.stdout.write(`${result.localReference}\n`);

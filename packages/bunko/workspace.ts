@@ -54,8 +54,11 @@ export async function discover(options: BuildOptions): Promise<{ directory: stri
   while (true) {
     let pkg: WorkspacePackage | undefined;
     try { pkg = cursor === directory ? selected : await readPackage(cursor); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    if (pkg?.manifest.workspaces !== undefined) {
+    catch { /* An unreadable or malformed ancestor cannot establish membership. */ }
+    const localPath = relative(cursor, directory);
+    const patterns = pkg?.manifest.workspaces;
+    const declared = cursor === directory || Array.isArray(patterns) && patterns.some((pattern) => typeof pattern === "string" && new Bun.Glob(pattern.replace(/\/$/, "")).match(localPath));
+    if (pkg?.manifest.workspaces !== undefined && declared) {
       const workspace = await workspaceAt(cursor, pkg);
       const local = relative(cursor, directory);
       const member = workspace.packages.find((p) => p.path === local);

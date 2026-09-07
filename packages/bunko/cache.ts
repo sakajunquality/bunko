@@ -10,6 +10,7 @@ import { RegistryError, type RegistryOptions } from "../oci/registry.ts";
 import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { hashFile } from "./files.ts";
+import { mapFiles } from "./concurrency.ts";
 import type { TarEntry } from "../oci/tar.ts";
 import type { InventoryEntry, NativeBinary } from "./deps.ts";
 
@@ -26,9 +27,9 @@ export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat(
 export function cacheTag(kind: string, key: Digest) { assertDigest(key); return `bunko-cache-v1-${kind}-${key.slice(7)}`; }
 
 export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
-  return Promise.all(entries.map(async (entry) => entry.type === "file" ? {
+  return mapFiles(entries, async (entry) => entry.type === "file" ? {
     type: entry.type, path: entry.path, executable: Boolean(entry.executable), digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content),
-  } : entry));
+  } : entry);
 }
 
 export class LayerCache {

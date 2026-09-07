@@ -88,7 +88,11 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   }
   function aliases(edges: Map<string, string>, modules: string): TarEntry[] {
     const result: TarEntry[] = [];
-    for (const [name, target] of edges) result.push({ type: "symlink", path: `${modules}/${name}`, target: relative(dirname(`${modules}/${name}`), destination(target)) });
+    for (const [name, target] of edges) {
+      const path = `${modules}/${name}`;
+      // Bundled dependencies already occupy their resolved nested path.
+      if (path !== destination(target)) result.push({ type: "symlink", path, target: relative(dirname(path), destination(target)) });
+    }
     // Preserve dependency executables without copying unrelated .bin entries.
     const bins = new Map<string, string>();
     for (const target of edges.values()) {
