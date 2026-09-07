@@ -65,9 +65,10 @@ export class Publisher {
       await store.ensure(d);
       const file = Bun.file(store.path(d.digest));
       if (file.size !== d.size) throw new Error("Upload blob size mismatch");
-      // Artifact Registry requires a monolithic upload. Send the complete file
-      // in the final PUT without buffering the entire layer in JavaScript.
-      const monolithic = /^[a-z0-9-]+-docker\.pkg\.dev$/.test(new URL(this.client.origin).hostname);
+      // GAR requires monolithic uploads; GHCR rejects our ranged PATCH path.
+      // Stream the complete file in PUT without a whole-layer JavaScript buffer.
+      const host = new URL(this.client.origin).hostname;
+      const monolithic = host === "ghcr.io" || /^[a-z0-9-]+-docker\.pkg\.dev$/.test(host);
       let offset = 0;
       let failures = 0;
       const chunkSize = 8 * 1024 * 1024;

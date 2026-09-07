@@ -108,11 +108,11 @@ describe("Docker-compatible authentication", () => {
 });
 
 describe("Distribution publication", () => {
-  test.each(["asia-northeast1-docker.pkg.dev", "us-docker.pkg.dev:443"])("streams full blobs to Artifact Registry at %s", async (host) => {
+  test.each(["asia-northeast1-docker.pkg.dev", "us-docker.pkg.dev:443", "ghcr.io", "ghcr.io:443"])("streams full blobs to %s", async (host) => {
     const store = new BlobStore(await dir()), registry = new MockRegistry();
     const bytes = Buffer.alloc(9 * 1024 * 1024, 7), d = await store.put(bytes, media.gzip);
     const publisher = new Publisher(`${host}/project/repository/image`, { credentials: anonymous, fetcher: async (input, init) => {
-      if (init?.method === "PATCH") throw new Error("Artifact Registry does not support chunked uploads");
+      if (init?.method === "PATCH") throw new Error("This provider requires monolithic uploads");
       if (init?.method === "PUT") {
         expect(init.body).toBeInstanceOf(Blob);
         expect(new Headers(init.headers).get("Content-Length")).toBe(String(bytes.length));
