@@ -31,7 +31,8 @@
     "test:m4-smoke": "bun test/m4-smoke.ts",
     "test:apply-smoke": "bun test/apply-smoke.ts",
     "bench:performance": "bun test/performance-benchmark.ts",
-    "test:m6-smoke": "bun test/m6-smoke.ts"
+    "test:m6-smoke": "bun test/m6-smoke.ts",
+    "test:ko-smoke": "bun test/ko-smoke.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",

@@ -1,3 +1,5 @@
+import { labelSelector, selectDocuments } from "./selector.ts";
+import { referenceOutput, writeReferences } from "./references.ts";
 /*! yaml 2.9.0 — https://github.com/eemeli/yaml
 Copyright Eemeli Aro <eemeli@gmail.com>
 
@@ -27,6 +29,7 @@ export interface ResolveOptions extends Omit<BuildOptions, "path"> {
   files: string[];
   context?: string;
   recursive?: boolean;
+  selector?: string;
   stdin?: () => Promise<string>;
 }
 interface Replacement { start: number; end: number; uri: string; comment?: string }
@@ -100,24 +103,32 @@ export function parseInput(name: string, source: string): Input {
 
 async function readInputs(options: ResolveOptions): Promise<Input[]> {
   if (!options.files.length) throw new Error("resolve requires -f <file|directory|->");
+  const match = options.selector === undefined ? undefined : labelSelector(options.selector);
+  let found = false;
+  const add = (name: string, source: string) => {
+    found = true;
+    const selected = match ? selectDocuments(name, source, match) : source;
+    if (selected !== undefined) inputs.push(parseInput(name, selected));
+  };
   const inputs: Input[] = [], seen = new Set<string>();
   async function read(path: string) {
     const canonical = path === "-" ? path : await realpath(absolute(path));
     if (seen.has(canonical)) return;
     seen.add(canonical);
-    if (canonical === "-") { inputs.push(parseInput("stdin", await (options.stdin ?? (() => Bun.stdin.text()))())); return; }
+    if (canonical === "-") { add("stdin", await (options.stdin ?? (() => Bun.stdin.text()))()); return; }
     if ((await stat(canonical)).isDirectory()) {
       for (const entry of (await readdir(canonical, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
         if (entry.isFile() && /\.(?:yaml|yml|json)$/i.test(entry.name) || entry.isDirectory() && options.recursive) await read(join(canonical, entry.name));
       }
-    } else inputs.push(parseInput(canonical, await readFile(canonical, "utf8")));
+    } else add(canonical, await readFile(canonical, "utf8"));
   }
   for (const path of options.files) await read(path);
-  if (!inputs.length) throw new Error("No YAML/JSON inputs found");
+  if (!found) throw new Error("No YAML/JSON inputs found");
   return inputs;
 }
 
 export function renderInputs(inputs: Input[], references: Map<string, string>): string {
+  if (!inputs.length) return "";
   const rendered = inputs.map((input) => {
     let source = input.source;
     for (const replacement of [...input.replacements].sort((a, b) => b.start - a.start)) {
@@ -152,10 +163,16 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
 }
 
 export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+  if (options.jobs !== undefined && (!Number.isSafeInteger(options.jobs) || options.jobs < 1 || options.jobs > 32)) throw new Error("--jobs must be an integer from 1 to 32");
+  if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
+  if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
+  const configuredRepo = options.repo ?? process.env.BUNKO_REPO;
+  if (configuredRepo !== undefined) repository(options.bare ? configuredRepo : `${configuredRepo}/bunko-validation`);
   if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");
   if (options.push === false || options.local || options.kind || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication; export/local/kind/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (report) await assertFileAvailable(report, "Report");
+  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.cacheDir, options.installCache]);
   const inputs = await readInputs(options);
   const context = await realpath(absolute(options.context ?? "."));
   const uriTargets = new Map<string, string>(), names = new Map<string, string>();
@@ -178,7 +195,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   const sources: Parameters<typeof prepareTargets>[2] = new Map();
   try {
     for (const group of [...groups.values()].sort((a, b) => a.directory < b.directory ? -1 : 1)) {
-      const batch = await prepareTargets({ ...options, path: group.directory, targets: group.workspace ? [...group.paths] : undefined, report: undefined, push: true }, false, sources);
+      const batch = await prepareTargets({ ...options, path: group.directory, targets: group.workspace ? [...group.paths] : undefined, report: undefined, imageRefs: undefined, push: true }, false, sources);
       batches.push(batch);
       for (const target of batch.results) if (names.get(target.target) !== join(group.directory, target.targetPath ?? ".")) throw new Error("Target identity changed during resolve; retry the invocation");
     }
@@ -196,6 +213,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
       await batch.finish();
       for (const target of batch.results) completed.add(names.get(target.target)!);
     }
+    if (imageRefs) await writeReferences(imageRefs, targets.map((target) => target.publication!.reference));
     if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "success", references: Object.fromEntries(references), targets });
     return { output, targets };
   } catch (error) {

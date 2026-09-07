@@ -11,6 +11,7 @@ export interface ImageOptions {
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
+  annotations?: Record<string, string>;
   ports?: number[];
 }
 
@@ -51,10 +52,12 @@ export async function assembleImage(store: BlobStore, base: BaseImage, layers: L
   const config = await store.put(canonicalJSON(imageConfig(base.config, layers, options)), media.config);
   const manifest = await store.put(canonicalJSON({
     schemaVersion: 2, mediaType: media.manifest, config,
+    ...(options.annotations && Object.keys(options.annotations).length ? { annotations: options.annotations } : {}),
     layers: [...base.manifest.layers, ...layers.map((layer) => layer.descriptor)],
   }), media.manifest);
   const root = noIndex ? manifest : await store.put(canonicalJSON({
     schemaVersion: 2, mediaType: media.index,
+    ...(options.annotations && Object.keys(options.annotations).length ? { annotations: options.annotations } : {}),
     manifests: [{ ...manifest, platform: options.platform }],
   }), media.index);
   return { root, manifest, config };

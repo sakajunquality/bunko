@@ -2,11 +2,11 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-alpha.1 / M4 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-alpha.1 / private M6 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
 ## Quick start
 
-Requires Bun `>=1.3.11 <1.4`; validation uses Bun 1.3.11. The distributed `dist/bunko.js` bundles its YAML parser and requires no external npm runtime dependencies. Install development dependencies before running from source:
+Requires Bun `>=1.3.11 <1.4`; the tested CI matrix covers Bun 1.3.11 and 1.3.12. The distributed `dist/bunko.js` bundles its YAML parser and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -153,3 +153,7 @@ Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; s
 ## Private preview operations
 
 Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md). Repository and distribution visibility remain private during development.
+
+## Portable ko workflows
+
+Use `--image-label`, `--image-annotation` and `--image-user` for per-invocation image metadata, and `--image-refs FILE` for a new file of published immutable references. Resolve/apply support `--selector` label queries. A `bunkodata/` directory is included as assets and exposed through `BUNKO_DATA_PATH`. See the [researched ko comparison](docs/KO_GAPS.md) for examples, exact semantics and deliberate differences.

@@ -16,9 +16,9 @@ try {
   await command([kind, "create", "cluster", "--name", name, "--kubeconfig", kubeconfig, "--wait", "120s"]);
   process.env.KUBECONFIG = kubeconfig;
   const manifest = join(directory, "config.yaml");
-  await writeFile(manifest, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: bunko-apply-test\ndata:\n  message: verified\n");
+  await writeFile(manifest, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: bunko-apply-test\n  labels: {app: smoke}\ndata:\n  message: verified\n");
   for (const kubeDryRun of ["server", "none"] as const) {
-    const result = await applyDocuments({ files: [manifest], context: directory, kubeContext: `kind-${name}`, serverSide: true, kubeDryRun });
+    const result = await applyDocuments({ files: [manifest], selector: "app=smoke", context: directory, kubeContext: `kind-${name}`, serverSide: true, kubeDryRun });
     if (result.exit) throw new Error(result.stderr);
   }
   const result = JSON.parse(await command(["kubectl", "--context", `kind-${name}`, "get", "configmap", "bunko-apply-test", "-o", "json"]));
