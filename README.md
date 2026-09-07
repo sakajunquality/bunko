@@ -1,12 +1,12 @@
 # bunko
 
-Bun プロジェクトを Dockerfile・Docker daemon なしで OCI イメージにするビルダー。Go の [ko](https://ko.build/) に着想を得ています。
+Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-現在は **M2 preview**。単一アプリ・Bun workspace の bundle、npm dependencies、明示的な runtime external、Registry push、deps/assets cache、multi-platform、Docker/kind load、YAML/JSON の resolve に対応しています。GHCR・Google Artifact Registry・Docker Hub・ECR は Docker の認証設定を利用します。各サービスへの実 push の検証状況は [Registry 対応表](docs/REGISTRIES.md) を参照してください。
+**M2 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-## 試す
+## Quick start
 
-Bun `>=1.3.11 <1.4` が必要です。検証基準は Bun 1.3.11。配布用の `dist/bunko.js` は YAML parser も bundle し、外部 npm runtime dependencies を要求しません。開発時は下記の install を実行してください。
+Requires Bun `>=1.3.11 <1.4`; validation uses Bun 1.3.11. The distributed `dist/bunko.js` bundles its YAML parser and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -15,54 +15,54 @@ bun run dev build examples/hello \
   --verify-deterministic
 ```
 
-公開 Bun base を取得し、完全な OCI layout を生成します。出力 directory は未作成または空にしてください。既定 platform は `linux/amd64`。ログは stderr、export の stdout は空です。
+This downloads a public Bun base and writes a complete OCI layout. The destination must be absent or empty. The default platform is `linux/amd64`. Logs go to stderr; export produces no stdout.
 
-認証済み Registry に公開する場合（`OWNER` は自分の namespace に置換）:
+To publish to a Registry where you have authenticated, replace `OWNER` with your namespace:
 
 ```sh
 bun run dev build examples/hello --repo ghcr.io/OWNER
 ```
 
-成功時は `ghcr.io/OWNER/hello@sha256:...` を stdout に一行出します。`--bare` は `--repo` をそのまま repository 名に使います。既定 tag は `latest` と Git revision、明示指定は `--tag v1 --tag latest`。認証の準備は [REGISTRIES.md](docs/REGISTRIES.md) にまとめています。
+Success prints one `ghcr.io/OWNER/hello@sha256:...` line. `--bare` treats `--repo` as the exact repository. Default tags are `latest` and the Git revision; override them with `--tag v1 --tag latest`. See [authentication setup](docs/REGISTRIES.md).
 
-## Workspace / monorepo
+## Workspaces and monorepos
 
-root の共通 `bun.lock` と `workspaces` を使い、複数 service を一度に build/push できます。
+Build and publish multiple services using the root `bun.lock` and `workspaces` declaration:
 
 ```sh
-# 各 service の image を公開: ghcr.io/OWNER/api と ghcr.io/OWNER/worker
+# Publish ghcr.io/OWNER/api and ghcr.io/OWNER/worker.
 bun run dev build examples/workspace --repo ghcr.io/OWNER
 
-# package 名または root 相対 path で選択（--target は複数指定可）
+# Select by package name or root-relative path; --target is repeatable.
 bun run dev build examples/workspace --target @example/api --repo ghcr.io/OWNER
 
-# member の directory を直接指定しても、root の lock を利用
+# A member directory also uses the workspace root lock.
 bun run dev build examples/workspace/services/api --repo ghcr.io/OWNER
 
-# 複数 target を一つの OCI layout に保存
+# Export multiple targets into one OCI layout.
 bun run dev build examples/workspace --push=false \
   --oci-layout .bunko-output/workspace --platform linux/amd64,linux/arm64
 ```
 
-root からの自動選択では `bunko.enabled:false` を除き、`bunko` 設定のある member を優先します。なければ `bin` / `module` のある member を選びます。設定は各 service の `package.json.bunko` に置き、root の bunko 設定は子へ継承しません。
+Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited.
 
-全 target の構築成功後に公開を始め、stdout に target 順の digest を一行ずつ返します。公開途中の失敗は `--report` に記録します。`--bare` / `--tarball` は単一 target 限定です。
+Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures. `--bare` and `--tarball` require a single target.
 
-共通 package は既定で bundle します。明示 external にした workspace も収録でき、同名異版と peer dependencies は Bun の install 配置を保持します。M2a の production strategy は **workspace 全体の production tree** を収録するため、他 service の依存も入ります。`--deps-strategy closure`（または各 service の `bunko.deps.strategy: "closure"`）で、external から到達する実際の package instance だけに絞れます。
+Shared packages are bundled by default. Explicitly external workspace packages retain Bun's concrete versions and peer contexts. The production strategy includes the **entire workspace production tree**, including other services' dependencies. Select only reachable runtime instances with `--deps-strategy closure` or each service's `bunko.deps.strategy: "closure"`:
 
 ```sh
 bun run dev build examples/workspace --repo ghcr.io/OWNER --deps-strategy closure
-# 選択した service の依存の和集合を同じ deps layer に収録
+# Put the union of selected services' dependencies in one shared layer.
 bun run dev build examples/workspace --repo ghcr.io/OWNER --shared-deps
 ```
 
-`--shared-deps` または root の `bunko.sharedDeps:true` は closure を既定にし、workdir/base/platform が一致する target 間で deps layer を共有します。各 service の external link は app layer に分離するため、同名異版も維持します。closure は毎回 Linux production install で graph を確認しますが、対象 package の bytes・mode・link が同じなら、無関係な lock/source の変更後も layer cache を再利用できます。
+`--shared-deps` or root `bunko.sharedDeps:true` defaults to closure and shares a dependency layer across targets with matching workdir, base, and platforms. Target-specific external links live in the app layer, preserving different versions of the same package. Closure performs a Linux production install to verify the graph on every invocation. Unrelated lock or source changes can still reuse the layer when selected package bytes, modes, and links are unchanged.
 
-対応する workspace 宣言は相対・正の glob を並べた配列です。nested workspace、catalog、file/link dependencies は未対応。npm 認証・override・patch の設定は root にまとめます。
+Workspace declarations must be arrays of positive relative globs. Nested workspaces, catalogs, and file/link dependencies are unsupported. Configure npm authentication, overrides, and patches at the root.
 
-## npm dependencies と native addon
+## npm dependencies and native addons
 
-通常の JS dependencies は bundle します。runtime に残す package は `package.json.bunko.external` に明示してください。依存がある場合は整合した text `bun.lock` が必要です。元の checkout の `node_modules` は使わず、一時 directory に frozen install します。install scripts は実行しません。
+Ordinary JavaScript dependencies are bundled. Declare packages that must remain at runtime in `package.json.bunko.external`. Projects with dependencies need a consistent text `bun.lock`. bunko performs frozen installs in temporary directories instead of using the checkout's `node_modules`. Install scripts never run.
 
 ```sh
 bun run dev build examples/dependencies \
@@ -71,60 +71,60 @@ bun run dev build examples/dependencies \
   --verify-deterministic --report .bunko-output/dependencies.json
 ```
 
-この example は `is-number` を bundle し、`@node-rs/xxhash` を external にしています。両 platform の Linux native addon を実行確認済みです。native 用には必要な共有ライブラリを含む base の明示が必要で、example は `oven/bun:1.3.11-slim` を指定しています。任意の native package / base の ABI 互換性は保証しません。
+This example bundles `is-number` and externalizes `@node-rs/xxhash`. Its Linux native addon has run successfully on both platforms. Native dependencies require an explicit base containing their shared libraries; the example uses `oven/bun:1.3.11-slim`. Compatibility with arbitrary native packages or base ABIs is not established.
 
-layer は `base → deps（必要時）→ assets（あれば）→ app`。M1 の deps は production install 全体を保存し、devDependencies は含めません。source だけを変更した再公開では deps/assets の転送を省略できます。cache hit 時も bundle 用の build dependencies は準備します。
+Layer order is `base → deps (if needed) → assets (if present) → app`. The production strategy retains production dependencies and excludes dev dependencies. A source-only rebuild can avoid dependency and asset transfers. Build dependencies are still prepared for bundling on cache hits.
 
-## キャッシュ・ローカル実行
+## Cache and local execution
 
-local layer cache は `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`、Registry cache は公開先と同じ repository の予約 tag に保存します。`--cache-dir` / `--cache-repo` で変更でき、`--no-cache` で両方を無効化できます。Bun の package download cache は別管理です。Registry cache の読み書き失敗は診断を出して継続し、image 自体の公開失敗はエラーになります。
+The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate. Cache access failures are diagnostic and recoverable; image publication failures are errors.
 
 ```sh
-# Docker archive を保存（単一 platform）
+# Export a single-platform Docker archive.
 bun run dev build examples/hello --push=false --tarball .bunko-output/hello.tar
 
-# Docker にロード。Apple Silicon の例
+# Load into Docker on Apple Silicon.
 bun run dev build examples/dependencies --local --platform linux/arm64
 
-# 起動済みの Docker-backed kind cluster にロード
+# Load into an existing Docker-backed kind cluster.
 bun run dev build examples/hello --kind --kind-cluster kind --platform linux/arm64
 ```
 
-`--local` / `--kind` は push を無効化し、ロードした content tag を stdout に返します。通常の build/push/export に Docker は不要です。`--dry-run --repo ...` は build と Registry の read で転送を見積もり、push/export/load を行いません。
+`--local` and `--kind` disable publication and print the loaded content tag. Ordinary build, publication, and export do not require Docker. `--dry-run --repo ...` builds and reads Registry metadata to estimate transfers without publication, export, or loading.
 
-## YAML / JSON の resolve
+## Resolve YAML and JSON
 
-manifest の文字列値 `bunko://<project-directory>` を、公開した `repo@sha256:...` に置換します。Kubernetes の適用は行いません。
+Replace complete `bunko://<project-directory>` string values with published `repo@sha256:...` references. This does not apply Kubernetes resources.
 
 ```sh
 bun run dev resolve -f examples/manifests/services.yaml \
   --context examples/workspace --repo ghcr.io/OWNER --shared-deps
 
-# stdin も同じ相対 path の基準で処理
+# Stdin uses the same reference-path base.
 cat examples/manifests/services.yaml | bun run dev resolve -f - \
   --context examples/workspace --repo ghcr.io/OWNER
 ```
 
-`-f` は複数指定でき、directory は YAML/YML/JSON を辞書順に読みます。入れ子も読む場合は `--recursive`。参照 path は cwd（または `--context`）を基準にし、manifest file の場所には依存しません。workspace root が複数 target を選ぶ場合は service directory を指定してください。
+Repeat `-f` for multiple inputs. Directories are read in name order for YAML/YML/JSON; use `--recursive` for nested directories. References are relative to cwd or `--context`, independently of the input file's location. Use a service directory when a workspace root selects multiple targets.
 
-コメント・anchor/alias・mapping key・説明文中の部分文字列を保持し、同じ target は一度だけ build します。全 target を構築し、完成する文書を検査してから公開を開始します。全成功時だけ解決済み文書を stdout に出し、ログは stderr へ送ります。単一 JSON は JSON、複数 JSON は配列、YAML を含む入力は YAML document stream にします。公開途中の失敗は `--report` に記録できます。
+Comments, anchors, aliases, mapping keys, and references embedded in descriptive text are preserved. Each canonical target builds once. All images and the completed output are validated before publication starts. Only complete success emits resolved documents to stdout; logs use stderr. One JSON input remains JSON, multiple JSON inputs form an array, and inputs containing YAML produce a YAML document stream. `--report` can record partial publication.
 
-resolve は Registry 公開専用です。`--push=false`、export/local/kind、`--dry-run`、`--target` は使用できません。
+Resolve requires Registry publication. It rejects `--push=false`, export/local/kind options, `--dry-run`, and `--target`.
 
-## 再現性と対応範囲
+## Reproducibility and limitations
 
-`--reproducible` は digest 固定 base または `--base-layout` を要求します。`--verify-deterministic` は layer cache を迂回し、別々の staging で二度構築して比較します。Git 情報を出力から外す場合は `--git-metadata=false`。
+`--reproducible` requires a digest-pinned base or `--base-layout`. `--verify-deterministic` bypasses layer caches and compares two independent staging builds. Use `--git-metadata=false` to omit automatic Git metadata.
 
-未対応: nested workspaces、catalog、file/link/git dependencies、compile/bytecode、source symlink、project bunfig.toml、import attributes/macros、computed application imports、install scripts が必要な runtime packages、SBOM/provenance/sign、apply、cache prune。構文検出は保守的で、文字列やコメントを誤検出する場合があります。未知・未対応の指定はエラーにします。
+Unsupported: nested workspaces, catalogs, file/link/git dependencies, compile/bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts, SBOM/provenance/signing, apply, and cache pruning. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
 
-## 開発・検証
+## Development and validation
 
 ```sh
 bun run check
 bun run build
 bun dist/bunko.js --help
 
-# Docker とネットワークが必要: 実 Registry への公開・再利用・pull・実行
+# Docker and network required for publication, reuse, pull, and runtime checks.
 bun run test:m1-smoke
 bun run test:m2a-smoke
 bun run test:m2b-smoke
@@ -132,10 +132,10 @@ bun run test:m2c-smoke
 bun run test:bundled-smoke
 ```
 
-通常テストはネットワーク/Docker 不要で、Python 3 の tarfile による独立検査も含みます。CI は Linux/macOS の型チェック・テスト・CLI bundle と、Linux 上の実 Registry integration を実行します。smoke は専用 Registry/container/tag を作り、終了時に削除します。既定で amd64/arm64 を実行し、`BUNKO_SMOKE_PLATFORMS=linux/amd64` で実行対象だけを絞れます。
+Ordinary tests need no network or Docker and include independent Python 3 tarfile checks. CI runs typechecks, tests, and CLI bundling on Linux/macOS, plus real Registry integration on Linux. Smoke tests create and remove their own Registries, containers, and image tags. Runtime defaults to amd64 and arm64; set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict execution while retaining both build platforms.
 
-- [現行実装仕様](docs/SPEC.md)
-- [Registry 設定と検証状況](docs/REGISTRIES.md)
-- [詳細設計とロードマップ](docs/DESIGN.md)
-- [検証記録と転送量](docs/VALIDATION.md)
-- [最初の仕様書 v0.1](docs/archive/SPEC-v0.1.md)
+- [Current implementation specification](docs/SPEC.md)
+- [Registry configuration and verification status](docs/REGISTRIES.md)
+- [Detailed design and roadmap](docs/DESIGN.md)
+- [Validation records and transfer measurements](docs/VALIDATION.md)
+- [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)

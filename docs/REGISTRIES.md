@@ -1,51 +1,51 @@
-# Registry 設定と検証状況
+# Registry configuration and verification status
 
-M1 は OCI Distribution の push/pull と Docker-compatible credentials を実装する。cloud SDK は同梱せず、認証済み Docker config / credential helper を利用する。repository の作成や cloud IAM の変更は行わない。
+M1 implements OCI Distribution push/pull and Docker-compatible credentials. Cloud SDKs are not bundled: use an authenticated Docker config or credential helper. bunko does not create repositories or change cloud IAM.
 
-## 対応表
+## Support matrix
 
-| Registry | `--repo` の例（prefix） | 認証 | 現時点の検証 |
+| Registry | Example `--repo` prefix | Authentication | Verification status |
 | --- | --- | --- | --- |
-| GitHub Container Registry | `ghcr.io/OWNER` | Docker login、PAT / workflow token | helper・Basic → scoped Bearer の自動試験。サービスへの実 push は未検証 |
-| Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | `gcloud` / `gcr` helper、access token | helper・Bearer の自動試験。サービスへの実 push は未検証 |
-| Docker Hub | `docker.io/USERNAME` | Docker login / credential store | 公開 base の実 pull、host alias・Bearer の自動試験。アカウントへの実 push は未検証 |
-| Amazon ECR private | `ACCOUNT.dkr.ecr.REGION.amazonaws.com/PREFIX` | `ecr-login` helper、AWS password | helper・Basic challenge と再取得の自動試験。サービスへの実 push は未検証 |
-| OCI Distribution | `localhost:5000/demo` | Basic / Bearer / anonymous | Distribution 3 で実 push/pull、cache 再利用、コンテナ実行を確認 |
+| GitHub Container Registry | `ghcr.io/OWNER` | Docker login, PAT, or workflow token | Automated helper and Basic-to-scoped-Bearer tests; real service push not verified. |
+| Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | gcloud/gcr helper or access token | Automated helper/Bearer tests; real service push not verified. |
+| Docker Hub | `docker.io/USERNAME` | Docker login or credential store | Real public-base pull and automated host-alias/Bearer tests; account push not verified. |
+| Amazon ECR private | `ACCOUNT.dkr.ecr.REGION.amazonaws.com/PREFIX` | ecr-login helper or AWS password | Automated helper/Basic-challenge/credential-refresh tests; real service push not verified. |
+| OCI Distribution | `localhost:5000/demo` | Basic, Bearer, or anonymous | Real push/pull, cache reuse, and container execution with Distribution 3. |
 
-prefix に `bunko.imageName` または project 名が付く。Docker Hub で repository `USERNAME/app` を正確に指定する場合などは `--repo docker.io/USERNAME/app --bare` を使う。GAR の project/repository、ECR の完全な image repository は事前に用意する。ECR Public や Harbor 固有の拡張、referrers/署名は別途検証が必要。
+bunko appends `bunko.imageName` or the project name to the prefix. For an exact repository, use `--bare`, for example `--repo docker.io/USERNAME/app --bare`. Create GAR projects/repositories and exact ECR image repositories beforehand. ECR Public, Harbor-specific extensions, referrers, and signing require separate validation.
 
-各 cloud Registry への公開試験には利用者が指定した repository と権限が必要なため、この PR では未実施。mock の成功を cloud の相互運用確認として扱わない。
+Cloud publication tests require a user-selected repository and permissions. They were not run in M1/M2. Passing mock tests does not establish interoperability with a cloud service.
 
-## 認証設定の選択
+## Credential selection
 
-config の参照順は次のとおり。
+Configuration path precedence:
 
-1. `BUNKO_DOCKER_CONFIG`: **file** path
-2. `$DOCKER_CONFIG/config.json`: Docker と同じ directory 指定
-3. `~/.docker/config.json`
+1. `BUNKO_DOCKER_CONFIG`: a file path.
+2. `$DOCKER_CONFIG/config.json`: Docker's directory-based convention.
+3. `~/.docker/config.json`.
 
-registry ごとの `credHelpers` → `credsStore` → `auths` の順に選ぶ。選んだ helper が失敗した場合は stale な `auths` に切り替えない。helper は `PATH` 上の `docker-credential-NAME get` を実行し、server を stdin へ渡す。Docker Hub の `docker.io` / `registry-1.docker.io` / `https://index.docker.io/v1/` を対応付ける。[Docker credential stores](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
+Credential precedence is host-specific `credHelpers`, then `credsStore`, then `auths`. A selected helper failure does not fall back to stale auths. Invoke `docker-credential-NAME get` from PATH and pass the server on stdin. Docker Hub's docker.io, registry-1.docker.io, and https://index.docker.io/v1/ aliases are normalized. [Docker credential stores](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
 
-`auths` の username/password、base64 `auth`、`identitytoken`、`registrytoken` に対応する。HTTP 401 の Basic / Bearer challenge に従って認証し、Bearer token は scope と有効期限を考慮して再利用する。別 origin の storage redirect に Registry の Authorization を転送しない。[Registry authentication](https://docs.docker.com/reference/api/registry/auth/)
+Supported auths include username/password, base64 auth, identitytoken, and registrytoken. Follow HTTP 401 Basic/Bearer challenges, reusing Bearer tokens according to scope and expiry. Do not forward Registry Authorization across storage redirect origins. [Registry authentication](https://docs.docker.com/reference/api/registry/auth/)
 
-## 設定例
+## Examples
 
-以下の大文字名は環境に合わせて置換する。login は通常の Docker CLI で一度行うか、既存 helper を使用する。
+Replace uppercase placeholders with values for your environment. Log in once through Docker or use an existing credential helper.
 
 ### GHCR
 
-PAT classic を使う場合は公開先に `write:packages` 権限が必要。GitHub Actions では repository/package へのアクセス権を持つ `GITHUB_TOKEN` と `packages: write` を設定する。[GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+A classic PAT needs write:packages and access to the destination. GitHub Actions can use GITHUB_TOKEN with packages:write and access to the repository/package. [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 
 ```sh
-# 対話ログイン: token をコマンド引数に含めない
-# CI では secret を docker login --password-stdin に渡す
+# Interactive login keeps the token out of command arguments.
+# In CI, pass the secret through docker login --password-stdin.
 docker login ghcr.io --username USERNAME
 bun run dev build examples/hello --repo ghcr.io/OWNER
 ```
 
 ### Google Artifact Registry
 
-gcloud CLI を認証した環境で対象 host の helper を設定する。standalone `docker-credential-gcr` と ADC も利用できる。[Artifact Registry authentication](https://docs.cloud.google.com/artifact-registry/docs/docker/authentication)
+Configure the host helper in an authenticated gcloud environment. The standalone docker-credential-gcr helper and ADC are also supported. [Artifact Registry authentication](https://docs.cloud.google.com/artifact-registry/docs/docker/authentication)
 
 ```sh
 gcloud auth configure-docker asia-northeast1-docker.pkg.dev
@@ -62,7 +62,7 @@ bun run dev build examples/hello --repo docker.io/USERNAME
 
 ### Amazon ECR
 
-`docker-credential-ecr-login` をインストールし、Docker config に host ごとの helper を指定する。
+Install docker-credential-ecr-login and select it per host in Docker configuration:
 
 ```json
 {
@@ -72,7 +72,7 @@ bun run dev build examples/hello --repo docker.io/USERNAME
 }
 ```
 
-AWS credentials は helper 側で解決する。helper を使わない場合は AWS CLI から password を stdin に渡す。ECR authorization token は 12 時間有効。[ECR private registry authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html)
+The helper resolves AWS credentials. Alternatively, obtain a password with AWS CLI and pass it on stdin. ECR authorization tokens are valid for 12 hours. [ECR private authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html)
 
 ```sh
 aws ecr get-login-password --region REGION | \
@@ -81,21 +81,21 @@ bun run dev build examples/hello \
   --repo ACCOUNT.dkr.ecr.REGION.amazonaws.com/hello --bare
 ```
 
-### HTTP の開発用 Registry
+### HTTP development Registry
 
-HTTPS が既定。loopback を含め、HTTP を使う host は明示する。
+HTTPS is the default. Explicitly permit HTTP hosts, including loopback:
 
 ```sh
 bun run dev build examples/hello --repo localhost:5000/demo \
   --insecure-registry localhost:5000
 ```
 
-TLS 証明書の検証を無効化する flag ではない。
+This option does not disable TLS certificate verification.
 
-## Cache と公開失敗
+## Cache and publication failures
 
-cache は既定で image と同じ repository の `bunko-cache-v1-deps-<full-key>` / `bunko-cache-v1-assets-<full-key>` tag に保存する。別 repository は `--cache-repo` または `BUNKO_CACHE_REPO`。cache の custom OCI artifact が許可されない場合や書き込み権限がない場合は警告し、image の公開は成功扱いにできる。不要なら `--no-registry-cache` を指定する。
+Cache tags default to `bunko-cache-v1-deps-<full-key>` and `bunko-cache-v1-assets-<full-key>` in the image repository. Use `--cache-repo` or `BUNKO_CACHE_REPO` for a separate cache repository. Unsupported custom OCI artifacts or denied cache writes produce diagnostics while image publication may still succeed. Disable Registry caching with `--no-registry-cache`.
 
-blob は HEAD → 同一 Registry の cross-repository mount → upload の順に配置する。upload は 8 MiB ごとの chunk と offset 照合を使う。全 platform の manifest/index を digest で公開した後に tag を更新する。複数 tag は transaction ではなく、途中失敗時は `--report` に公開済み digest / tags / pendingTags を残し、exit 1・stdout 空とする。既存 tag の rollback はしない。
+Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads use 8 MiB chunks and offset reconciliation. Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
 
-Registry credentials は npm credentials と別扱い。private npm は project `.npmrc` の HTTPS registry / scoped registry と `${ENV_NAME}` の認証値を利用する。認証 file は install staging だけに置いて終了時に削除し、cache key、image、report に認証値を入れない。
+Registry credentials and npm credentials are separate. Private npm uses HTTPS registry/scoped-registry configuration and `${ENV_NAME}` credentials from project .npmrc. Authentication files exist only in install staging and are removed afterward; values do not enter cache keys, images, or reports.
