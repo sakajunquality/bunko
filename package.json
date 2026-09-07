@@ -12,6 +12,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "test:smoke": "bun test/smoke.ts",
+    "test:registry": "bun test/registry-conformance.ts",
+    "test:registry-local": "bun test/registry-local.ts",
     "test:m1-smoke": "bun test/m1-smoke.ts",
     "test:m2c-smoke": "bun test/m2c-smoke.ts",
     "test:bundled-smoke": "bun test/bundled-smoke.ts",

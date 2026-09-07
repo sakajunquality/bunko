@@ -99,3 +99,47 @@ Cache tags default to `bunko-cache-v1-deps-<full-key>` and `bunko-cache-v1-asset
 Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads use 8 MiB chunks and offset reconciliation. Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
 
 Registry credentials and npm credentials are separate. Private npm uses HTTPS registry/scoped-registry configuration and `${ENV_NAME}` credentials from project .npmrc. Authentication files exist only in install staging and are removed afterward; values do not enter cache keys, images, or reports.
+
+## Opt-in service conformance
+
+After merging the workflow, select **Actions → Registry conformance → Run workflow** and supply a provider plus a fully qualified, dedicated image repository. The workflow validates that the host matches the selected provider before authentication. It builds amd64/arm64, publishes unique image tags, edits the source, checks dependency/asset reuse, pulls through a fresh client, and runs the amd64 image through Docker. It also exports Docker's stored config and verifies its digest; Docker's displayed image ID can represent an index or manifest depending on the image store.
+
+Configure only the provider you intend to run:
+
+| Provider | Repository variables | Repository secrets / identity |
+| --- | --- | --- |
+| GHCR | Optional GHCR_USERNAME | GITHUB_TOKEN by default; optional GHCR_TOKEN for a different authorized identity |
+| GAR | GAR_WORKLOAD_IDENTITY_PROVIDER, GAR_SERVICE_ACCOUNT | Workload Identity Federation with service-account access to the selected GAR repository |
+| Docker Hub | DOCKERHUB_USERNAME | DOCKERHUB_TOKEN with push access to the dedicated repository |
+| ECR private | AWS_ROLE_ARN | GitHub OIDC trust and ECR permissions for the selected account/repository; region/account are derived from the destination |
+
+The workflow uses the official [Docker login action](https://github.com/docker/login-action), [Google authentication action](https://github.com/google-github-actions/auth), [AWS credentials action](https://github.com/aws-actions/configure-aws-credentials), and [ECR login action](https://github.com/aws-actions/amazon-ecr-login), pinned to commits. Create repositories and configure permissions beforehand. Supply a separate cache repository on the same host to exercise cross-repository cache reuse, or leave it empty to use the image repository. ECR repositories must allow the distinct cache/image tags created by repeated runs.
+
+The default requires verified Registry cache hits. Disable that requirement only to test publication/runtime on a provider without usable custom cache artifacts; the report still marks cache verification false. A successful publication-only run must not be recorded as cache conformance.
+
+For local execution with existing Docker credentials:
+
+```sh
+BUNKO_SMOKE_VENDOR=ghcr \
+BUNKO_SMOKE_REPO=ghcr.io/OWNER/bunko-conformance \
+BUNKO_SMOKE_REPORT=/tmp/bunko-ghcr-report.json \
+bun run test:registry
+```
+
+The report path must be new. Both clients use DOCKER_CONFIG; BUNKO_DOCKER_CONFIG is rejected by this harness to prevent mismatched authentication. Optional variables are BUNKO_SMOKE_CACHE_REPO, BUNKO_SMOKE_REQUIRE_CACHE (true/false), BUNKO_SMOKE_PLATFORMS (runtime platforms, default linux/amd64), and BUNKO_SMOKE_NPM_CACHE. Every run still builds both image platforms.
+
+Runs retain remote `bunko-smoke-<UUID>-first` / `-warm` image tags and `bunko-cache-v1-*` cache tags in the supplied repositories. Reports identify those tags and any partial publication. The harness removes only its own local containers/images/temp files; remote retention or deletion is managed separately. Reports include publication, payload transfers, cache verification, verified descriptors, native runtime responses, and shutdown results. The workflow uploads available reports even on failure.
+
+Token expiry, permission changes during a run, private npm services, referrers, and provider-specific policy combinations remain separate tests. Live provider rows above remain unverified until an actual report and workflow run establish the result.
+
+## Authenticated local conformance
+
+```sh
+bun run test:registry-local
+```
+
+This starts a disposable Distribution 3 Registry with Basic authentication, rejects anonymous/wrong-password requests, then uses the same conformance harness with a separate cache repository. CI directly pulls and runs linux/amd64 with Docker. On macOS, the harness uses a digest-verified host pull and Docker archive load because Docker Desktop cannot reach the host's loopback Registry in the validated environment. Reports distinguish that path with `directDockerPull:false`; it does not establish direct Docker pull conformance.
+
+Prerequisite Docker pulls retry transient 429/5xx and connection failures at most three times. Container creation is not retried. This addresses an observed Docker Hub 500 while starting the merged-main CI job; rerunning that original job succeeded.
+
+Local validation on 2026-09-08 passed with authenticated Distribution 3, separate image/cache repositories, and both amd64/arm64 runtime checks on macOS. Cache reuse was verified, both Docker-exported config digests matched, and both nonroot/read-only containers exited 0 on SIGTERM. This run used the archive path, not direct Docker pull. The Linux CI run exercises direct Docker pull separately.
