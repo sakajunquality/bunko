@@ -53,7 +53,7 @@ On 2026-09-08 JST, the owner-authorized dedicated GHCR and GAR repositories also
 - Signing explicitly disabled public transparency-log uploads. Temporary local keys/passwords were removed; unique remote test tags/signatures were retained for inspection.
 - OCI annotations, CLI labels, conventional bunkodata and immutable reference-file generation participated in these builds.
 
-GHCR used the existing packages-write GITHUB_TOKEN in the **private** bunko-test repository. Its [successful workflow](https://github.com/sakajunquality/bunko-test/actions/runs/34153165727) also reran the earlier push/cache/direct-pull/native/runtime conformance. The checksum-pinned Linux cosign binary came from the official v3.1.3 release. [GHCR supply-chain report](validation/2026-09-08-ghcr-supply-chain.json).
+GHCR used the existing packages-write GITHUB_TOKEN in the **private** bunko-test repository. Its [successful workflow](https://github.com/sakajunquality/bunko-test/actions/runs/34153920503) also reran the earlier push/cache/direct-pull/native/runtime conformance. The checksum-pinned Linux cosign binary came from the official v3.1.3 release. [GHCR supply-chain report](validation/2026-09-08-ghcr-supply-chain.json).
 
 GAR used the existing Docker gcloud helper with the private gcloud configuration; IAM and visibility were unchanged. [GAR supply-chain report](validation/2026-09-08-gar-supply-chain.json).
 

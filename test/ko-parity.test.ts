@@ -107,3 +107,10 @@ test("bunkodata rejects omitted files and no-match still validates explicit exec
   await expect(resolveDocuments({ files: ["-"], selector: "!app", jobs: 0, stdin: async () => { read = true; return ""; } })).rejects.toThrow("--jobs");
   expect(read).toBe(false);
 });
+
+test("selector labels must be a mapping, including aliased and tagged scalar values", () => {
+  for (const source of ["metadata: {labels: 1.5}", "value: &value 1.5\nmetadata: {labels: *value}", "metadata: {labels: !!set {app: null}}"])
+    expect(() => selectDocuments("invalid.yaml", source, labelSelector("!app"))).toThrow("string map");
+  expect(selectDocuments("aliased.yaml", "labels: &labels {app: api}\nmetadata: {labels: *labels}", labelSelector("app=api"))).toBeDefined();
+  expect(selectDocuments("null.yaml", "metadata: {labels: null}", labelSelector("!app"))).toBeDefined();
+});

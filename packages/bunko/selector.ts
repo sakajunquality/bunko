@@ -39,6 +39,7 @@ export function labelSelector(selector: string): (labels: Record<string, string>
   return (labels) => requirements.every((requirement) => requirement(labels));
 }
 
+/** Preserve validated float tokens instead of rounding through JavaScript numbers. */
 class FloatLiteral {
   constructor(readonly source: string) {}
   toString() { return this.source; }
@@ -73,9 +74,15 @@ export function selectDocuments(name: string, source: string, match: (labels: Re
     if (document.errors.length || document.warnings.length) throw new Error(`${name}: ${[...document.errors, ...document.warnings][0]!.message}`);
     if (!document.contents || isScalar(document.contents) && document.contents.value === null) continue;
     const metadata = mappingValue(document.contents, "metadata", document);
-    const labelsNode = mappingValue(metadata, "labels", document) as Node | undefined;
+    let labelsNode = mappingValue(metadata, "labels", document) as Node | undefined;
+    const labelAliases = new Set<Node>();
+    while (isAlias(labelsNode)) {
+      if (labelAliases.has(labelsNode) || labelAliases.size >= 100) throw new Error(`${name}: cyclic or excessive label aliases`);
+      labelAliases.add(labelsNode); labelsNode = labelsNode.resolve(document);
+    }
+    if (labelsNode && !(isScalar(labelsNode) && labelsNode.value === null) && !isMap(labelsNode)) throw new Error(`${name}: metadata.labels must be a string map`);
     const labels = labelsNode?.toJS(document, { maxAliasCount: 100 }) ?? {};
-    if (!labels || typeof labels !== "object" || Array.isArray(labels) || !Object.values(labels).every((value) => typeof value === "string")) throw new Error(`${name}: metadata.labels must be a string map`);
+    if (!labels || typeof labels !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(labels)) || !Object.values(labels).every((value) => typeof value === "string")) throw new Error(`${name}: metadata.labels must be a string map`);
     if (match(labels)) selected.push(document);
   }
   if (!selected.length) return;
