@@ -6,6 +6,7 @@ import type { Platform } from "../oci/types.ts";
 import type { Workspace } from "./workspace.ts";
 import type { Project } from "./config.ts";
 import { fileEntries, hashFile, OUTPUT_DIRECTORY } from "./files.ts";
+import { mapFiles } from "./concurrency.ts";
 import type { Toolchain } from "./toolchain.ts";
 
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
@@ -108,7 +109,7 @@ export async function dependencyPlan(project: Project, root: string): Promise<De
     }
     for (const pkg of workspace.packages.filter((p) => p.path && referenced.has(String(p.manifest.name)))) {
       const entries = await fileEntries(join(root, pkg.path), pkg.path);
-      workspaceSources[pkg.path] = sha256(canonicalJSON(await Promise.all(entries.map(async (entry) => entry.type === "file" ? { path: entry.path, executable: entry.executable, digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content) } : entry))));
+      workspaceSources[pkg.path] = sha256(canonicalJSON(await mapFiles(entries, async (entry) => entry.type === "file" ? { path: entry.path, executable: entry.executable, digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content) } : entry)));
     }
   }
   return { manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
@@ -123,7 +124,8 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (plan.npmrc) await writeFile(auth, plan.npmrc, { mode: 0o600 });
   const args = [toolchain.path, "install", "--frozen-lockfile", "--ignore-scripts", "--linker=isolated", "--backend=copyfile", "--no-progress", `--config=${config}`, `--registry=${plan.registry}`];
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
-  if (cacheDirectory) args.push(`--cache-dir=${cacheDirectory}`);
+  // Keep downloads outside node_modules even in the intentionally HOME-free environment.
+  args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   try {
@@ -235,5 +237,5 @@ export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, pla
   const fields = [...dependencyFields, "peerDependenciesMeta", "overrides", "resolutions", "patchedDependencies", "trustedDependencies", "name", "version", "os", "cpu"];
   const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
-  return { manifests, workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v1" : "standalone-v1", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, external: project.external };
+  return { manifests, workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, external: project.external };
 }

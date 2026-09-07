@@ -1,26 +1,4 @@
-# Third-party notices
-
-The distributed CLI bundles yaml 2.9.0 (https://github.com/eemeli/yaml), ISC license.
-
-Copyright Eemeli Aro <eemeli@gmail.com>
-
-Permission to use, copy, modify, and/or distribute this software for any purpose
-with or without fee is hereby granted, provided that the above copyright notice
-and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
-OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
-TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
-THIS SOFTWARE.
-
-## TypeScript 5.9.3
-
-The bundled syntax parser is part of TypeScript, copyright Microsoft Corporation.
-Source: https://github.com/microsoft/TypeScript/tree/v5.9.3
-
+/*! TypeScript 5.9.3 — Copyright Microsoft Corporation.
 Apache License
 
 Version 2.0, January 2004
@@ -76,3 +54,22 @@ If the Work includes a "NOTICE" text file as part of its distribution, then any 
 9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
 
 END OF TERMS AND CONDITIONS
+
+*/
+import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, isImportDeclaration, isStringLiteralLike, ScriptTarget, SyntaxKind, type Node } from "typescript";
+
+/** Parse syntax only: never resolve imports, transform code, or execute macros. */
+export function rejectMacroSyntax(code: string, name: string): void {
+  const source = createSourceFile(name, code, ScriptTarget.Latest);
+  const pending: Node[] = [source];
+  while (pending.length) {
+    const node = pending.pop()!;
+    const declaration = isImportDeclaration(node) || isExportDeclaration(node) ? node : undefined;
+    const dynamic = isCallExpression(node) && node.expression.kind === SyntaxKind.ImportKeyword ? node : undefined;
+    const specifier = declaration?.moduleSpecifier ?? dynamic?.arguments[0];
+    if (declaration?.attributes || dynamic && dynamic.arguments.length > 1 || specifier && isStringLiteralLike(specifier) && specifier.text.startsWith("macro:")) {
+      throw new Error(`Import attributes / macros are not supported in M1: ${name}`);
+    }
+    forEachChild(node, (child) => { pending.push(child); });
+  }
+}

@@ -33,8 +33,10 @@ interface Replacement { start: number; end: number; uri: string; comment?: strin
 interface Input { name: string; source: string; json: boolean; documents: number; ended: boolean; firstVersionExplicit: boolean; firstStart: boolean; lastVersion?: string; replacements: Replacement[] }
 
 function reference(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value.startsWith("bunko://") || /[\s{}$]/.test(value)) return;
-  if (value === "bunko://" || /[\\?#\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid bunko reference: ${value}`);
+  if (typeof value !== "string" || !value.startsWith("bunko://")) return;
+  // Template expressions are intentionally left for the caller's renderer.
+  if (/\$\{[^}]+\}|\{\{[\s\S]*?\}\}/.test(value)) return;
+  if (value === "bunko://" || /[\s{}$\\?#\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid bunko reference: ${value}`);
   return value;
 }
 

@@ -112,7 +112,9 @@ export class Publisher {
           const confirmed = Number(range[1]) + 1;
           if (!Number.isSafeInteger(confirmed) || confirmed < offset || confirmed > end) throw new Error("Registry upload offset is inconsistent");
           offset = confirmed;
-          location = this.location(status, location);
+          // Some registries omit Location on status GETs. Keep the last signed
+          // upload URL unless the server supplies a replacement.
+          if (status.headers.has("Location")) location = this.location(status, location);
         }
       }
       for (let attempt = 0; ; attempt++) {

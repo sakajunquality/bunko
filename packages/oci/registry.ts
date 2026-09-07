@@ -8,6 +8,8 @@ export interface RegistryOptions {
   credentials?: CredentialProvider;
   insecure?: string[];
   retries?: number;
+  /** Deadline for GET/HEAD response headers; it never limits body transfers. */
+  headersTimeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -52,9 +54,13 @@ export class RegistryClient {
   readonly origin: string;
   readonly fetcher: Fetcher;
   private readonly credentials: CredentialProvider;
+  private readonly insecureOrigins: Set<string>;
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   constructor(readonly registry: string, private readonly options: RegistryOptions = {}) {
-    this.origin = `${options.insecure?.includes(registry) ? "http" : "https"}://${registry}`;
+    this.insecureOrigins = new Set((options.insecure ?? []).map((host) => new URL(`http://${host}`).origin));
+    const http = new URL(`http://${registry}`).origin;
+    this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
+    if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
     this.fetcher = options.fetcher ?? fetch;
     this.credentials = options.credentials ?? dockerCredentials();
   }
@@ -62,7 +68,7 @@ export class RegistryClient {
   private safeURL(value: string | URL, from = this.origin): URL {
     const url = new URL(value, from);
     if (url.username || url.password || url.hash) throw new Error("Registry URLs must not contain credentials or fragments");
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && this.options.insecure?.includes(url.host))) throw new Error("Registry URLs and redirects must use HTTPS; explicitly allow a test registry with --insecure-registry");
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && this.insecureOrigins.has(url.origin))) throw new Error("Registry URLs and redirects must use HTTPS; explicitly allow a test registry with --insecure-registry");
     return url;
   }
 
@@ -120,7 +126,13 @@ export class RegistryClient {
           const token = this.tokens.get(key);
           if (url.origin === this.origin && token && token.expires > Date.now()) headers.set("Authorization", token.authorization);
           if (!headers.has("Accept")) headers.set("Accept", [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "));
-          response = await this.fetcher(url, { ...init, headers, redirect: "manual", signal: AbortSignal.timeout(120_000) });
+          // A whole-request deadline also aborts Bun's response stream and
+          // slow PATCH bodies. Only bound the wait for GET/HEAD headers here.
+          const controller = retryable ? new AbortController() : undefined;
+          const timer = controller ? setTimeout(() => controller.abort(), this.options.headersTimeoutMs ?? 120_000) : undefined;
+          const signal = controller ? init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal : init.signal;
+          try { response = await this.fetcher(url, { ...init, headers, redirect: "manual", signal }); }
+          finally { clearTimeout(timer); }
           if (![301, 302, 303, 307, 308].includes(response.status)) break;
           const location = response.headers.get("Location");
           await response.body?.cancel();
@@ -128,6 +140,7 @@ export class RegistryClient {
           url = this.safeURL(location, url.toString());
         }
       } catch (error) {
+        if (init.signal?.aborted) throw init.signal.reason;
         if (error instanceof Error && /HTTPS|credentials or fragments|registry redirect/.test(error.message)) throw error;
         if (!retryable || attempt >= (this.options.retries ?? 3)) throw new Error(`Registry ${method} connection failed: ${this.registry}`);
         await this.backoff(attempt);

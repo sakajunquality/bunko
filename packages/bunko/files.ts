@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, posix, relative, resolve } from "node:path";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Digest } from "../oci/types.ts";
+import { rejectMacroSyntax } from "./syntax.ts";
 
 export const OUTPUT_DIRECTORY = ".bunko-build";
-const omitted = new Set([".git", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
+const omitted = new Set([".git", ".cursor", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
 
 export async function rejectMacros(file: string, name: string): Promise<void> {
   const code = await readFile(file, "utf8");
-  if (/\b(?:with|assert)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\{/.test(code) || /["']macro:/.test(code)) throw new Error(`Import attributes / macros are not supported in M1: ${name}`);
+  rejectMacroSyntax(code, name);
 }
 
 export async function hashFile(path: string): Promise<Digest> {
@@ -45,7 +46,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       await copyFile(current, copied);
       await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
       // Bun 1.3.11's CLI does not reliably honor --no-macros. Reject import
-      // attributes conservatively before invoking the bundler; no parser executes.
+      // attributes before invoking the bundler; parsing never executes source code.
       if (/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) {
         await rejectMacros(copied, path);
         const code = (await readFile(copied, "utf8")).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
@@ -94,14 +95,19 @@ export async function assetEntries(root: string, patterns: string[], prefix: str
 }
 
 export function assertNoLayerCollision(groups: TarEntry[][]): void {
-  const paths = new Map<string, TarEntry>();
+  const paths = new Map<string, TarEntry["type"]>();
+  const caseNames = new Map<string, string>();
+  function add(path: string, type: TarEntry["type"]) {
+    const lower = path.toLowerCase(), previous = paths.get(path);
+    if (caseNames.has(lower) && caseNames.get(lower) !== path) throw new Error(`Case-colliding layer path: ${path}`);
+    if (previous && (previous !== "directory" || type !== "directory")) throw new Error(`Assets overlap application output or file/directory collision: ${path}`);
+    paths.set(path, type);
+    caseNames.set(lower, path);
+  }
   for (const group of groups) for (const entry of group) {
-    const previous = paths.get(entry.path);
-    if (previous && (previous.type !== "directory" || entry.type !== "directory")) throw new Error(`Assets overlap application output: ${entry.path}`);
-    for (const [path, value] of paths) {
-      if (path.toLowerCase() === entry.path.toLowerCase() && path !== entry.path) throw new Error(`Case-colliding layer path: ${entry.path}`);
-      if ((entry.path.startsWith(`${path}/`) && value.type !== "directory") || (path.startsWith(`${entry.path}/`) && entry.type !== "directory")) throw new Error(`File/directory collision between layers: ${entry.path}`);
-    }
-    paths.set(entry.path, entry);
+    archivePath(entry.path);
+    add(entry.path, entry.type);
+    // Record implicit parents so either insertion order catches collisions.
+    for (let parent = posix.dirname(entry.path); parent !== "."; parent = posix.dirname(parent)) add(parent, "directory");
   }
 }
