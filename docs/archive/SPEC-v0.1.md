@@ -1,130 +1,116 @@
-# bunko — 仕様書 v0.1
+# bunko — Original proposal v0.1
 
-bunko は Bun プロジェクトを Dockerfile なし・daemon なしで OCI イメージにするビルダー。
-Go における ko の思想（ツールチェーンが成果物を作り、変わったレイヤーだけ registry に push する）を
-Bun 向けに再設計し、buildx の registry cache 相当をレジストリ自身で代替する。
+This is an English translation of the original proposal, retained for design history. It includes assumptions and features that were later revised or deferred. The current contract is [SPEC.md](../SPEC.md), with decisions in [DESIGN.md](../DESIGN.md). The [original Japanese text remains in Git history](https://github.com/sakajunquality/bunko/blob/337ee98666025212849f2b38c432f3e38174048f/docs/archive/SPEC-v0.1.md).
 
-このドキュメントは実装の唯一の仕様。実装中に矛盾や未定義を見つけたら
-`## 未決事項` に追記し、決定したら該当セクションを更新する。
+Bunko builds OCI images from Bun projects without Dockerfiles or a daemon. It adapts ko's Go-oriented approach—the toolchain produces artifacts, and only changed layers are pushed—to Bun, using the Registry itself to provide functionality comparable to buildx's Registry cache.
 
----
+The original proposal designated this document as the sole implementation specification. It required contradictions and undefined behavior to be added to an open-questions section, then reflected in the relevant sections once resolved. The current documents linked above supersede that instruction.
 
-## 1. ゴールと非ゴール
+## 1. Goals and non-goals
 
-### ゴール（優先順）
+### Goals, in priority order
 
-1. **ゼロ設定**: `bunx bunko build .` が package.json だけで動く
-2. **差分 push 最小化**: 1 行の変更で push されるのはアプリバンドルのレイヤー（数百 KB〜数 MB）のみ
-3. **決定的ビルド**: 同じソース・同じ lockfile・同じ bunko バージョンなら image digest が一致する
-4. **daemonless**: Docker daemon / BuildKit 不要。CI でもローカルでも同じ動作
-5. **workspaces 対応**: 1 つの `bun.lock` から複数イメージを出し、deps レイヤーをサービス間で共有
-6. **供給網**: SBOM・provenance・署名をオプション一つで付与
-7. **逃げ道を用意**: `--compile` モード、native deps の外部委譲、任意の base image
+1. **Zero configuration:** `bunx bunko build .` works from package.json alone.
+2. **Minimal incremental push:** a one-line change uploads only the application bundle layer, from a few hundred KB to a few MB.
+3. **Deterministic builds:** identical source, lockfile, and bunko version produce identical image digests.
+4. **Daemonless:** no Docker daemon or BuildKit, with identical local and CI behavior.
+5. **Workspaces:** build multiple images from one bun.lock and share dependency layers between services.
+6. **Supply-chain metadata:** attach SBOM, provenance, and signatures with one option.
+7. **Alternatives for special cases:** compile mode, externally prepared native dependencies, and arbitrary base images.
 
-### 非ゴール
+### Non-goals
 
-- Dockerfile の解釈、任意の `RUN` 実行
-- Node.js プロジェクトのビルド（将来検討、v0 では Bun のみ）
-- Windows コンテナ
-- レジストリの実装・ホスティング
+- Interpreting Dockerfiles or executing arbitrary RUN instructions.
+- Building Node.js projects; v0 targets Bun, with future support left open.
+- Windows containers.
+- Implementing or hosting a Registry.
 
-### 「ベスト」の証明（README 先頭に置くベンチ）
+### Benchmark proposal
 
-比較対象: Bun 公式ガイドの Dockerfile（multi-stage + `--compile`）、buildx + `--cache-to type=registry`。
-指標: (a) 1 行変更時の push バイト数 (b) キャッシュ hit 時のビルド秒数 (c) イメージサイズ (d) digest 再現性。
-`bench/` に再現スクリプトを置き、リリースごとに更新する。
+The original proposal called for a benchmark at the top of the README to substantiate its performance claims. Compare the official Bun multi-stage Dockerfile using compile with buildx and `--cache-to type=registry`. Measure bytes pushed after a one-line change, build time with cache hits, image size, and digest reproducibility. Keep reproduction scripts in `bench/` and update them for each release.
 
----
+## 2. Terms
 
-## 2. 用語
-
-| 用語 | 意味 |
-|---|---|
-| target | ビルド対象の 1 パッケージ（単一プロジェクトなら root、workspaces なら各 package） |
-| platform | `linux/amd64`, `linux/arm64`（OCI platform 文字列） |
-| layer | OCI レイヤー（gzip tar）。bunko は役割ごとに固定順序で積む |
-| cache key | レイヤー入力から算出する sha256。registry 上の cache tag と対応 |
-| bundle モード | `bun build --target=bun` の出力 JS をアプリレイヤーにする既定モード |
-| compile モード | `bun build --compile` の単一バイナリをアプリレイヤーにするモード |
-
----
+| Term | Meaning |
+| --- | --- |
+| target | One package to build: the root for standalone projects, or a workspace package |
+| platform | An OCI platform such as linux/amd64 or linux/arm64 |
+| layer | A gzip tar OCI layer, ordered by role |
+| cache key | SHA256 of layer inputs, associated with a Registry cache tag |
+| bundle mode | Default mode: place JS emitted by `bun build --target=bun` in the app layer |
+| compile mode | Place the single binary emitted by `bun build --compile` in the app layer |
 
 ## 3. CLI
 
-```
-bunko build [<path>...]        イメージをビルドして push（既定）
-bunko resolve -f <file>...     manifest 内の bunko:// 参照を digest 付き image 参照に置換
-bunko apply -f <file>...       resolve して kubectl apply に流す（M4）
-bunko cache ls|prune           registry 上の cache tag を一覧 / 削除
+```text
+bunko build [<path>...]       Build and push images by default
+bunko resolve -f <file>...    Replace bunko:// references with image digest references
+bunko apply -f <file>...      Resolve and pipe to kubectl apply (M4)
+bunko cache ls|prune         List or remove Registry cache tags
 bunko version
 ```
 
-### `bunko build`
+### Proposed build interface
 
-```
+```text
 bunko build [<path>...] [flags]
 
-  <path>            target のディレクトリ。省略時は "."。
-                    workspaces root を渡すと全 target をビルド。
-                    "bunko://<path>" 形式も受け付ける（resolve と統一）
-
-  --repo <ref>      push 先。省略時は $BUNKO_REPO
-  --push            push する（既定 true）。--push=false で tarball 出力のみ
-  --local           docker daemon にロード（repo は "bunko.local"）
-  --kind            kind クラスタにロード（repo は "kind.local"、$KIND_CLUSTER_NAME）
-  --platform <list> 例 linux/amd64,linux/arm64。既定 linux/amd64
-  --tag <t>         追加 tag（複数可）。既定は latest と <git short sha>（git 管理下のとき）
-  --bare            image 名を <repo> そのものにする（既定は <repo>/<target 名>）
+  <path>             Target directory; defaults to ".". A workspace root builds
+                     all targets. Also accepts bunko://<path>, as resolve does.
+  --repo <ref>       Destination; defaults to BUNKO_REPO
+  --push             Push by default; --push=false produces a tarball only
+  --local            Load into Docker using bunko.local
+  --kind             Load into kind using kind.local and KIND_CLUSTER_NAME
+  --platform <list>  Comma-separated platforms; defaults to linux/amd64
+  --tag <t>          Repeatable; defaults to latest plus the Git short SHA
+  --bare             Use <repo> directly instead of <repo>/<target-name>
   --mode bundle|compile
-  --base <ref>      base image 上書き
-  --sbom            SPDX SBOM を生成して referrer として push（既定 true）
-  --sign            cosign で署名（cosign バイナリを exec）
-  --oci-layout <dir>  OCI layout ディレクトリへも書き出す
-  --tarball <file>  docker-loadable tarball を書き出す
+  --base <ref>       Override the base image
+  --sbom             Publish an SPDX SBOM referrer; defaults to true
+  --sign             Execute cosign to sign the image
+  --oci-layout <dir> Also write an OCI layout directory
+  --tarball <file>   Write a Docker-loadable archive
   --verbose / -v
-  --dry-run         何を push するかだけ表示
+  --dry-run          Show what would be pushed
 ```
 
-出力（stdout）: 最終 image 参照 `repo/name@sha256:...` を 1 行ずつ。
-ログは stderr。これは ko と同じで、パイプで `kubectl set image` 等に渡せることを保証する。
+Stdout contains one final `repo/name@sha256:...` reference per line. Logs go to stderr, allowing output to feed tools such as kubectl set image, as with ko.
 
-### 環境変数
+### Environment variables
 
-| 変数 | 意味 |
-|---|---|
-| `BUNKO_REPO` | 既定の push 先。`--repo` より弱い |
-| `BUNKO_DEFAULT_BASE` | 既定 base image |
-| `BUNKO_DEFAULT_PLATFORMS` | 既定 platform |
-| `SOURCE_DATE_EPOCH` | レイヤー内 mtime と image created。未設定時は `0` |
-| `BUNKO_CACHE_REPO` | cache tag を置く repo。既定 `<repo>/bunko-cache` |
-| `BUNKO_DOCKER_CONFIG` | docker config.json の場所。既定 `~/.docker/config.json` |
+| Variable | Proposed meaning |
+| --- | --- |
+| `BUNKO_REPO` | Default push destination; overridden by --repo |
+| `BUNKO_DEFAULT_BASE` | Default base image |
+| `BUNKO_DEFAULT_PLATFORMS` | Default platforms |
+| `SOURCE_DATE_EPOCH` | Layer mtime and image creation time; defaults to 0 |
+| `BUNKO_CACHE_REPO` | Cache repository; defaults to <repo>/bunko-cache |
+| `BUNKO_DOCKER_CONFIG` | Docker config.json file; defaults to ~/.docker/config.json |
 
----
+## 4. Configuration in package.json
 
-## 4. 設定（package.json `"bunko"` キー）
-
-設定ファイルは増やさない。`package.json` の `"bunko"` キーのみ。全項目任意。
+Use only the `bunko` key rather than adding a configuration file. All fields are optional.
 
 ```jsonc
 {
   "name": "api",
   "module": "src/server.ts",
   "bunko": {
-    "entrypoint": "src/server.ts",     // 既定: bin > module > main の順で自動検出
-    "mode": "bundle",                  // "bundle" | "compile"
-    "base": "oven/bun:1-distroless",   // 既定値は §6.1
+    "entrypoint": "src/server.ts", // Default: bin, then module, then main
+    "mode": "bundle",             // bundle or compile
+    "base": "oven/bun:1-distroless", // See section 6.1
     "platforms": ["linux/amd64", "linux/arm64"],
-    "assets": ["public", "migrations"], // コピーするディレクトリ/ファイル（glob 可）
-    "external": ["sharp", "@prisma/client"], // bundle せず deps レイヤーに入れる package
+    "assets": ["public", "migrations"], // Files/directories or globs to copy
+    "external": ["sharp", "@prisma/client"], // Put these in deps instead of bundling
     "env": { "NODE_ENV": "production" },
     "ports": [3000],
-    "user": "65532:65532",             // 既定: base の User。未設定なら nonroot
+    "user": "65532:65532", // Inherit base User; use nonroot if unset
     "workdir": "/app",
     "labels": { "org.opencontainers.image.source": "https://github.com/..." },
-    "args": [],                        // entrypoint の後ろに付ける引数
-    "build": {                         // bun build に渡すオプションのサブセット
+    "args": [], // Arguments after the entrypoint
+    "build": { // A subset of bun build options
       "minify": true,
-      "sourcemap": "external",         // "none" | "inline" | "external"
+      "sourcemap": "external", // none, inline, or external
       "bytecode": false,
       "define": { "process.env.FOO": "\"bar\"" },
       "target": "bun"
@@ -133,325 +119,259 @@ bunko build [<path>...] [flags]
 }
 ```
 
-**entrypoint 自動検出**: `bin`（文字列 or 単一エントリ） > `module` > `main` > `src/index.ts` > `index.ts`。
-見つからなければエラー（推測しない）。
+Entrypoint discovery order: bin (string or single entry), module, main, src/index.ts, index.ts. Fail if nothing is found.
 
-**external 自動検出**（`external` に追加でマージ）:
-- `node_modules/<pkg>` 配下に `.node` ファイルを含む package
-- `trustedDependencies` に列挙された package
-- `@prisma/client`, `prisma`（engine を同梱する必要があるため）
-- `bun build` が "Could not resolve" で失敗した package（1 回だけ自動リトライで external に回し、警告を出す）
+The proposed automatic external detection would merge these with explicit externals:
 
----
+- Packages containing `.node` files under node_modules.
+- Packages listed in trustedDependencies.
+- @prisma/client and prisma, which require engine files.
+- Packages reported as unresolved by bun build, with one automatic externalization retry and a warning.
 
-## 5. ビルドパイプライン
+## 5. Build pipeline
 
-```
-resolve targets
-  └ workspaces なら bun.lock から package 一覧を読む
-for each target:
-  1. base image の manifest / config を取得（platform ごと）
-  2. deps レイヤー   : key = H(bun.lock の関連部分, externals, platform)  → cache lookup
-  3. assets レイヤー : key = H(assets ファイル群)                          → cache lookup
-  4. app レイヤー    : bun build を実行 → 決定的 tar → digest
-  5. config を組み立て（entrypoint/env/user/labels/created）
-  6. platform ごとの manifest → 複数なら image index
-  7. blob 存在確認（HEAD）→ 無いものだけ push（cache hit は cross-repo mount）
-  8. SBOM / 署名
-  9. stdout に digest 参照を出力
+```text
+Resolve targets
+  For workspaces, read the package list from bun.lock
+For each target:
+  1. Fetch base manifest/config for each platform
+  2. Deps: H(relevant lock entries, externals, platform), then cache lookup
+  3. Assets: H(asset files), then cache lookup
+  4. App: run bun build, create deterministic tar, compute digest
+  5. Compose config: entrypoint/env/user/labels/created
+  6. Compose platform manifests and an index for multiple platforms
+  7. HEAD blobs, then upload missing blobs or mount cache hits
+  8. Attach SBOM/signatures
+  9. Print digest references
 ```
 
-各ステップは純粋関数として実装し、`--dry-run` で 7 以降を止められること。
+The proposal described each step as a pure function and required dry-run to stop before step 7.
 
----
+## 6. Layer format
 
-## 6. レイヤー仕様
+The order is fixed, with more frequently changing content higher in the image.
 
-順序は固定。下から上へ変化頻度が上がる。
+| Order | Layer | Contents | Destination | Cache |
+| --- | --- | --- | --- | --- |
+| 0 | base | Unchanged base-image layers | Existing paths | Already in Registry |
+| 1 | deps | External node_modules and transitive dependencies | /app/node_modules | Registry cache |
+| 2 | assets | Selected files | /app/<original-relative-path> | Registry cache |
+| 3 | app | index.js and maps, or compiled binary | /app | Recompute; check existence with HEAD |
 
-| # | レイヤー | 内容 | 展開先 | cache |
-|---|---|---|---|---|
-| 0 | base | base image のレイヤーそのまま | — | registry に既存 |
-| 1 | deps | external とその推移的依存の `node_modules` | `/app/node_modules` | registry cache |
-| 2 | assets | `assets` で指定したファイル | `/app/<元の相対パス>` | registry cache |
-| 3 | app | bundle: `index.js` (+ sourcemap) / compile: バイナリ | `/app/` | 都度計算、HEAD で存在確認 |
+Omit empty layers rather than adding empty tar archives.
 
-空のレイヤー（deps が無い等）は **省略** する（空 tar を積まない）。
+### 6.1 Base image
 
-### 6.1 base image
+Proposed default: `oven/bun:1-distroless`, subject to existence/content checks in section 11. Pin the resolved digest and label the config with `org.bunko.base.digest`. Resolve tags each build to follow base updates; users can configure a digest for an immutable base.
 
-既定: `oven/bun:1-distroless`（存在と中身を実装前に確認、§11）。
-bunko は base の **digest を pin** して config に `org.bunko.base.digest` label を書く。
-`bunko build` は毎回 tag を解決するので base 更新は自動追従。固定したければ `base` に digest を書く。
+Bundle mode requires Bun at `/usr/local/bin/bun`. Compile mode requires glibc and libstdc++, with `gcr.io/distroless/cc-debian12` proposed as its default. Evaluate the bun-linux-x64-musl target in M3.
 
-bundle モードの base 要件: `bun` バイナリが `/usr/local/bin/bun` にあること。
-compile モードの base 要件: glibc + libstdc++（`gcr.io/distroless/cc-debian12` 既定）。
-musl ターゲット（`bun-linux-x64-musl`）は M3 で対応検討。
+### 6.2 Dependency layer
 
-### 6.2 deps レイヤー
+1. Parse JSONC bun.lock and compute the transitive closure from externals.
+2. Copy an external-only package.json with lock-pinned versions and bun.lock into a temporary directory; run `bun install --production --frozen-lockfile`. If frozen install fails, fall back to a full install and remove packages outside the closure.
+3. Fetch platform optional dependencies using `bun install --os linux --cpu <arch>`, subject to section 11 validation. Otherwise install on a native target host or delegate to BuildKit.
+4. Pack node_modules deterministically.
 
-1. `bun.lock`（JSONC）を parse し、externals から推移的依存の閉包を取る
-2. 一時ディレクトリに `package.json`（externals のみ、lockfile 上のバージョン固定）と `bun.lock` をコピーし
-   `bun install --production --frozen-lockfile` を実行。
-   frozen が通らない場合は full install → 閉包外を削除、にフォールバック
-3. platform 固有 optional deps は `bun install --os linux --cpu <arch>` で取得（要検証 §11。
-   未対応なら該当 platform を native 環境で実行するか BuildKit 委譲 §9）
-4. `node_modules` を決定的 tar 化
+Proposed key: SHA256 of normalized closure lock entries, platform, and Bun major version.
 
-cache key: `sha256(lockfile 中の閉包エントリを正規化した JSON + platform + bun major version)`
+### 6.3 App layer in bundle mode
 
-### 6.3 app レイヤー（bundle モード）
-
-```
+```sh
 bun build <entrypoint> --target=bun --outdir=<tmp> [--minify] [--sourcemap=...] [--define ...] \
-  --external <each external> --packages=bundle
+  --external <each-external> --packages=bundle
 ```
 
-- 出力ファイル名は entrypoint に依らず `index.js` に固定（rename）
-- HTML import（Bun.serve の静的アセット）は bun build が `<tmp>` に出すので、そのまま app レイヤーに含める
-- **決定性チェック**: `--verify-deterministic`（隠しフラグ）で 2 回 build して digest 比較する。
-  CI の bunko 自身のテストで必ず実行
+Rename the output entry to index.js regardless of its input name. Include HTML-import assets emitted by Bun unchanged. A hidden `--verify-deterministic` flag builds twice and compares digests, and must run in bunko's CI tests.
 
-### 6.4 app レイヤー（compile モード）
+### 6.4 App layer in compile mode
 
-```
+```sh
 bun build <entrypoint> --compile --target=bun-linux-<arch> --outfile=<tmp>/app [--minify] ...
 ```
 
-- platform ごとに別レイヤー
-- `--bytecode` 有効時は決定性を再確認（未確認、§11）
-- サイズが大きいことを警告で明示する（"consider mode: bundle"）
+Build a separate layer per platform. Recheck determinism with bytecode enabled; this was unverified. Warn about the larger output and suggest considering bundle mode.
 
-### 6.5 決定的 tar
+### 6.5 Deterministic tar
 
-- パスは UTF-8 バイト列で昇順ソート
-- ディレクトリエントリも明示的に含める（親→子の順）
-- mtime = `SOURCE_DATE_EPOCH`（既定 0）、atime/ctime 無し
-- uid/gid = 0、uname/gname = 空
-- mode: ディレクトリ 0755、実行ビットありファイル 0755、それ以外 0644
-- xattr、PAX ヘッダ（サイズ超過時以外）、シンボリックリンクの解決なし（そのままリンクとして格納）
-- gzip: mtime 0、name 無し、OS byte 255、圧縮レベル固定（6）
-- `/app` の所有者は user と一致させず root のまま（読み取り専用前提）。書き込みが必要なら `/tmp`
+- Sort paths by UTF-8 bytes and include parent directory entries before children.
+- Set mtime to SOURCE_DATE_EPOCH, default 0; omit atime/ctime.
+- Use uid/gid 0 and empty user/group names.
+- Use 0755 for directories/executable files and 0644 otherwise.
+- Omit xattrs and PAX unless required for oversized fields; store symlinks without resolving them.
+- Set gzip mtime 0, no filename, OS byte 255, and compression level 6.
+- Keep /app owned by root, even for another runtime user; use /tmp for writes.
 
-DiffID（非圧縮 sha256）と圧縮 digest の両方を計算し、config の `rootfs.diff_ids` に入れる。
+Compute both the uncompressed SHA256 DiffID and compressed digest, and populate rootfs.diff_ids with layer DiffIDs.
 
-### 6.6 config
+### 6.6 Config
 
-```json
-{
-  "architecture": "<arch>", "os": "linux",
-  "created": "<SOURCE_DATE_EPOCH を RFC3339>",
-  "config": {
-    "Entrypoint": ["bun", "run", "/app/index.js"],   // compile: ["/app/app"]
-    "Cmd": <args>,
-    "Env": ["PATH=<base の PATH>", "NODE_ENV=production", ...],
-    "WorkingDir": "/app",
-    "User": "<user>",
-    "ExposedPorts": {"3000/tcp": {}},
-    "Labels": {
-      "org.opencontainers.image.created": "...",
-      "org.opencontainers.image.revision": "<git sha>",
-      "org.bunko.version": "...",
-      "org.bunko.base.digest": "sha256:...",
-      "org.bunko.mode": "bundle"
-    }
-  },
-  "rootfs": {"type": "layers", "diff_ids": [...]},
-  "history": [ base の history..., {"created_by": "bunko deps"}, ... ]
-}
+The original illustrative structure was:
+
+```text
+architecture: <arch>
+os: linux
+created: <SOURCE_DATE_EPOCH formatted as RFC3339>
+config:
+  Entrypoint: ["bun", "run", "/app/index.js"]  # Compile: ["/app/app"]
+  Cmd: <args>
+  Env: ["PATH=<base PATH>", "NODE_ENV=production", ...]
+  WorkingDir: /app
+  User: <user>
+  ExposedPorts: {"3000/tcp": {}}
+  Labels:
+    org.opencontainers.image.created: ...
+    org.opencontainers.image.revision: <Git SHA>
+    org.bunko.version: ...
+    org.bunko.base.digest: sha256:...
+    org.bunko.mode: bundle
+rootfs: {type: layers, diff_ids: [...]}
+history: [<base history>, {created_by: "bunko deps"}, ...]
 ```
 
-base の Env/User/WorkingDir は継承し、bunko の設定で上書きする。
-
----
+Inherit base Env, User, and WorkingDir, then apply bunko overrides.
 
 ## 7. Registry cache
 
-buildx の `type=registry` cache に相当する仕組みを、**レジストリの content-addressable 性だけ**で実現する。
+The proposal aimed to provide buildx-like Registry caching using only Registry content addressing.
 
-### 7.1 cache tag
+### 7.1 Cache tags
 
-- repo: `$BUNKO_CACHE_REPO`（既定 `<repo>/bunko-cache`）
-- tag: `k-<cache key の先頭 32 hex>`
-- 中身: 単一レイヤーの最小 manifest（config は空 JSON blob）。annotation に
-  `org.bunko.cache.key`, `org.bunko.cache.kind` (deps|assets), `org.bunko.cache.created`
+Use BUNKO_CACHE_REPO, defaulting to <repo>/bunko-cache. Tags are `k-<first-32-key-hex-characters>`. Each is a minimal one-layer manifest with an empty JSON config and annotations `org.bunko.cache.key`, `org.bunko.cache.kind` (deps/assets), and `org.bunko.cache.created`.
 
-### 7.2 lookup / hit 時の処理
+### 7.2 Lookup and hits
 
-1. `HEAD /v2/<cache repo>/manifests/k-<key>` → 200 なら GET してレイヤー digest を得る
-2. 対象 repo に対して `POST /v2/<repo>/blobs/uploads/?mount=<digest>&from=<cache repo>`
-   → 201 なら転送ゼロで完了
-3. mount が 202（未対応）なら、cache repo から blob を GET して対象 repo に PUT（フォールバック）
+1. HEAD `/v2/<cache-repo>/manifests/k-<key>`; on 200, GET its layer digest.
+2. POST `/v2/<repo>/blobs/uploads/?mount=<digest>&from=<cache-repo>`; 201 completes without transfer.
+3. If mounting returns 202, GET the cached blob and PUT it to the destination.
 
-hit 時は `bun install` を実行しない。ローカルの node_modules も見ない。
+The original proposal said that a hit skips bun install and ignores local node_modules.
 
-### 7.3 miss 時
+### 7.3 Misses
 
-レイヤーを作って対象 repo に push した後、同じ digest を cache repo に mount して cache tag を PUT。
-cache tag の PUT 失敗はビルド失敗にしない（警告のみ）。
+Build and push the layer, mount its digest into the cache repository, and PUT the cache tag. A failed cache-tag PUT produces a warning rather than failing the build.
 
-### 7.4 prune
+### 7.4 Pruning
 
-`bunko cache prune --older-than 30d`: annotation の created を見て tag を DELETE。
-DELETE 未対応レジストリでは一覧だけ出して案内。
+`bunko cache prune --older-than 30d` uses the created annotation to select tags for DELETE. On Registries without deletion support, list the candidates and explain the limitation.
 
-### 7.5 ローカル cache
+### 7.5 Local cache
 
-`~/.cache/bunko/` に blob（digest 名）と cache key → digest の index を置く。
-registry より先にローカルを見る。`--no-local-cache` で無効。
-`bun install` 自体は Bun のグローバルキャッシュ（`~/.bun/install/cache`）が効くので bunko は関与しない。
+Store digest-named blobs and a key-to-digest index under ~/.cache/bunko. Check it before the Registry; disable it with --no-local-cache. The original proposal left Bun's global ~/.bun/install/cache outside bunko's control.
 
----
+## 8. Multiple platforms
 
-## 8. Multi-platform
+- Treat bundle-mode app and asset layers as platform-independent: build once and share across manifests.
+- Include platform in dependency keys. Identical resulting bytes still share one blob digest.
+- Select platform manifests from the base index.
+- Emit an OCI image index, including for one platform; --no-index produces a single manifest.
+- Require no QEMU. Delegate dependencies needing native compilation as described next.
 
-- app レイヤー（bundle モード）と assets レイヤーは **platform 非依存**。1 回作って全 platform の manifest で共有
-- deps レイヤーは platform ごとに key が変わるが、閉包に platform 固有 package が無ければ同一 digest になる
-  （key に platform を含めるが、内容が同じなら blob は同じ）
-- base は image index から platform ごとの manifest を選ぶ
-- 出力は OCI image index（`application/vnd.oci.image.index.v1+json`）。
-  platform が 1 つでも index で出す（`--no-index` で manifest 単体）
-- QEMU 不要。native ビルドが必要な deps は §9
+## 9. Alternatives for special cases
 
----
+### 9.1 BuildKit delegation for native dependencies
 
-## 9. 逃げ道
+Bunko cannot build packages that need node-gyp or similar compilation. The proposed `--deps-from <image-ref>` takes the top layer of an externally built node_modules image as its deps layer, computes the usual key, and registers it in the cache. Provide a buildx Dockerfile and Action example under examples/native-deps.
 
-### 9.1 BuildKit 委譲（native deps）
+### 9.2 Compile mode
 
-node-gyp 等でビルド時にコンパイルが要る package は bunko では作れない。
-`bunko build --deps-from <image ref>` で、外部で作った `node_modules` を持つイメージの
-最上位レイヤーを deps レイヤーとして採用する。cache key は同じ規則で計算し、cache tag にも登録する。
-`examples/native-deps/` に buildx で deps だけ作る Dockerfile と Action の例を置く。
+Use the compile mode described above to build bunko's own distributable binary.
 
-### 9.2 compile モード
+### 9.3 Arbitrary bases
 
-前述。`bunko` のセルフビルド（配布用バイナリ）はこのモードを使う。
-
-### 9.3 任意 base
-
-`base` に何を指定しても良い。bundle モードでは `bun` の存在だけ起動前に検査（config の PATH を見て
-`/usr/local/bin/bun` があるレイヤーを探す。見つからなければ警告）。
-
----
+Allow arbitrary base references. Before startup in bundle mode, inspect config PATH and layers for /usr/local/bin/bun and warn if absent.
 
 ## 10. Workspaces
 
-- root の `package.json` に `workspaces` があれば workspaces モード
-- `bunko build .` は `bunko` キーを持つ package 全部（無ければ `bin` か `module` を持つもの）をビルド
-- `bunko build ./apps/api ./apps/worker` で個別指定
-- deps レイヤーの閉包は target ごとに計算する。閉包が同じなら digest が同じになり自動で共有される。
-  意図的に「全 target 共通の deps レイヤー」にしたい場合は root の `bunko.sharedDeps: true`（M2）
-- `bun build` は target ディレクトリを cwd として実行。workspace 内 package は bundle に巻き込む
+- A root package.json with workspaces enables workspace mode.
+- `bunko build .` builds packages with bunko configuration; if none have it, use packages with bin or module.
+- Allow explicit paths such as `bunko build ./apps/api ./apps/worker`.
+- Compute each target's dependency closure independently; identical contents share digests. Root `bunko.sharedDeps:true` requests a common layer for all targets in M2.
+- Run bun build with the target directory as cwd and bundle internal workspace packages.
 
----
+## 11. Open questions before implementation
 
-## 11. 未決事項（実装前に検証）
+- [ ] Check oven/bun:1-distroless, Bun's path, and default User/Env.
+- [ ] Compare repeated bun build output, hashed filenames, import.meta expansion, and possible timestamps.
+- [ ] Verify bytecode determinism.
+- [ ] Verify install OS/CPU flags and platform optional dependencies.
+- [ ] Inspect the JSONC lock schema for workspaces, catalogs, and patchedDependencies.
+- [ ] Inspect HTML-import output and static asset placement.
+- [ ] Evaluate musl and whether a static distroless base is suitable.
+- [ ] Test blob mounts on ECR/GAR/GHCR/Docker Hub/Harbor and the section 7.2 fallback.
 
-- [ ] `oven/bun:1-distroless` の存在、`bun` のパス、User/Env の既定値
-- [ ] `bun build --target=bun` の出力が決定的か（複数回実行して比較。ハッシュ付きファイル名、`import.meta` 展開、時刻埋め込みの有無）
-- [ ] `--bytecode` 出力の決定性
-- [ ] `bun install --os/--cpu` の有無と挙動（platform 固有 optional deps の取得手段）
-- [ ] `bun.lock` の JSONC スキーマ（workspaces、catalog、patchedDependencies の表現）
-- [ ] HTML import 時の出力ファイル構成（`bun build` が出す静的アセットの配置）
-- [ ] musl ターゲットの実用性（distroless static が使えるか）
-- [ ] ECR / GAR / GHCR / Docker Hub / Harbor で blob mount が動くか（未対応なら §7.2 フォールバック）
+## 12. Implementation
 
----
+### 12.1 Language and distribution
 
-## 12. 実装
+Use TypeScript on Bun, with zero runtime dependencies and development dependencies allowed. Distribute through npm for bunx and as a compiled single binary on GitHub Releases. Support the latest Bun minor available at implementation start and record the range in engines.bun.
 
-### 12.1 言語・配布
+### 12.2 Proposed repository layout
 
-- TypeScript on Bun。**ランタイム依存ゼロ**（devDependencies は可）
-- 配布: npm（`bunx bunko`）と GitHub Releases の単一バイナリ（compile モードでセルフビルド）
-- 対応 Bun: 実装開始時点の最新 minor 以上。`engines.bun` に明記
-
-### 12.2 リポジトリ構成
-
-```
+```text
 bunko/
-├── packages/
-│   ├── oci/            # 再利用可能な OCI ライブラリ（bunko 非依存）
-│   │   ├── registry.ts   # distribution API client: auth, HEAD/GET/PUT blob, mount, manifest, referrers
-│   │   ├── auth.ts       # docker config.json, credHelpers, credsStore, bearer token flow
-│   │   ├── tar.ts        # 決定的 tar / gzip、DiffID 計算
-│   │   ├── digest.ts
-│   │   ├── types.ts      # manifest / index / config の型
-│   │   └── layout.ts     # OCI layout, docker tarball 書き出し
-│   └── bunko/
-│       ├── cli.ts
-│       ├── config.ts     # package.json "bunko" 読み取り + 自動検出
-│       ├── lockfile.ts   # bun.lock parse、閉包計算
-│       ├── layers/{deps,assets,app}.ts
-│       ├── cache.ts      # registry cache + local cache
-│       ├── build.ts      # パイプライン
-│       ├── resolve.ts
-│       └── sbom.ts
-├── bench/
-├── examples/{hello,fullstack,workspaces,native-deps,compile}/
-├── test/
-│   ├── unit/
-│   └── e2e/              # ローカル registry（registry:2 を docker で起動 or 自前の in-memory 実装）
-└── docs/
-    ├── SPEC.md           # このファイル
-    └── LAYERS.md         # レイヤー/キャッシュ形式の外部向け仕様（upstream 提案用）
+  packages/
+    oci/                 # Reusable library independent of bunko
+      registry.ts        # Distribution auth, blobs, mounts, manifests, referrers
+      auth.ts            # Docker config, helpers, stores, Bearer flow
+      tar.ts             # Deterministic tar/gzip and DiffID
+      digest.ts
+      types.ts           # Manifest/index/config types
+      layout.ts          # OCI layouts and Docker archives
+    bunko/
+      cli.ts
+      config.ts          # package.json configuration and discovery
+      lockfile.ts        # Lock parsing and closure computation
+      layers/{deps,assets,app}.ts
+      cache.ts           # Registry and local caches
+      build.ts           # Pipeline
+      resolve.ts
+      sbom.ts
+  bench/
+  examples/{hello,fullstack,workspaces,native-deps,compile}/
+  test/
+    unit/
+    e2e/                 # registry:2 container or an in-memory implementation
+  docs/
+    SPEC.md
+    LAYERS.md            # External layer/cache format and upstream proposal
 ```
 
-### 12.3 テスト方針
+### 12.3 Tests
 
-- `packages/oci` は in-memory registry 実装（`test/fake-registry.ts`）に対してユニットテスト。
-  mount 対応/非対応の両方をシミュレート
-- 決定性テスト: examples を 2 回ビルドして全 digest 一致をアサート
-- e2e: `registry:2` コンテナに対して build → pull → `docker run` で疎通（CI では optional）
-- ベンチ: `bench/run.sh` が §1 の 4 指標を出力
+Unit-test packages/oci against an in-memory test/fake-registry.ts with supported and unsupported mounts. Build examples twice and compare every digest. E2E tests build, pull, and run through registry:2, optionally in CI. bench/run.sh reports the four metrics from section 1.
 
-### 12.4 エラーハンドリング方針
+### 12.4 Errors
 
-- 推測しない。entrypoint 不明、base に `bun` 無し、lockfile 無し（`bun.lock` 必須）はエラー
-- registry の非対応（mount / referrers / DELETE）はフォールバックか警告。ビルド自体は止めない
-- `bun` サブプロセスの stderr はそのまま流す
+Fail instead of guessing when the entrypoint is unknown, Bun is absent from the base, or the required bun.lock is missing. Unsupported mounts/referrers/DELETE use fallbacks or warnings. Forward Bun subprocess stderr unchanged.
 
----
+## 13. Supply-chain metadata
 
-## 13. 供給網
+- Generate SPDX 2.3 JSON from bun.lock and reference any base SBOM referrer. Push through OCI 1.1 referrers, falling back to a `sha256-<digest>.sbom` tag.
+- Emit minimal SLSA v1 provenance with bunko@version as builder and Git SHA, lockfile digest, and base digest as materials, using the terminology of the original proposal.
+- Execute `cosign sign` for --sign rather than implementing signatures internally.
+- Record the pinned base digest label; proposed M3 `bunko build --check-base` reports available base updates.
 
-- **SBOM**: `bun.lock` から SPDX 2.3 JSON を生成。base image の SBOM が referrer にあれば参照を含める。
-  OCI 1.1 referrers API で push、未対応なら `sha256-<digest>.sbom` tag にフォールバック
-- **provenance**: SLSA v1 の最小 statement（builder = bunko@version、materials = git sha, lockfile digest, base digest）
-- **署名**: `--sign` で `cosign sign` を exec（bunko は署名を実装しない）
-- **base digest pin**: 前述の label。`bunko build --check-base` で base の更新有無を表示（M3）
+## 14. Resolve
 
----
+Find bunko://<path> strings in YAML/JSON, build each target, replace them with repo/name@sha256 references, and emit stdout. The original proposal called for parallel builds and assumed equal cache digests would make races harmless. Support stdin via -f - and a directory's *.yaml through -f dir/. Use shell process substitution such as `bunko resolve -f <(helm template ...)` rather than dedicated Helm/kustomize integration.
 
-## 14. `bunko resolve`
+## 15. Original milestones
 
-- YAML/JSON 中の文字列 `bunko://<path>` を検出し、`<path>` を target としてビルド、
-  `repo/name@sha256:...` に置換して stdout へ
-- 複数 target は並列ビルド（deps cache の競合は digest 同一なので問題なし）
-- `-f -` で stdin、`-f dir/` でディレクトリ内の `*.yaml`
-- kustomize/helm との併用は `bunko resolve -f <(helm template ...)` で足りるので専用対応しない
+| Milestone | Scope | Proposed completion criteria |
+| --- | --- | --- |
+| M0 | OCI auth/blobs/manifests/tar, bundle mode, push | bunx builds hello for Cloud Run/Kubernetes; determinism tests pass |
+| M1 | Registry/local cache, multiple platforms, local/kind | README benchmarks; a one-line edit uploads only the app layer |
+| M2 | Workspaces, sharedDeps, resolve | Three example services share dependencies |
+| M3 | SBOM/provenance, signing, base checks, compile, musl evaluation | Publish a GitHub Action |
+| M4 | Apply, cache prune, deps-from, HTML fullstack example | Publish LAYERS.md as an upstream proposal |
 
----
+The original proposal required completing every section 11 experiment before M0 and recording the results there. The later detailed design changed this sequencing.
 
-## 15. マイルストーン
+## 16. Original design rationale
 
-| M | 内容 | 完了条件 |
-|---|---|---|
-| M0 | `packages/oci`（auth, blob, manifest, tar）+ bundle モード + push | `bunx bunko build .` で hello が Cloud Run / k8s で動く。決定性テスト緑 |
-| M1 | registry cache（deps/assets）、ローカル cache、multi-platform index、`--local`/`--kind` | ベンチ表を README に掲載。1 行変更で push が app レイヤーのみ |
-| M2 | workspaces、`sharedDeps`、`resolve` | examples/workspaces で 3 サービスが deps を共有 |
-| M3 | SBOM/provenance、`--sign`、`--check-base`、compile モード、musl 検討 | GitHub Action 公開 |
-| M4 | `apply`、`cache prune`、`--deps-from`、フルスタック（HTML import）example | docs/LAYERS.md を upstream 提案として公開 |
-
-M0 の前に §11 の検証を全部やること。結果は §11 のチェックボックスと本文に反映する。
-
----
-
-## 16. 設計上の判断メモ
-
-- `--compile` を既定にしない: bun ランタイム（60〜90MB）が毎回新規レイヤーになりキャッシュ不能。bundle モードなら差分は JS だけ
-- キャッシュを registry に置く: CI ごとのキャッシュ設定を不要にし、cross-repo mount で pull も push も省く。buildx の registry cache は再利用時に pull が要る
-- TS で書く: 利用者が Bun 開発者なので `bunx` で動くことが最重要。OCI クライアントを副産物として切り出せる
-- 設定を package.json に閉じる: 設定ファイルを増やすと「Dockerfile 不要」の訴求が薄れる
-- 推測しない: entrypoint も external も、自動検出できなければ止めて聞く。ko と同じ
+- Bundle is the default because compile embeds roughly 60–90 MB of Bun runtime in a changed layer, while a bundle changes only JS.
+- Registry caches avoid per-CI cache configuration; mounts can eliminate blob downloads/uploads. The original assertion that buildx must pull its Registry cache was a hypothesis, not a measured result.
+- TypeScript serves Bun developers through bunx and allows the OCI client to become a reusable library.
+- Keeping configuration in package.json avoids adding another project configuration file.
+- When entrypoint or external detection cannot decide, stop for an explicit decision, following the intended ko-like experience.

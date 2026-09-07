@@ -1,48 +1,45 @@
-# 詳細設計の検証記録
+# Design and implementation validation records
 
-2026-09-07。[DESIGN.md](DESIGN.md) の根拠。§1–7 は設計時の事前調査、§8 は M0a、§9 は M0b/M1 の検証記録。
+Recorded on 2026-09-07 as supporting evidence for [DESIGN.md](DESIGN.md). Sections 1–7 describe the initial investigation; sections 8–12 record validation after each implementation milestone. Results and outstanding work are historical, not claims that every current feature was available at every stage. Later correctness work is recorded in [REVIEW_FIXES.md](REVIEW_FIXES.md).
 
-## 1. 環境と範囲
+## 1. Environment and scope
 
-| 項目 | 実測値 |
+| Item | Observed value |
 | --- | --- |
 | Bun | `1.3.11` |
 | Bun revision | `af24e281ebacd6ac77c0f14b4206599cf4ae1c9f` |
 | OS / CPU | `darwin / arm64` |
-| リポジトリの開始状態 | README.md のみ、`ef64a49 Initial commit`、作業ツリー clean |
-| 元仕様の SHA-256 | `259bd699d4c93736eabbef7560a5bf172f61dc91ce0f147e747314a9c155599e` |
+| Initial repository | README.md only; `ef64a49 Initial commit`; clean worktree |
+| Original specification SHA-256 | `259bd699d4c93736eabbef7560a5bf172f61dc91ce0f147e747314a9c155599e` |
 
-事前調査では一時ディレクトリに自作の小さな fixture を作り、Bun CLI を実行した。外部 npm package は取得していない。Linux container 起動、registry push/mount、OCI tar の生成は事前調査では実行していない。実装後の結果は §8 に追記した。
+The checksum identifies the original Japanese input, not the English translation in this repository. Initial probes used small, author-created fixtures in temporary directories and the Bun CLI. They did not download external npm packages, run Linux containers, push or mount Registry blobs, or generate OCI tar archives. Later sections record implementation results.
 
-公式ドキュメントは参照時点の最新内容であり、手元の 1.3.11 と同じ機能集合とは限らない。特に bytecode や compile target の仕様は、実装時に使用する Bun version へ対応を固定する。
+Official documentation reflects its publication state and may describe features beyond Bun 1.3.11. Bytecode and compile support must be tied to the version actually used.
 
-## 2. 確認できたこと
+## 2. Initial findings
 
-| 調査項目 | 結果 | 設計への反映 |
+| Probe | Result | Design consequence |
 | --- | --- | --- |
-| `Bun.JSONC.parse` | object/API が存在し、コメントと trailing comma のある JSONC を parse | JSONC parser の自作は不要 |
-| `--os` / `--cpu` | `bun install --help` に存在 | flag の有無は解決。Linux optional deps の取得・起動は別検証 |
-| 通常 bundle の反復 | 同一 fixture を別プロセスで二度 build し一致 | golden fixture の出発点にできる |
-| 通常 bundle の別 checkout | 深さの異なる二つの checkout で一致 | この fixture の host path は通常 ESM に埋まらなかった |
-| external sourcemap | cwd/outdir の path 表記で差が出たが、realpath と相対 outdir にそろえると一致 | path の正規化と異なる staging 間の検証が必要 |
-| bytecode | 同一 checkout 内では一致、別 checkout では JS と `.jsc` が不一致 | 初期対応から外す |
-| HTML import | 標準 naming で server JS、HTML、client JS を出力 | output tree 全体を保持 |
-| HTML + 固定 entry naming | `--entry-naming=index.js` で output path 衝突 | 全 entry の固定名化をしない |
-| workspace lock | version/config/workspaces/packages の最小形を確認 | versioned adapter と workspace manifest 照合が必要 |
-| workspace の frozen install | workspace-only の manifest 変更を拒否しないケースを確認 | frozen flag だけに整合性の検証を任せない |
+| `Bun.JSONC.parse` | API exists and parses comments/trailing commas | No custom JSONC parser needed |
+| `--os` / `--cpu` | Listed in `bun install --help` | Flags exist; target optional packages still require runtime validation |
+| Repeated ordinary bundle | Identical output in separate processes | Useful starting fixture for determinism tests |
+| Ordinary bundle at different checkout depths | Identical output | This fixture did not embed host paths in ordinary ESM |
+| External sourcemap | Path spelling affected output; realpath plus relative outdir made it match | Normalize paths and compare independent staging locations |
+| Bytecode | Stable within a checkout, different JS and `.jsc` between checkouts | Exclude from initial support |
+| HTML import | Default naming emitted server JS, HTML, and client JS | Preserve the whole output tree |
+| HTML with fixed entry naming | `--entry-naming=index.js` caused collisions | Do not force every output entry to one name |
+| Workspace lock | Observed minimal version/config/workspaces/packages structure | Use a versioned adapter and compare manifests |
+| Frozen workspace install | Accepted a workspace-only manifest mismatch | Do not rely on the frozen flag alone |
 
-## 3. Bundle / sourcemap / bytecode の fixture
+## 3. Bundle, sourcemap, and bytecode fixture
 
-二つの directory に、同じ内容の次のファイルを作った。
+Two directories, `checkout-a` and `different-depth/checkout-b`, contained identical files:
 
 ```text
-checkout-a/
-  package.json
-  .env
-  src/server.ts
-  src/lib.ts
-different-depth/checkout-b/
-  （同じファイル内容）
+package.json
+.env
+src/server.ts
+src/lib.ts
 ```
 
 ```json
@@ -60,7 +57,7 @@ import { message } from "./lib.ts";
 console.log(message, import.meta.url, import.meta.dir, process.env.BUNKO_PROBE_VALUE);
 ```
 
-`.env` は `BUNKO_PROBE_VALUE=dotenv-probe`。cwd を realpath に正規化してから、次の command を両 checkout で二度ずつ実行した。
+The `.env` contained `BUNKO_PROBE_VALUE=dotenv-probe`. After normalizing cwd with realpath, each command ran twice in each checkout:
 
 ```sh
 bun build ./src/server.ts --target=bun --root=. \
@@ -76,23 +73,23 @@ bun build ./src/server.ts --target=bun --root=. \
   --minify --env=disable --bytecode
 ```
 
-この fixture の entry は一つなので固定 naming で比較した。HTML を含めた bunko の設計ではこの指定を採用しない。
+Fixed naming was suitable for this single-entry probe, but is not used for bunko's HTML-capable output tree.
 
-| 生成物 | 結果 |
+| Output | Result |
 | --- | --- |
-| 通常 `index.js` | 106 bytes、4 回とも `b2bbd37e5f8a265245651d7df58234c34850efd6c57124395962d8a5ef25f920` |
-| sourcemap 有効時 `index.js` | 152 bytes、4 回とも `be95e3e2241048c87748440944b21c42d4c5114ef7e79d5cf60d8d4638e586f8` |
-| 正規化した `index.js.map` | 435 bytes、4 回とも `ea373b070a04f57912998dd8da4fac9167d760b6bfb25a1a0d70a474a9e2915b` |
-| bytecode の `index.js` | checkout-a 364 bytes、checkout-b 396 bytes。各 checkout 内では反復一致 |
-| `index.js.jsc` | checkout-a 2.56 KB、checkout-b 2.62 KB。各 checkout 内では反復一致 |
+| Plain `index.js` | 106 bytes; all four runs: `b2bbd37e5f8a265245651d7df58234c34850efd6c57124395962d8a5ef25f920` |
+| Mapped `index.js` | 152 bytes; all four runs: `be95e3e2241048c87748440944b21c42d4c5114ef7e79d5cf60d8d4638e586f8` |
+| Normalized `index.js.map` | 435 bytes; all four runs: `ea373b070a04f57912998dd8da4fac9167d760b6bfb25a1a0d70a474a9e2915b` |
+| Bytecode `index.js` | 364 bytes in checkout-a, 396 in checkout-b; repeatable within each |
+| `index.js.jsc` | 2.56 KB in checkout-a, 2.62 KB in checkout-b; repeatable within each |
 
-通常 bundle では `import.meta.url`、`import.meta.dir`、`process.env.BUNKO_PROBE_VALUE` が式として残った。bytecode の CJS wrapper では `import.meta.url` / `dir` が **元の source の絶対 path の文字列**に変わった。したがって今回の違いは時刻や乱数を推測したものではなく、生成 JS 内で原因を確認している。
+Ordinary bundles retained `import.meta.url`, `import.meta.dir`, and the environment lookup as expressions. Bytecode's CJS wrapper replaced import metadata with absolute source-path strings. The generated JS established the cause; it was not a guess about timestamps or randomness.
 
-external sourcemap の最初の試行では、macOS の `/var/...` と `/private/var/...` の path 表記を混ぜた絶対 outdir を使い、`sources` に長い相対 path が入って checkout ごとに差が出た。cwd/outdir を正規化した試行では `../src/lib.ts` と `../src/server.ts` になり、一致した。
+The first sourcemap attempt mixed macOS `/var/...` and `/private/var/...` spellings in absolute output paths, producing different long relative `sources` entries. Normalized cwd/outdir yielded matching `../src/lib.ts` and `../src/server.ts` entries.
 
-この結果だけでは、任意の依存、別 Bun version、別 OS/CPU、compile、plugins/macros に対する再現性は証明できない。`.env` に関しても、この fixture で該当値が bundle に inline されなかったことだけを確認した。
+This does not establish determinism for arbitrary dependencies, Bun versions, OS/CPU combinations, compile, plugins, or macros. The environment probe only establishes that this fixture's value was not inlined.
 
-## 4. HTML import の fixture
+## 4. HTML import fixture
 
 ```ts
 // server.ts
@@ -113,35 +110,30 @@ console.log("browser probe");
 bun build ./server.ts --target=bun --outdir=out-default
 ```
 
-成功し、`server.js`、`index.html`、`index-428bmrtn.js` を出力した。server JS 内の HTML manifest が `./index.html` と `./index-428bmrtn.js` を参照していた。`--entry-naming=[name].[ext]` でも出力に成功した。
+This emitted `server.js`, `index.html`, and `index-428bmrtn.js`; the server's HTML manifest referenced the latter two. `--entry-naming=[name].[ext]` also succeeded.
 
 ```sh
 bun build ./server.ts --target=bun --entry-naming=index.js --outdir=out
 ```
 
-こちらは exit 1、`Multiple files share the same output path`。HTML 由来の output にも naming 設定が作用することを確認した。
+This exited 1 with `Multiple files share the same output path`, confirming that entry naming also affects HTML-derived outputs. It supports retaining HTML files in the app layer, but did not verify container HTTP serving. See [Bun's ahead-of-time HTML bundling documentation](https://bun.com/docs/bundler/fullstack#ahead-of-time-bundling-recommended).
 
-HTML ファイルを app レイヤーに含める根拠にはなるが、コンテナ内での配信成功は未検証。公式にも ahead-of-time HTML bundling が説明されている。[Bun fullstack](https://bun.com/docs/bundler/fullstack#ahead-of-time-bundling-recommended)
+## 5. Workspace lock and frozen install
 
-## 5. Workspace lock と frozen install
-
-root は `workspaces:["packages/*"]` と `dependencies:{"@probe/a":"workspace:*"}`。`packages/a` は `@probe/b` に workspace dependency を持ち、`packages/b` は依存を持たない。
+The root declared `workspaces:["packages/*"]` and a dependency on `@probe/a` using `workspace:*`. Package a depended on workspace b; b had no dependencies.
 
 ```sh
 bun install --lockfile-only --ignore-scripts
 ```
 
-生成された lock は次の形だった。通常 npm package、catalog、patch、peer context の形式まで確認したものではない。
+The resulting structure was:
 
 ```jsonc
 {
   "lockfileVersion": 1,
   "configVersion": 1,
   "workspaces": {
-    "": {
-      "name": "root",
-      "dependencies": { "@probe/a": "workspace:*" }
-    },
+    "": { "name": "root", "dependencies": { "@probe/a": "workspace:*" } },
     "packages/a": {
       "name": "@probe/a",
       "version": "1.0.0",
@@ -156,215 +148,190 @@ bun install --lockfile-only --ignore-scripts
 }
 ```
 
-root package.json の dependencies を `@probe/b` に変更し、lock は `@probe/a` のままで次を実行した。
+This probe did not establish ordinary npm, catalog, patch, or peer-context formats. The root manifest was then changed to depend on b while the lock still referenced a:
 
 ```sh
 bun install --production --frozen-lockfile --ignore-scripts
 ```
 
-exit 0 で成功し、lock と package.json の root dependency の差は残った。元の tree と、node_modules をコピーしない新規 directory の両方で確認した。
+It exited 0 and left the mismatch intact, both in the original tree and in a fresh directory without copied node_modules. This narrow workspace-only result does not imply that frozen install accepts general npm dependency changes, or that reduced manifests can safely share arbitrary original locks. Bunko therefore preserves original manifests and validates their corresponding lock declarations itself.
 
-これは workspace-only の小さな fixture の結果であり、一般的な npm dependency 更新で frozen install が変更を許すという主張ではない。また、縮小した package.json と任意の元 lock を組み合わせてよいという証明でもない。bunko は original manifests を維持し、自身でも lock の対応部分と照合する設計にした。
+## 6. Findings from official sources
 
-## 6. 公式資料から確認した事項
-
-| 項目 | 確認範囲 |
+| Topic | Confirmed scope |
 | --- | --- |
-| ko | Go build cache、既存 registry blob の再利用、KOCACHE の役割。[Build Cache](https://ko.build/features/build-cache/) |
-| distroless Bun | main branch の Dockerfile は `/usr/local/bin/bun` を配置。published tag の実 config は未取得。[Dockerfile](https://github.com/oven-sh/bun/blob/main/dockerhub/distroless/Dockerfile) |
-| install platform | `--os` / `--cpu` による package 選択。[Bun install](https://bun.com/docs/pm/cli/install#platform-specific-dependencies) |
-| isolated install | store・symlink・peer context を考慮する必要。[Bun isolated installs](https://bun.com/docs/pm/isolated-installs) |
-| cache config | custom media type の config を持つ OCI artifact が可能。[OCI manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md#guidelines-for-artifact-usage) |
-| Distribution | cross-repo mount、upload session、referrers fallback、削除方式を区別する必要。[OCI Distribution v1.1.1](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md) |
-| provenance | v1 predicate の構造は buildDefinition/runDetails。[SLSA provenance](https://slsa.dev/spec/v1.1/provenance) |
+| ko | Go build cache, reuse of existing Registry blobs, and KOCACHE's role. [Build Cache](https://ko.build/features/build-cache/) |
+| Distroless Bun | The main-branch Dockerfile installs `/usr/local/bin/bun`; published-tag config had not yet been fetched. [Dockerfile](https://github.com/oven-sh/bun/blob/main/dockerhub/distroless/Dockerfile) |
+| Install platform | Package selection using OS/CPU flags. [Bun install](https://bun.com/docs/pm/cli/install#platform-specific-dependencies) |
+| Isolated installs | Store, symlinks, and peer contexts require consideration. [Bun isolated installs](https://bun.com/docs/pm/isolated-installs) |
+| Cache config | OCI artifacts can use custom config media types. [OCI manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md#guidelines-for-artifact-usage) |
+| Distribution | Mounts, upload sessions, referrer fallbacks, and deletion have distinct contracts. [Distribution v1.1.1](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md) |
+| Provenance | The v1 predicate uses buildDefinition/runDetails. [SLSA provenance](https://slsa.dev/spec/v1.1/provenance) |
 
-## 7. 実装前・release 前に残る検証
+## 7. Initial outstanding validation
 
-以下は事前調査時点の一覧。M0a の実装後に完了した範囲は §8 を参照。
+This is the pre-implementation checklist. Later sections record subsequent progress.
 
-- [ ] 使用する Bun の完全 version に対応する distroless tag/index/platform manifest/config を取得し、digest と User/Env/libc を記録する。
-- [ ] bundle を Linux amd64/arm64 の base 上で起動する。custom base と read-only rootfs も別 fixture にする。
-- [ ] target OS/CPU の optional deps を scripts 無効で取得し、代表 native package の runtime を確認する。
-- [ ] lock の通常 npm、同名異版、alias、peer、catalog、override、patch、file/link/workspace の fixture を作る。
-- [ ] HTML/CSS/file-loader/sourcemap が image 内の配置で動くことを確認する。
-- [ ] compile の各 target と base の dynamic linking 条件を確認する。musl は別評価にする。
-- [ ] tar/PAX/gzip の golden bytes、別 host での compressed digest、OCI schema を検証する。
-- [ ] real registry で mount 201 / 202、auth helper、referrers、local export を検証する。
-- [ ] ECR / GAR / GHCR / Docker Hub / Harbor は個別に対応表を作る。未検証を成功扱いしない。
-- [ ] 比較対象の buildx 設定を固定し、push bytes と pull bytes を別計測する。
+- [ ] Fetch exact-version distroless tags, indexes, platform manifests, and configs; record digests, User, Env, and libc.
+- [ ] Run bundles on Linux amd64 and arm64; separately exercise custom bases and read-only root filesystems.
+- [ ] Install target optional dependencies with scripts disabled and run representative native packages.
+- [ ] Cover ordinary npm entries, duplicate versions, aliases, peers, catalogs, overrides, patches, and file/link/workspace forms.
+- [ ] Verify HTML/CSS/file-loader/sourcemap placement in running images.
+- [ ] Verify compile targets and dynamic linking; evaluate musl separately.
+- [ ] Check tar/PAX/gzip golden bytes, compressed digests across hosts, and OCI schemas.
+- [ ] Exercise real mount 201/202, credential helpers, referrers, and local exports.
+- [ ] Maintain individual ECR/GAR/GHCR/Docker Hub/Harbor matrices; do not count untested cases as successes.
+- [ ] Fix the buildx comparison configuration and measure upload/download bytes separately.
 
-元仕様 §11 の「M0 の前にすべて」は、上記を必要機能ごとのゲートへ変更する提案。今回未検証の項目が残っていること自体は、詳細設計書の未記載ではなく、今後の実装検証として明示している。
+The design replaces the original proposal's requirement to finish every item before M0 with gates for the features that depend on each result. Outstanding experiments are explicit implementation work.
 
-## 8. M0a 実装の検証
+## 8. M0a implementation validation
 
-同日、TypeScript/Bun で CLI、snapshot、bundle、決定的 tar/gzip、public registry reader、OCI composition/layout を実装した。元仕様は [archive/SPEC-v0.1.md](archive/SPEC-v0.1.md) に移し、[SPEC.md](SPEC.md) を実装済みの契約に更新した。
+Implemented the TypeScript/Bun CLI, snapshots, bundling, deterministic tar/gzip, a public Registry reader, and OCI composition/layout. The original proposal moved to [archive/SPEC-v0.1.md](archive/SPEC-v0.1.md); [SPEC.md](SPEC.md) became the implemented contract.
 
-### 自動テスト
+### Automated checks
 
-`bun run check` で型チェックと unit/integration を実行。tar は Python 3 の tarfile でも読み、path 順・mode・uid/gid・mtime・PAX・長い UTF-8 path・linkpath を確認した。source path の異なる checkout、external sourcemap、HTML、assets の再利用、壊れた base blob、Bearer token と redirect、設定継承、stdout、未対応入力のエラーを検証した。
+`bun run check` passed typechecking and unit/integration tests. Python tarfile independently inspected ordering, modes, uid/gid, mtime, PAX, long UTF-8 names, and link paths. Tests covered checkout depth, sourcemaps, HTML, asset reuse, corrupt base blobs, Bearer auth and redirects, config inheritance, stdout, and unsupported inputs.
 
-`bun run build` で配布用 CLI bundle を生成し、`bun dist/bunko.js version` が `0.0.1` を返した。外部 npm runtime dependencies はない。CI 設定は Linux/macOS に追加したが、リモート CI 自体はこのセッションでは起動していない。
+`bun run build` produced a standalone CLI; `bun dist/bunko.js version` returned `0.0.1`. Linux/macOS CI configuration was added, but remote CI had not run during that stage.
 
-### 公開 base と hello
+### Published base and hello fixture
 
-Docker Hub の tag を実際に解決して manifest/config/layer を取得した。後続の hello は次の index digest へ固定した。
+Fetched Docker Hub tag metadata, config, and layers, then pinned the hello fixture to the observed index:
 
-| 項目 | 実測値 |
+| Item | Observed value |
 | --- | --- |
-| base index | `oven/bun@sha256:6a78966e057efd546873b64d6c173b18a21a10c3da81562863beeaf044c1e2ec` |
+| Base index | `oven/bun@sha256:6a78966e057efd546873b64d6c173b18a21a10c3da81562863beeaf044c1e2ec` |
 | linux/amd64 base manifest | `sha256:13860e114310e8e7f9cbb7ca76d3a6cb0a505740c241521b56b8b329652b78a5` |
-| base の User | `0`。hello の user は `65532:65532` で明示上書き |
-| Bun path | hello の Entrypoint `/usr/local/bin/bun` で起動確認 |
-| hello app layer | gzip 293 bytes（この小さな example のみの値） |
-| 確認した hello index | `sha256:631ab3b2bf37977da809d378e5d0540b8698f65103c57446ded48d63ed36952a` |
-| ビルドの反復 | `--reproducible --verify-deterministic --git-metadata=false` で layer/config/manifest/index 一致 |
+| Base User | `0`; hello explicitly overrides it with `65532:65532` |
+| Bun path | Successfully started with `/usr/local/bin/bun` |
+| Hello app layer | 293 gzip bytes for this small example |
+| Hello index | `sha256:631ab3b2bf37977da809d378e5d0540b8698f65103c57446ded48d63ed36952a` |
+| Repeated build | Layers/config/manifests/index matched with `--reproducible --verify-deterministic --git-metadata=false` |
 
-上の hello digest は検証時の snapshot に対する記録であり、将来ソース・設定・Bun・bunko が変わった場合の期待値ではない。
+These digests identify the validation snapshot, not future expected outputs after source, configuration, Bun, or bunko changes.
 
-### Docker の実行試験
+### Docker runtime
 
-Docker Engine 29.3.1 の containerd image store に、生成 layout の OCI archive を試験用の完全修飾 tag でロードした。macOS arm64 host 上の Docker で linux/amd64 container を実行した。
+Loaded an OCI archive using a fully qualified test tag into Docker Engine 29.3.1's containerd image store. On the macOS arm64 host, `bun run test:smoke <hello-layout>` ran linux/amd64 and confirmed HTTP 200 with `Hello from bunko!\n`, user `65532:65532`, read-only rootfs, `/tmp:rw,noexec,nosuid`, all capabilities dropped, and SIGTERM exit 0. Test containers/tags were cleaned up.
 
-`bun run test:smoke <hello-layout>` により、次を確認した。
+This was not yet implementation of product `--local` or `--tarball`. OCI import used a fully qualified name and `io.containerd.image.name` annotation without changing ordinary build root bytes.
 
-- HTTP 200、body は `Hello from bunko!` と改行。
-- image config の user `65532:65532` で実行。
-- `--read-only --tmpfs /tmp:rw,noexec,nosuid --cap-drop=ALL` で動作。
-- SIGTERM で exit 0。試験用 container/tag は終了時に cleanup。
+### Additional Bun 1.3.11 observations
 
-この試験は `--local` / `--tarball` 製品機能の実装を意味しない。Docker の OCI import では完全修飾名と `io.containerd.image.name` annotation を使い、通常 build の image root bytes は変更していない。
+- The macro fixture executed despite `--no-macros`, prompting pre-build rejection of import attributes/macros.
+- CLI metafile outputs omitted external sourcemaps, requiring output-tree enumeration.
+- Some nested sourcemaps resolved sources relative to outdir rather than the map directory; matching against metafile inputs allowed stable rewriting.
 
-### 実装中に追加で分かった Bun 1.3.11 の挙動
+At M0a, Registry publication/mounts, private credentials, native/npm dependencies, arm64 containers, and other Registry interoperability remained unimplemented or unverified.
 
-- `--no-macros` を指定しても fixture の macro が実行された。現行版は source の import attributes/macros を保守的に拒否する。
-- CLI metafile の outputs に external sourcemap が列挙されなかったため、生成 tree から別途収集する。
-- nested output の sourcemap source が `.map` の directory ではなく outdir 基準になるケースがあり、metafile inputs と照合して安定した path へ直す。
+## 9. M0b / M1 implementation validation
 
-registry push/mount、private credentials、native/npm dependencies、linux/arm64 の実 container、他 registry の相互運用は M0a の未検証・未実装範囲として残る。
+The same PR added private Registry authentication, push, production dependencies, deps/assets caching, multi-platform output, Docker archives, and Docker/kind loading. These results update the historical limitations in sections 7–8.
 
-## 9. M0b / M1 実装の検証
+### Automated checks
 
-同じ PR で private Registry authentication、push、production dependencies、deps/assets cache、multi-platform、Docker archive/local/kind を追加した。以下は M0a の記録後に確認した結果であり、§7–8 の当時の未実装一覧を更新する。
+Bun 1.3.11 typechecking and **86 tests / 264 assertions** passed. Ordinary tests use no Docker or network. Author-created npm download-cache fixtures exercise installation but do not replace real package download/integrity validation.
 
-### 自動試験
+Coverage includes Docker credential precedence and aliases; GHCR/Hub/GAR scoped Bearer auth; ECR Basic refresh; OAuth identity tokens; mount 201/202/unsupported behavior; 429; redirect credential isolation; disconnected PATCH offset recovery; ambiguous manifest PUTs; partial tags; read-only dry-run; separate build/production installs; dev exclusion; disabled scripts; npm credential isolation; optional-peer lock validation; patch-sensitive keys; escaping links; ELF architecture; remote cache reuse without layer GET/upload; corrupt caches; cache write denial; determinism cache bypass; multi-platform indexes; and independent Python Docker-archive/DiffID inspection.
 
-Bun 1.3.11 で型チェックと **86 tests / 264 assertions** が成功。通常試験は Docker・ネットワークを使わない。自作 npm fixture の cache は通常 install 用で、実 package の download/integrity 検証を代替しない。
+A separate real-package probe used `is-number@7.0.0`, the `num` alias, an optional peer, an override, and a `bun patch` patch. Bunko's isolated Linux production install retained patched bytes. The probe stalled in the initial sandbox but succeeded in the authorized execution environment. Offline tests cover lock consistency and patch-sensitive keys.
 
-- Docker config/helper の優先順位、Docker Hub aliases、GHCR/Hub/GAR の scoped Bearer、ECR の Basic と資格情報再取得、OAuth identity token。
-- cross-repository mount 201/202/非対応、429、redirect の認証分離、PATCH 切断後の offset 照合、曖昧な manifest PUT、部分 tag 更新、read-only dry-run。
-- build と production の分離、dev deps 除外、scripts 無効、npm credentials の隔離、optional peer の lock 照合、patch 内容による key 更新、symlink 逸脱、ELF architecture。
-- source 変更で remote deps/assets hit、layer GET なし・upload 0、local blob / remote metadata 破損、cache write 拒否時の image 成功、決定性比較の cache bypass。
-- multi-platform index、Python tarfile による Docker archive と非圧縮 layer DiffID の独立検査。
+### Real Registry and Linux runtime
 
-patch の適用自体は別の実 npm package probe で検証した。`is-number@7.0.0` を `num` alias、optional peer、override、`bun patch` で生成した patch とともに準備し、製品の隔離 Linux production install で patch 後の bytes が残ることを確認した。sandbox 内では停止したが、許可された実行環境では成功したため、ネットワーク不要の通常試験では lock 整合性と patch による key 変更を扱う。
+`bun run test:m1-smoke` started a dedicated Distribution 3 container, built/published `examples/dependencies` for amd64/arm64 with local layer caching disabled, and verified independent deterministic builds. Editing the response string and publishing again produced Registry cache hits with zero deps/assets uploads.
 
-### 実 Registry と Linux runtime
-
-`bun run test:m1-smoke` で専用の Distribution 3 container を起動し、`examples/dependencies` を amd64/arm64 に構築して公開した。local layer cache は無効、初回は `--verify-deterministic`。source の応答文字列を変更して再公開し、Registry cache hit と deps/assets の upload 0 を確認した。
-
-| 項目 | 実測値 |
+| Item | Observed value |
 | --- | --- |
-| host / runtime | macOS arm64、Bun 1.3.11 / revision af24e281、Docker Engine 29.3.1 |
-| base index | `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`（Bun 1.3.11 slim） |
-| bundled JS | `is-number@7.0.0` |
-| native external | `@node-rs/xxhash@1.7.7`、Linux 向け prebuilt addon、scripts 無効 |
-| 初回 image index | `sha256:7913aacab58d9c1b3df0eef5dcfd483166fb442481a0796af9021c7ab1536abf` |
-| source 変更後 index | `sha256:bd589ee76439323cd2f680617a263a346e429ebb689eef8cd5b10dafc297305f` |
-| 両 platform の HTTP | 200、`number:true`、`hash:510391394`、変更後の message |
-| runtime 制約 | user `65532:65532`、read-only rootfs、tmpfs /tmp、cap-drop ALL |
-| shutdown | amd64 / arm64 とも SIGTERM で exit 0 |
+| Host / tools | macOS arm64; Bun 1.3.11 revision af24e281; Docker Engine 29.3.1 |
+| Base index | `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9` (Bun 1.3.11 slim) |
+| Bundled JS | `is-number@7.0.0` |
+| Native external | `@node-rs/xxhash@1.7.7`, prebuilt Linux addon, scripts disabled |
+| Initial image index | `sha256:7913aacab58d9c1b3df0eef5dcfd483166fb442481a0796af9021c7ab1536abf` |
+| Edited-source index | `sha256:bd589ee76439323cd2f680617a263a346e429ebb689eef8cd5b10dafc297305f` |
+| Both platforms' HTTP | 200, `number:true`, `hash:510391394`, and the updated message |
+| Runtime restrictions | User `65532:65532`, read-only rootfs, tmpfs /tmp, cap-drop ALL |
+| Shutdown | SIGTERM exit 0 on amd64 and arm64 |
 
-Docker Desktop の daemon から host の loopback 公開 port へ直接 `docker pull` する方法は、この環境では接続できなかった。試験は host 側の Registry client で manifest/layer を再取得・digest 検証し、Docker archive にして Docker にロード・実行している。Registry の実 push/pull と独立した Docker runtime は確認済みだが、Docker CLI からの直接 pull が成功したという記録ではない。専用 Registry/container/tag は終了時に削除した。
+Docker Desktop's daemon could not directly pull from the host's published loopback port in this environment. Instead, the host Registry client fetched and verified manifests/layers, created a Docker archive, and loaded/reran it with Docker. This verifies real Registry push/pull and an independent container runtime, but does not claim successful direct Docker CLI pull. Dedicated Registry/container/tag resources were removed afterward.
 
-### source 変更時の転送量
+### Transfers after a source edit
 
-同じ二つの platform を含む公開について、重複 blob を一度だけ数えた payload bytes:
+Unique blob payload bytes across both platforms:
 
-| 種別 | 初回公開 | source 変更後 |
+| Kind | First publication | After source edit |
 | --- | ---: | ---: |
-| base layers | 138,615,264 | 0 |
-| deps layers | 1,142,711 | 0 |
-| assets layer | 176 | 0 |
-| app layer | 830 | 833 |
-| image configs | 9,441 | 9,441 |
-| 合計 | 139,768,422 | 10,274 |
+| Base layers | 138,615,264 | 0 |
+| Deps layers | 1,142,711 | 0 |
+| Assets layer | 176 | 0 |
+| App layer | 830 | 833 |
+| Image configs | 9,441 | 9,441 |
+| Total | 139,768,422 | 10,274 |
 
-deps の圧縮サイズは amd64 584,233 bytes / arm64 558,478 bytes。assets とこの fixture の app は両 platform で共有する。表は layer/config payload のみで、manifest/index、cache metadata、HTTP overhead、再送を含む wire total ではない。
+Compressed deps were 584,233 bytes for amd64 and 558,478 for arm64. Assets and this fixture's app bytes were shared. These are layer/config payloads, excluding manifests/indexes, cache metadata, HTTP overhead, and retransmission.
 
-記録上の所要時間は初回 10,036 ms / source 変更後 2,010 ms。ただし **初回は決定性検証のため二重 build、後者は単一 build、npm download cache は事前に温まっている**。公平な速度比較や buildx に対する優位性の根拠には使わない。digest とサイズはこの時点の fixture / 実装に対する記録で、将来の固定期待値ではない。
+Recorded durations were 10,036 ms initially and 2,010 ms after the edit. **The first run built twice for determinism; the second built once; npm downloads were already cached.** These are not a fair performance comparison or evidence of superiority to buildx. Digests and sizes are historical fixture results.
 
-### Docker / kind
+### Docker and kind
 
-製品の `--local` で単一 platform の Docker archive を生成し、Docker load と inspect に成功した。archive の形式・DiffID は通常試験でも Python で検査する。
+Product `--local` generated, loaded, and inspected a single-platform Docker archive. Python checks its format/DiffIDs in ordinary tests.
 
-kind 0.33.0 の公式 macOS arm64 binary の checksum を照合し、一時 cluster `bunko-m1-6f0ca10` を作成した。製品の `--kind --kind-cluster ... --platform linux/arm64` により image-archive のロードと node 上の `crictl inspecti` に成功。cluster は削除済み。この kind 試験は image の格納確認で、Pod の native HTTP 動作確認ではない。
+After checking the official kind 0.33.0 macOS arm64 binary checksum, the probe created temporary cluster `bunko-m1-6f0ca10`. `--kind --kind-cluster ... --platform linux/arm64` loaded the image archive and passed node-side `crictl inspecti`. The cluster was deleted. This verified image storage, not native HTTP in a Kubernetes Pod.
 
-### 実機で修正した互換性
+### Compatibility fixes from real execution
 
-- Bun 1.3.11 の install 引数は `--config=PATH` / `--registry=URL` / `--cache-dir=PATH` を使う。空白区切りの config が追加 package と解釈されるケースを回避した。
-- HTTP response の native async iterator が reader 解放時に例外になるケースを確認した。明示 reader による streaming と、取得後の digest/size 検査を使う。
-- file-backed Blob slice を PATCH body にした場合の送信不整合を確認した。8 MiB の範囲だけを Buffer に読み、長さを確認して送る。
-- distroless ではこの native addon が必要とする `libgcc_s.so.1` がなく起動に失敗した。example は slim base に変更し、native deps には明示 base を要求する。glibc/musl 両 variant がインストールされる場合も、実行確認は glibc のみ。
+- Use `--config=PATH`, `--registry=URL`, and `--cache-dir=PATH`; a space-separated config argument could be treated as another package by Bun 1.3.11.
+- Use explicit HTTP readers because native async-iterator cleanup could throw; verify bytes by digest and size.
+- Read bounded 8 MiB buffers for PATCH because file-backed Blob slices produced inconsistent transmitted bodies.
+- The native fixture needed `libgcc_s.so.1`, absent from the distroless base. Switch it to slim and require explicit native-runtime bases. Although both glibc/musl variants may install, only glibc was run.
 
-### 残る相互運用・性能検証
+### Outstanding interoperability and performance work
 
-cloud アカウントへの GHCR / GAR / Docker Hub / ECR の実 push、private npm のサービス実認証、mount のサービス固有挙動は未検証。認証設定と対応表は [REGISTRIES.md](REGISTRIES.md)。HTML のコンテナ配信、汎用 native ABI、musl、別 Bun version、繰り返し benchmark / buildx 比較も未実施。
+Live GHCR/GAR/Docker Hub/ECR publication, real private npm authentication, and provider-specific mounts were not verified. See [REGISTRIES.md](REGISTRIES.md). HTML container serving, arbitrary native ABI compatibility, musl, other Bun versions, repeated benchmarks, and buildx comparisons remained untested.
 
-CI は Linux/macOS の型チェック・unit/integration・CLI bundle と、Linux の実 Distribution smoke を実行する。Linux の smoke は両 platform を build し、amd64 を runtime 検証する。手元の amd64/arm64 runtime 検証と区別する。
+CI runs typechecks, unit/integration tests, and bundled CLI checks on Linux/macOS, plus real Distribution smoke on Linux. Smoke builds both architectures but runs amd64 on Linux CI; the local record includes both architectures.
 
-## 10. M2a workspace 実装の検証
+## 10. M2a workspace implementation validation
 
-M1 の後続として、共通 lock の検証、workspace target の自動/明示選択、複数 image の構築・公開、production runtime 配置の保持を追加した。
+Added shared-lock validation, automatic/explicit workspace target selection, multiple-image build/publication, and production-runtime topology preservation.
 
-### 自動試験
+### Automated checks
 
-Bun 1.3.11 で型チェックと **97 tests** を実行。既存 M1 の 86 tests を維持し、次を追加した。
+Typechecking and **97 tests** passed on Bun 1.3.11, retaining M1's 86 tests. Added root/member discovery, name/path selectors, shared packages with distinct fixture-msg 1.0.0/2.0.0 versions, peer resolution for fixture-adapter, Python layer extraction and Bun execution, external workspace TypeScript/data, root-relative tsconfig extends, checkout-depth determinism, service-source cache hits, runtime-workspace cache misses, stale manifests/membership/lock entries, image-name conflicts, escaping links, asset collisions, delayed-build failure before export/publication, multi-target dry-run, partial reports, stdout, single-target tarball restrictions, and report/layout collision validation.
 
-- root 自動選択、package 名/path の --target、member directory からの共通 lock 利用。
-- shared package と異なる fixture-msg 1.0.0/2.0.0、同じ fixture-adapter が要求する peer の解決を保持。両 service の image layer を Python tarfile で展開し、Bun で実行して各 version の結果を確認。
-- external workspace の TypeScript と相対 file、root tsconfig extends、別 checkout depth の sourcemap/digest 再現性。
-- source のみ変更で deps/assets hit、runtime shared source の変更で deps miss。
-- stale child manifest / membership / workspace lock reference、image 名の衝突、runtime の外へ出る symlink、assets と内部配置の衝突。
-- 後続 target が build 失敗した場合の export/publish 防止、複数 target の dry-run、部分 tag 更新の report / pendingTargets。
-- CLI の複数 target export と stdout、単一 target 限定の tarball、layout 内の report 拒否。
+Author-created packages live in isolated download-cache fixtures. Bunko inspects Bun's actual installed store and symlinks instead of reimplementing semver resolution.
 
-fixture は自作 package を隔離 download cache に配置し、通常試験のネットワーク依存を避ける。semver の再解決器を bunko 内に作らず、Bun が実際に install した store と symlink を検査する。
+### Real Registry, CLI, and runtime
 
-### 実 Registry / CLI / runtime
+`bun run test:m2a-smoke` ran on macOS arm64 / Bun 1.3.11 / Docker 29.3.1. The CLI published two multi-platform images to dedicated Distribution 3; stdout contained exactly two digest lines in target order. Initial outputs matched across independent staging builds.
 
-`bun run test:m2a-smoke` を macOS arm64 / Bun 1.3.11 / Docker 29.3.1 で実行した。専用 Distribution 3 に CLI から二つの multi-platform image を公開し、stdout が target 順の二つの digest 行だけになることを確認。初回は二つの staging で決定性を検証した。
-
-| target | 共通 package | npm dependency | Linux runtime |
+| Target | Shared package | npm dependencies | Linux runtime |
 | --- | --- | --- | --- |
-| api | @example/shared を bundle | is-number 7.0.0、@node-rs/xxhash 1.7.7 external | amd64 / arm64 とも HTTP 200、version 7.0.0、hash 510391394 |
-| worker | @example/shared を external、JSON file を含む | is-number 6.0.0 external | amd64 / arm64 とも HTTP 200、version 6.0.0 |
+| api | Bundled @example/shared | is-number 7.0.0; external @node-rs/xxhash 1.7.7 | amd64/arm64: HTTP 200, version 7.0.0, hash 510391394 |
+| worker | External @example/shared with JSON data | External is-number 6.0.0 | amd64/arm64: HTTP 200, version 6.0.0 |
 
-base は M1 と同じ Bun slim index `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`。4 通りとも nonroot `65532:65532`、read-only rootfs、tmpfs /tmp、cap-drop ALL、SIGTERM exit 0 を確認した。
+The base was the same M1 slim index, `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`. All four runtime combinations passed nonroot `65532:65532`, read-only rootfs, tmpfs /tmp, cap-drop ALL, and SIGTERM exit 0.
 
-api の応答文字列だけを変更して再公開すると、両 target/platform の deps は Registry cache hit・upload 0 になった。worker の app layer も upload 0。共通 source digest を使うため worker の config は更新された。新しい layer/config payload は api 9,552 bytes / worker 9,167 bytes で、HTTP overhead・manifest/index・cache metadata を含まない。この fixture には assets layer はなく、assets の再利用は自動試験で検証する。
+An API response edit produced Registry deps cache hits and zero deps uploads for both targets/platforms. Worker app uploads were also zero; its config changed because the source digest covers the whole workspace. New layer/config payloads were 9,552 bytes for api and 9,167 for worker, excluding metadata and HTTP overhead. This fixture had no assets layer; ordinary tests covered asset reuse.
 
-Registry から host 側 client で全 bytes を再取得・検証し、Docker archive を load/run する方式は M1 smoke と同じ。Docker CLI の直接 pull を検証した記録ではない。一時 Registry/container/tag は cleanup 済み。
+As in M1, verified host-side Registry pulls were loaded through Docker archives; this was not direct Docker CLI pull validation. Temporary resources were cleaned up. CI added M2a smoke, building both architectures and running both services on amd64; local testing ran all four combinations.
 
-CI は従来の M1 smoke に M2a smoke を追加する。両 platform を build し、Linux runner では amd64 の二つの service を実行する。手元では上記 4 通りを実行した。
+### Optimizations deferred at M2a
 
-### M2b に残す最適化
+M2a retained the whole workspace production tree, including API-only native dependencies in the worker. Closure reduction, sharedDeps, focused cache keys, and narrower source digests were future work at that point. Section 11 records the first three; whole-workspace source digests remain the contract.
 
-M2a の runtime は workspace 全体の production tree なので、worker に api 用の native package も含まれる。closure による package 削減、sharedDeps、必要な target graph だけの cache key、source digest の対象縮小は未実装。現時点の挙動と制約は SPEC.md §8 に記載した。
+## 11. M2b: closure and sharedDeps (2026-09-07)
 
+`bun run test:m2b-smoke` passed on Bun 1.3.11 / macOS arm64 / Docker Desktop. It published two targets for amd64/arm64 to real Distribution, verified edited-source Registry hits and zero extra deps/assets uploads, excluded the API-only native addon from the worker closure, and produced identical per-platform deps digests across targets with sharedDeps.
 
-## 11. M2b: closure / sharedDeps（2026-09-07）
+Eight target/platform combinations across separate and shared closures passed verified RegistrySource pull, Docker archive/load/run, native xxhash, distinct is-number 7/6 behavior, shared workspace JSON, nonroot/read-only operation, and SIGTERM exit 0. Independent Linux installs also produced deterministic initial closures. CI added the same smoke with amd64 runtime execution.
 
-Bun 1.3.11 / macOS arm64 / Docker Desktop で `bun run test:m2b-smoke` が成功。実 Distribution Registry に 2 target × amd64/arm64 を publish し、source 編集後の Registry cache hit と deps/assets の追加 upload 0 を確認。worker の closure から API 専用 native addon が除外された。sharedDeps の再構築では platform ごとに両 target の deps digest が一致した。
+Ordinary tests cover duplicate versions/peer contexts, bundled-workspace exclusion, missing optional/required dependencies, escaping links, executable aliases, package data, checkout depth, cache hits after unrelated dev-lock changes, and misses after reachable workspace edits. Closure cache hits still perform Linux installation; no install avoidance or speedup is claimed. Live cloud Registry status remained as recorded for M1.
 
-削減後と共有後の計 8 image/platform を RegistrySource で検証付き pull → Docker archive → Docker load/run し、API の native xxhash、is-number 7/6 の使い分け、共通 workspace JSON、nonroot/read-only、SIGTERM exit 0 を確認。初回 closure は独立 install を使う決定性比較にも成功。CI に同じ smoke を追加し、実行 platform は amd64 に限定する。
+## 12. M2c: resolve (2026-09-07)
 
-通常テストには同名異版・peer context、bundled workspace の除外、optional 欠落、required 欠落、symlink 脱出、bin link、package data、checkout 深さの独立性、無関係な dev lock 変更の cache hit、reachable workspace source 変更の miss を追加。closure は cache hit 時も Linux install を行い、install 回避や速度向上の測定結果は主張しない。クラウド Registry 個別の実 push 状況は M1 と同じ。
+`bun run test:m2c-smoke` passed on macOS arm64 / Bun 1.3.11 / Docker Desktop. Real CLI resolve processed two YAML documents with anchors/aliases and matched output scalars to published references for two services on amd64/arm64. Aliases did not create extra targets; comments were retained. Edited-source Registry reuse and all eight separate/shared closure runtime checks passed, including native addons, distinct dependency versions, nonroot/read-only operation, and SIGTERM exit 0.
 
+Ordinary tests cover YAML documents/comments/block scalars/CRLF/complex keys/anchors/aliases, template and partial-string exclusions, exact JSON numeric bytes, multiple-JSON arrays, directory ordering/recursion, stdin, canonical deduplication, workspace sharedDeps, pre-publication syntax/name/build failures, changed target identity, partial-publication reports, empty failure stdout, and YAML 1.1/1.2 directive boundaries.
 
-## 12. M2c: resolve（2026-09-07）
-
-`bun run test:m2c-smoke` が macOS arm64 / Bun 1.3.11 / Docker Desktop で成功。2 document と anchor/alias を持つ YAML を実 CLI resolve に渡し、2 service × amd64/arm64 の公開 reference と出力 scalar の一致を確認した。重複 alias は追加 target を作らず、コメントを保持した。source 編集後の Registry cache、closure/sharedDeps の 8 runtime checks、native addon、異なる依存 version、nonroot/read-only、SIGTERM exit 0 も成功した。
-
-通常テストは YAML multi-doc、コメント、block scalar、CRLF、複雑な mapping key、anchor/alias、template/部分文字列の除外、JSON 数値の bytes 維持、複数 JSON 配列、directory 順序/再帰、stdin、canonical target 重複排除、workspace sharedDeps、構文/名前衝突/途中 build 失敗で Registry 書き込みなし、target identity 変更の拒否、部分公開の report と stdout 空を確認する。YAML 1.1 と 1.2 の別入力を連結する際の directive 継承も検査する。
-
-`bun run build && bun run test:bundled-smoke` は dist/bunko.js だけを外部 node_modules のない一時 directory にコピーし、stdin resolve と YAML license の同梱を確認する。CI に bundled smoke と実 Registry M2c smoke を追加した。kubectl apply や各クラウド Registry 個別の実 push はこの検証に含まない。
+`bun run build && bun run test:bundled-smoke` copied only dist/bunko.js to a temporary directory without external node_modules, then verified stdin resolve and the bundled YAML license. CI added bundled and real-Registry M2c smoke. These results do not include kubectl apply or individual cloud Registry live publication.
