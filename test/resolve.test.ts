@@ -30,7 +30,7 @@ test("replaces complete values while preserving multi-doc comments, anchors, ali
   expect(docs[0]!.toJS().copy).toBe(image);
 });
 
-test("handles block scalars, CRLF, complex keys, and anchors declared in keys", () => {
+test("handles stripped block scalars, CRLF, complex keys, and anchors declared in keys", () => {
   const source = 'image: |- # retained header\r\n  bunko://app\r\nnext: yes\r\n? [bunko://key, {nested: bunko://key}]\r\n: bunko://app\r\n? &key bunko://app\r\n: literal\r\nimageFromKey: *key\r\n';
   const input = parseInput("test.yaml", source);
   expect(input.replacements).toHaveLength(3);
@@ -42,6 +42,19 @@ test("handles block scalars, CRLF, complex keys, and anchors declared in keys", 
   expect(doc.get("next")).toBe("yes");
   expect(doc.get("imageFromKey")).toBe(image);
   expect(output).toContain("? &key bunko://app");
+});
+
+test.each(["|", "|+", ">", ">+"])("rejects retained newlines in %s bunko block scalars", (style) => {
+  expect(() => parseInput("block.yaml", `image: ${style}\n  bunko://app\n`)).toThrow("Invalid bunko reference");
+});
+
+test.each(["|-", ">-"])("resolves %s bunko block scalars without trimming their values", (style) => {
+  const input = parseInput("block.yaml", `image: ${style} # keep\n  bunko://app\n`);
+  expect(input.replacements).toHaveLength(1);
+  const output = renderInputs([input], new Map([["bunko://app", image]]));
+  expect(parseAllDocuments(output)[0]!.get("image")).toBe(image);
+  expect(output).toContain("# keep");
+  expect(() => parseInput("block.yaml", `image: ${style}\n  bunko://app \n`)).toThrow("Invalid bunko reference");
 });
 
 test("rejects invalid syntax, duplicate keys, invalid references and unresolved aliases", () => {

@@ -136,8 +136,12 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 
 - [Current implementation specification](docs/SPEC.md)
 - [Registry configuration and verification status](docs/REGISTRIES.md)
+- [Public repository readiness review](docs/PUBLIC_READINESS.md)
+- [Review follow-up and syntax-scan measurements](docs/REVIEW_FOLLOWUP.md)
 - [Detailed design and roadmap](docs/DESIGN.md)
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
 
 Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.
+
+Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).

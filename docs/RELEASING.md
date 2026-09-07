@@ -10,7 +10,7 @@ bun run check
 bun run release:prepare
 ```
 
-This creates a new `dist/release` directory containing `bunko.js`, `SHA256SUMS`, and `THIRD_PARTY_NOTICES.md`. Existing destinations are refused. To prepare again, select another directory with `bun run release:prepare /tmp/bunko-release-candidate`.
+This creates a new `dist/release` directory containing `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md`. Existing destinations are refused. To prepare again, select another directory with `bun run release:prepare /tmp/bunko-release-candidate`.
 
 The CLI version comes from package.json, so artifact and source versions cannot drift. Preparation verifies checksums and runs the bundled version command. The bundled parsers retain their licenses. Checksums detect damaged or mismatched assets; they are not signatures or provenance attestations.
 
@@ -24,7 +24,7 @@ For the first release, merge the reviewed fixes, English documentation, Registry
 
 Publication uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
 
-The repository is currently private, so release downloads and use of this Action from other repositories require appropriate repository access. The project has not selected an open-source license; third-party notices do not grant a license to bunko's own code. This workflow does not change visibility or publish to npm.
+The repository is currently private, so release downloads and use of this Action from other repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
 
 ## Use the setup Action
 

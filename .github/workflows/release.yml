@@ -69,4 +69,4 @@ jobs:
           if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
             --notes-file ../../docs/RELEASE_NOTES.md "${flags[@]}" \
-            bunko.js SHA256SUMS THIRD_PARTY_NOTICES.md
+            bunko.js SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md

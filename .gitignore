@@ -4,3 +4,8 @@ coverage/
 .DS_Store
 .bunko-output/
 *.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+.bunko-build/

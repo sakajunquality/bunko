@@ -19,6 +19,19 @@ async function fixture() { const root = await temporary(); directories.push(root
 function options(f: Awaited<ReturnType<typeof fixture>>, output = "out") { return { path: f.source, baseLayout: f.base, output: join(f.root, output), push: false, localCache: false, gitMetadata: false, installCache: f.cache }; }
 
 describe("M2a workspace builds", () => {
+  test.each(["./", "././"])("normalizes %s workspace patterns for root and member builds", async (prefix) => {
+    const f = await fixture();
+    await writeFile(join(f.source, "package.json"), canonicalJSON({ ...f.manifests[""], workspaces: [`${prefix}services/*/`, `${prefix}packages/*`] }));
+    const fromRoot = await discover({ path: f.source });
+    const fromMember = await discover({ path: join(f.source, "services/api") });
+    const fromPackage = await discover({ path: join(f.source, "packages/shared") });
+    expect(fromMember.workspace).toEqual(fromRoot.workspace);
+    expect(fromPackage.workspace).toEqual(fromRoot.workspace);
+    expect(fromMember.targets.map((p) => p.path)).toEqual(["services/api"]);
+    const image = await build({ ...options(f), path: join(f.source, "services/api") });
+    expect(image.targetPath).toBe("services/api");
+  });
+
   test("rejects an installed workspace dependency link outside the runtime tree", async () => {
     const f = await fixture(), discovered = await discover({ path: f.source });
     const project = await loadProject({ path: join(f.source, "services/api") }, discovered.workspace);

@@ -9,6 +9,6 @@ The first alpha packages the M2 preview as a standalone Bun CLI and provides a s
 - Provide an opt-in provider conformance workflow and authenticated Distribution tests.
 - Include the M2 correctness fixes for starter projects, dependency packaging, transfer handling, Registry authentication, dependency closures, and input validation.
 
-The release contains bunko.js, SHA256SUMS, and THIRD_PARTY_NOTICES.md. Bun >=1.3.11 <1.4 is required; the tested runtime is 1.3.11. There are no external npm runtime dependencies. The unminified bundle is approximately 9.2 MB and includes the YAML and TypeScript parsers with their licenses.
+The release contains bunko.js, SHA256SUMS, LICENSE (MIT), and THIRD_PARTY_NOTICES.md. Bun >=1.3.11 <1.4 is required; the tested runtime is 1.3.11. There are no external npm runtime dependencies. The minified bundle is approximately 3.9 MB and includes the YAML and TypeScript parsers with their licenses.
 
 This is an alpha with deliberately limited Bun/lock/native-package support. GHCR and GAR have passed live publication, separate cache reuse, direct Docker pull, and amd64/arm64 runtime checks. Docker Hub account push and ECR remain unverified; their authentication paths have automated coverage. Compile mode, SBOM, provenance, signing, apply, and pruning are not included. See the specification and Registry matrix before choosing a deployment target.

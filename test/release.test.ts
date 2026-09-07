@@ -5,7 +5,7 @@ import { assetNames, releaseTag, verifyAssets } from "../scripts/distribution.ts
 import { prepareRelease } from "../scripts/release.ts";
 import { githubBytes, setup } from "../scripts/setup.ts";
 import metadata from "../package.json";
-import { temporary } from "./helpers.ts";
+import { baseLayout, project, temporary } from "./helpers.ts";
 
 let root: string, distribution: string;
 beforeAll(async () => { root = await temporary(); distribution = join(root, "release"); await prepareRelease(distribution); });
@@ -17,6 +17,13 @@ test("release assets carry matching versions, checksums, and parser licenses", a
   verifyAssets(await readFile(join(distribution, "SHA256SUMS"), "utf8"), assets);
   const bundle = Buffer.from(assets.get("bunko.js")!).toString();
   expect(bundle).toContain("Copyright Eemeli Aro"); expect(bundle).toContain("Copyright Microsoft Corporation"); expect(bundle).toContain("Apache License");
+  const license = await readFile("LICENSE", "utf8");
+  expect(bundle).toContain(license.trim());
+  expect(Buffer.from(assets.get("LICENSE")!).toString()).toBe(license);
+  const notices = Buffer.from(assets.get("THIRD_PARTY_NOTICES.md")!).toString();
+  const typescriptNotices = (await readFile("node_modules/typescript/ThirdPartyNoticeText.txt", "utf8")).replaceAll("\r\n", "\n").replace(/[ \t]+$/gm, "");
+  expect(notices).toContain(typescriptNotices.trim());
+  expect(bundle).toContain("Copyright (c) 1991-2017 Unicode, Inc.");
   await expect(prepareRelease(distribution)).rejects.toThrow();
   await expect(prepareRelease(join(root, "wrong-tag"), "v9.9.9")).rejects.toThrow("must match");
 });
@@ -30,6 +37,18 @@ test("offline installation runs outside node_modules and handles quoted paths an
   const input = join(prefix, "file ' with spaces.yaml"); await writeFile(input, "image: existing/app:tag\n");
   const resolve = Bun.spawn([installed.executable, "resolve", "-f", input], { cwd: prefix, stdout: "pipe", stderr: "pipe", env: { PATH: "/usr/bin:/bin" } });
   expect(await new Response(resolve.stdout).text()).toBe("image: existing/app:tag\n"); expect(await resolve.exited).toBe(0);
+});
+
+test("minified distribution rejects macros before executing source", async () => {
+  const marker = join(root, "macro-executed");
+  const source = await project(join(root, "macro-project"), {}, 'import value from "./macro.ts" with { type: "macro" }; console.log(value());');
+  await writeFile(join(source, "src/macro.ts"), `export default async function value() { await Bun.write(${JSON.stringify(marker)}, "executed"); return 1; }`);
+  const base = await baseLayout(join(root, "macro-base"));
+  const child = Bun.spawn([process.execPath, join(distribution, "bunko.js"), "build", source, "--base-layout", base, "--push=false", "--oci-layout", join(root, "macro-output")],
+    { cwd: root, env: { PATH: process.env.PATH ?? "" }, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(exit).toBe(1); expect(stdout).toBe(""); expect(stderr).toContain("macros are not supported");
+  expect(await Bun.file(marker).exists()).toBe(false);
 });
 
 test("corrupted artifacts are rejected before execution or installation", async () => {
@@ -64,7 +83,7 @@ test("private release assets use authenticated API downloads and strip tokens on
     expect(headers.get("Accept")).toBe("application/octet-stream");
     return new Response(null, { status: 302, headers: { Location: `https://storage.example/${url.pathname.split("/").at(-1)}` } });
   }) });
-  expect(installed.version).toBe(metadata.version); expect(seen).toHaveLength(7);
+  expect(installed.version).toBe(metadata.version); expect(seen).toHaveLength(9);
 });
 
 test("failed downloads redact credentials and reject insecure redirect targets", async () => {
