@@ -3,12 +3,13 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { canonicalJSON, object, sha256 } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
+import type { Workspace } from "./workspace.ts";
 import type { Project } from "./config.ts";
-import { hashFile, OUTPUT_DIRECTORY } from "./files.ts";
+import { fileEntries, hashFile, OUTPUT_DIRECTORY } from "./files.ts";
 import type { Toolchain } from "./toolchain.ts";
 
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
-export interface DependencyPlan { manifest: Record<string, unknown>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
+export interface DependencyPlan { manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
 export interface InventoryEntry { path: string; name: string; version: string }
 export interface NativeBinary { path: string; architecture: string; needed: string[] }
 
@@ -18,21 +19,34 @@ export function packageRoot(value: string): string {
   return match[0];
 }
 
-export function validateLock(manifest: Record<string, unknown>, input: unknown): Record<string, unknown> {
-  const lock = object(input, "bun.lock");
-  if (lock.lockfileVersion !== 1 || (lock.configVersion !== undefined && lock.configVersion !== 1)) throw new Error("Unsupported bun.lock schema; regenerate a text lock with Bun 1.3.11");
-  const workspaces = object(lock.workspaces, "bun.lock workspaces");
-  if (Object.keys(workspaces).length !== 1 || !("" in workspaces)) throw new Error("M1 requires a standalone package lock; workspace locks are supported in M2");
-  const root = object(workspaces[""], "bun.lock root");
+function validateDeclarations(manifest: Record<string, unknown>, root: Record<string, unknown>): void {
   for (const field of dependencyFields) {
     if (Buffer.compare(Buffer.from(canonicalJSON(manifest[field] ?? {})), Buffer.from(canonicalJSON(root[field] ?? {})))) throw new Error(`package.json and bun.lock disagree on ${field}; run bun install first`);
   }
   const optionalPeers = Object.entries(object(manifest.peerDependenciesMeta ?? {}, "peerDependenciesMeta")).filter(([, value]) => object(value, "Peer metadata").optional === true).map(([name]) => name).sort();
   if (!Array.isArray(root.optionalPeers ?? []) || !(root.optionalPeers as unknown[] | undefined ?? []).every((name) => typeof name === "string") || JSON.stringify(optionalPeers) !== JSON.stringify([...(root.optionalPeers as string[] | undefined ?? [])].sort())) throw new Error("package.json and bun.lock disagree on optional peers");
+}
+
+export function validateLock(manifest: Record<string, unknown>, input: unknown, workspace?: Workspace): Record<string, unknown> {
+  const lock = object(input, "bun.lock");
+  if (lock.lockfileVersion !== 1 || (lock.configVersion !== undefined && lock.configVersion !== 1)) throw new Error("Unsupported bun.lock schema; regenerate a text lock with Bun 1.3.11");
+  const workspaces = object(lock.workspaces, "bun.lock workspaces");
+  const packages = workspace?.packages ?? [{ path: "", manifest }];
+  if (JSON.stringify(Object.keys(workspaces).sort()) !== JSON.stringify(packages.map((p) => p.path).sort())) throw new Error("Workspace membership and bun.lock disagree; run bun install first");
+  for (const pkg of packages) {
+    const record = object(workspaces[pkg.path], "bun.lock workspace");
+    validateDeclarations(pkg.manifest, record);
+    if (workspace && (record.name !== pkg.manifest.name || record.version !== pkg.manifest.version)) throw new Error(`Workspace name/version and bun.lock disagree: ${pkg.path || "."}`);
+  }
   for (const [field, expected] of [["overrides", manifest.overrides ?? manifest.resolutions ?? {}], ["patchedDependencies", manifest.patchedDependencies ?? {}]] as const) {
     if (Buffer.compare(Buffer.from(canonicalJSON(expected)), Buffer.from(canonicalJSON(lock[field] ?? {})))) throw new Error(`package.json and bun.lock disagree on ${field}`);
   }
   for (const [id, record] of Object.entries(object(lock.packages, "bun.lock packages"))) {
+    if (workspace && Array.isArray(record) && record.length === 1 && typeof record[0] === "string" && record[0].includes("@workspace:")) {
+      const [name, path] = record[0].split("@workspace:");
+      if (!workspace.packages.some((p) => p.path && p.path === path && p.manifest.name === name) || id !== name) throw new Error(`Invalid workspace lock entry: ${id}`);
+      continue;
+    }
     if (!Array.isArray(record) || record.length !== 4 || typeof record[0] !== "string" || !/^(@[^/]+\/)?[^@]+@\d+\.\d+\.\d+(?:[-+].+)?$/.test(record[0])
       || typeof record[1] !== "string" || typeof record[3] !== "string" || !/^sha(?:256|384|512)-[A-Za-z0-9+/]+=*$/.test(record[3])) throw new Error(`Unsupported non-registry or integrity-free lock entry: ${id}`);
     object(record[2], "Lock package metadata");
@@ -45,13 +59,14 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown):
 }
 
 export async function dependencyPlan(project: Project, root: string): Promise<DependencyPlan> {
-  const manifest = object(JSON.parse(project.manifestText), "package.json");
+  const workspace = project.workspace;
+  const manifest = workspace?.packages[0]!.manifest ?? object(JSON.parse(project.manifestText), "package.json");
   const hasDependencies = dependencyFields.some((field) => Object.keys(object(manifest[field] ?? {}, field)).length);
   let lock: Record<string, unknown> | undefined;
-  if (hasDependencies) {
+  if (hasDependencies || workspace) {
     let text: string;
     try { text = await readFile(join(root, "bun.lock"), "utf8"); } catch { throw new Error("Dependencies require a text bun.lock; run bun install first (bun.lockb is not supported)"); }
-    lock = validateLock(manifest, Bun.JSONC.parse(text));
+    lock = validateLock(manifest, Bun.JSONC.parse(text), workspace);
   }
   const patches: Record<string, string> = {};
   for (const path of Object.values(object(manifest.patchedDependencies ?? {}, "patchedDependencies"))) {
@@ -61,7 +76,7 @@ export async function dependencyPlan(project: Project, root: string): Promise<De
   }
   const resolution: Record<string, string> = {};
   let npmrc: string | undefined;
-  try { npmrc = await readFile(join(project.directory, ".npmrc"), "utf8"); }
+  try { npmrc = await readFile(join(workspace?.directory ?? project.directory, ".npmrc"), "utf8"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   if (npmrc) {
     const lines: string[] = [];
@@ -84,7 +99,19 @@ export async function dependencyPlan(project: Project, root: string): Promise<De
     }
     npmrc = lines.join("\n") + "\n";
   }
-  return { manifest, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
+  const workspaceSources: Record<string, string> = {};
+  if (workspace) {
+    const referenced = new Set<string>();
+    const references = [...workspace.packages.map((p) => p.manifest), ...Object.values(object(lock!.packages, "packages")).filter(Array.isArray).map((r) => r[2] ?? {})];
+    for (const value of references) for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const name of Object.keys(object(object(value, "Package metadata")[field] ?? {}, field))) referenced.add(name);
+    }
+    for (const pkg of workspace.packages.filter((p) => p.path && referenced.has(String(p.manifest.name)))) {
+      const entries = await fileEntries(join(root, pkg.path), pkg.path);
+      workspaceSources[pkg.path] = sha256(canonicalJSON(await Promise.all(entries.map(async (entry) => entry.type === "file" ? { path: entry.path, executable: entry.executable, digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content) } : entry))));
+    }
+  }
+  return { manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
 }
 
 export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string): Promise<void> {
@@ -98,7 +125,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
   if (cacheDirectory) args.push(`--cache-dir=${cacheDirectory}`);
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
-  const originalManifest = await readFile(join(root, "package.json"), "utf8");
+  const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   try {
     const child = Bun.spawn(args, { cwd: root, env: {
       PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
@@ -110,7 +137,8 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
     // Installer diagnostics may contain private URLs or credentials. The caller
     // gets the operation and exit code, never raw authentication-bearing output.
     if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability`);
-    if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock || await readFile(join(root, "package.json"), "utf8") !== originalManifest) throw new Error("Frozen install changed package.json or bun.lock");
+    if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
+    for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
   } finally { await rm(auth, { force: true }); }
 }
 
@@ -202,8 +230,10 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
 }
 
 export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, project: Project): Record<string, unknown> {
-  // Entire manifests/lock deliberately over-invalidate. No source bytes, host
-  // paths, tags, registry credentials or current time can enter this key.
-  const fields = Object.fromEntries([...dependencyFields, "peerDependenciesMeta", "overrides", "resolutions", "patchedDependencies", "trustedDependencies", "name", "version", "os", "cpu"].filter((key) => plan.manifest[key] !== undefined).map((key) => [key, plan.manifest[key]]));
-  return { manifests: fields, lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, external: project.external };
+  // Production strategy fingerprints all manifests/lock. Workspace source bytes
+  // are included only when the package can appear in the installed runtime tree.
+  const fields = [...dependencyFields, "peerDependenciesMeta", "overrides", "resolutions", "patchedDependencies", "trustedDependencies", "name", "version", "os", "cpu"];
+  const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
+  const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
+  return { manifests, workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v1" : "standalone-v1", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, external: project.external };
 }

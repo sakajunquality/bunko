@@ -10,7 +10,7 @@ import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { exportDockerArchive, loadArchive } from "../packages/oci/archive.ts";
 import { platform as parsePlatform } from "../packages/bunko/config.ts";
 
-async function command(args: string[]): Promise<string> {
+export async function command(args: string[]): Promise<string> {
   const child = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(`${args.slice(0, 3).join(" ")} failed: ${stderr || stdout}`);

@@ -1,0 +1,7 @@
+{
+  "name": "@example/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "module": "src/index.ts",
+  "bunko": {"enabled": false}
+}

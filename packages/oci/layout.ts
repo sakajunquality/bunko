@@ -30,18 +30,26 @@ export async function assertOutputAvailable(path: string): Promise<void> {
 }
 
 export async function exportLayout(source: BlobStore, output: string, root: Descriptor, all: Descriptor[], refName: string): Promise<void> {
+  return exportLayouts(output, [{ source, root, all, refName }]);
+}
+
+export async function exportLayouts(output: string, images: { source: BlobStore; root: Descriptor; all: Descriptor[]; refName: string }[]): Promise<void> {
   output = resolve(output);
   await assertOutputAvailable(output);
   await mkdir(dirname(output), { recursive: true });
   const temporary = await mkdtemp(join(dirname(output), ".bunko-layout-"));
   try {
     const destination = new BlobStore(temporary);
-    const unique = new Map([...all, root].map((d) => [d.digest, d]));
-    for (const d of unique.values()) await destination.copyFrom(source, d);
+    const copied = new Set<string>();
+    for (const { source, root, all } of images) for (const d of [...all, root]) {
+      if (copied.has(d.digest)) continue;
+      await destination.copyFrom(source, d);
+      copied.add(d.digest);
+    }
     await writeFile(join(temporary, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
     await writeFile(join(temporary, "index.json"), canonicalJSON({
       schemaVersion: 2, mediaType: media.index,
-      manifests: [{ ...root, annotations: { "org.opencontainers.image.ref.name": refName } }],
+      manifests: images.map(({ root, refName }) => ({ ...root, annotations: { "org.opencontainers.image.ref.name": refName } })),
     }));
     await assertOutputAvailable(output);
     // rename replaces an empty directory, but cannot overwrite a non-empty directory.

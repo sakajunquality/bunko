@@ -1,0 +1,16 @@
+{
+  "name": "@example/worker",
+  "private": true,
+  "module": "src/server.ts",
+  "dependencies": {
+    "@example/shared": "workspace:*",
+    "is-number": "6.0.0"
+  },
+  "bunko": {
+    "imageName": "worker",
+    "base": "oven/bun:1.3.11-slim",
+    "external": ["@example/shared", "is-number"],
+    "ports": [3000],
+    "user": "65532:65532"
+  }
+}

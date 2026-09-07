@@ -1,8 +1,8 @@
 # bunko 詳細設計案
 
-2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a・M0b・M1 を実装、M2 以降は設計案**。
+2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a・M0b・M1・M2a を実装、M2b 以降は設計案**。
 
-元の仕様書は archive に入力ファイルのまま保存している。M1 までに採用した変更と実際の対応範囲は [現行実装仕様](SPEC.md) に統合した。本書は将来の契約も含む。実装との差分は以下と SPEC.md を優先する。実機で確認した結果と残る検証は [VALIDATION.md](VALIDATION.md) に分けた。
+元の仕様書は archive に入力ファイルのまま保存している。M2a までに採用した変更と実際の対応範囲は [現行実装仕様](SPEC.md) に統合した。本書は将来の契約も含む。実装との差分は以下と SPEC.md を優先する。実機で確認した結果と残る検証は [VALIDATION.md](VALIDATION.md) に分けた。
 
 ## 1. 設計の中心
 
@@ -589,7 +589,9 @@ fake registry は protocol の故障注入に使う。自作 client と自作 fa
 | M0a: ローカル成果物 | config、entry 検出、bundle、assets、tar/config/manifest、OCI layout | pinned 入力を二つの staging で作って一致 |
 | M0b: 初回公開 | auth、blob/manifest、single-platform index、push | hello を real registry から pull/run、stdout が digest 一行 |
 | M1: cache と deps | production strategy、local/registry cache、multi-platform、local/kind | JS source 変更で deps/assets の upload 0、native 対応 fixture が Linux 上で動く |
-| M2: workspace | graph projection、closure/sharedDeps、resolve | peer を含む複数 service の runtime resolution を維持 |
+| M2a: workspace（実装済み） | root lock、複数 target、production tree、外部 workspace | peer と同名異版を維持し、二つの service を両 platform で公開・実行 |
+| M2b: 依存最小化 | concrete instance graph、closure/sharedDeps、target 別 key | 依存を減らしても runtime resolution を維持 |
+| M2c: resolve | YAML/JSON の bunko:// scalar 置換 | 複数 document と重複 target を扱い、全成功時だけ出力 |
 | M3: 配布・供給網 | SBOM/provenance/sign、compile、check-base、Actions | schema/署名検証、platform 別起動、配布物の smoke test |
 | M4: 拡張 | deps artifact importer、apply、prune、追加 registry 対応 | 外部 deps と削除の契約を interoperability test で確認 |
 
@@ -607,6 +609,16 @@ HTML output の存在は S0 で調べ、動作保証の公開は runtime test �
 - report v2 は platform ごとの結果と layer/config payload の transfer を持つ。HTTP wire bytes、全 metadata の独立計測、繰り返し比較 benchmark は後続。
 - install scripts、source symlink、computed application imports、macros は拒否。patch、optional peer、override は standalone lock adapter で扱う。
 - M0a–M1 の実装完了と vendor すべての相互運用完了は分け、[Registry 対応表](REGISTRIES.md) で明示する。
+
+### M2a の実装差分
+
+M2a は M1 の production strategy を workspace 全体へ拡張する。runtime node_modules と参照される workspace の全 file を `workdir/.bunko-workspace/` に元の相対構造で収録し、`workdir/node_modules` に選択 target の external roots の link を置く。source/asset の配置と WorkingDir は従来どおり workdir に維持する。
+
+全 member manifest と lock の membership/name/version/dependencies/optional peers を照合し、元の root 構成で frozen install する。workspace を含む cache key は全 lock/依存 manifest と runtime に入り得る workspace package 内容を含む。選択 service の変更は deps を再利用できるが、source digest は workspace 全体なので無関係な変更でも他 image の config が変わり得る。
+
+`--target` は package 名または root 相対 path の明示選択、root の自動選択と member path 指定も提供する。複数 target の report は schemaVersion 3、単一 target は schemaVersion 2 のまま。全構築後に export/push/load し、途中の tag 更新失敗は pendingTargets と platform ごとの結果に残す。複数 target にまたがる Registry transaction は提供しない。
+
+root の workspaces は正の相対 glob 配列のみ。nested workspace、object/catalog、file/link は後続。npmrc/override/patch は root に限定する。closure/sharedDeps と resolve は M2b/M2c に分ける。
 
 ## 16. 残る判断とリスク
 

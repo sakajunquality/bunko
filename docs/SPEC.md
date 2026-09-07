@@ -1,14 +1,14 @@
-# bunko 実装仕様 — M1
+# bunko 実装仕様 — M2a
 
 2026-09-07。現行実装の契約。将来の設計は [DESIGN.md](DESIGN.md)、元仕様は [archive/SPEC-v0.1.md](archive/SPEC-v0.1.md)、実測と未検証範囲は [VALIDATION.md](VALIDATION.md) を参照。
 
 ## 1. 対応範囲
 
-standalone の Bun アプリを bundle し、base image と合成して OCI Registry に公開、完全な OCI layout / Docker archive に export、Docker / kind に load する。Bun は `>=1.3.11 <1.4`、検証基準は 1.3.11。CLI 自体の外部 npm runtime dependencies は 0。
+standalone / workspace の Bun アプリを bundle し、base image と合成して OCI Registry に公開、完全な OCI layout / Docker archive に export、Docker / kind に load する。Bun は `>=1.3.11 <1.4`、検証基準は 1.3.11。CLI 自体の外部 npm runtime dependencies は 0。
 
 一度に `linux/amd64` と `linux/arm64` を選べる。arm64 の省略 variant は v8 として扱い、platform は安定した順序で index に収録する。build 中に target executable やエミュレーターを起動しない。Docker archive / local / kind と `--no-index` は単一 platform に限定する。
 
-通常の registry npm dependencies と明示的な production runtime externals を扱う。workspaces、compile、bytecode、SBOM/provenance/sign、resolve/apply、外部 deps artifact、prune は後続 milestone。
+通常の registry npm dependencies、workspace dependencies、明示的な production runtime externals を扱う。closure/sharedDeps、compile、bytecode、SBOM/provenance/sign、resolve/apply、外部 deps artifact、prune は後続 milestone。
 
 ## 2. CLI と結果
 
@@ -21,7 +21,8 @@ bunko version
 
 | option | 動作 |
 | --- | --- |
-| path | 既定 `.`。`bunko://<path>` も許可。一度に一つの target |
+| path | 既定 `.`。`bunko://<path>` も許可。workspace では複数 target（§8） |
+| `--target NAME/PATH` | root から workspace member を選択。複数指定可 |
 | `--repo PREFIX` / `--bare` | 既定は PREFIX/project-name。bare は正確な repository 名として利用 |
 | `--tag TAG` | 複数指定可。既定 latest と Git revision（dirty suffix あり） |
 | `--push=false` | 公開を無効化。CLI は既定 push=true、公開先が必要 |
@@ -48,7 +49,7 @@ bunko version
 
 stdout は、公開成功時に `repo@digest` 一行、local/kind 成功時に content tag 一行、export/dry-run は空。ログは stderr。exit code は成功 0、失敗 1。複数 tag の途中失敗でも stdout に成功結果を出さない。
 
-report は `schemaVersion:2`。`images[]` に platform ごとの manifest/config/base/layers、runtime inventory、native ELF 情報を収録し、`cache[]` に key と local/registry/miss/bypass を記録する。`publication` は reference、published、tags、pendingTags、transfers を持つ。transfer の uploaded は layer/config payload bytes（dry-run は推定）で、manifest/index、HTTP overhead、cache publication を含む wire total ではない。互換用の top-level manifest/config/layers/baseDigest は最初の platform を指す。
+単一 target の report は `schemaVersion:2`。複数 target は §8 の schemaVersion 3。`images[]` に platform ごとの manifest/config/base/layers、runtime inventory、native ELF 情報を収録し、`cache[]` に key と local/registry/miss/bypass を記録する。`publication` は reference、published、tags、pendingTags、transfers を持つ。transfer の uploaded は layer/config payload bytes（dry-run は推定）で、manifest/index、HTTP overhead、cache publication を含む wire total ではない。互換用の top-level manifest/config/layers/baseDigest は最初の platform を指す。
 
 CLI は base を起動検査しないため `baseRuntimeVerified:false` を記録する。決定性比較の成否は `verifiedDeterministic`、実行時の速度は image identity に含めない。
 
@@ -83,11 +84,11 @@ entrypoint は `bunko.entrypoint > bin > module > main > src/index.ts > index.ts
 
 base/platform は `CLI > BUNKO_DEFAULT_BASE / BUNKO_DEFAULT_PLATFORMS > package.json > 既定`。既定 base は `oven/bun:<selected Bun version>-distroless`。catalog による自動 digest pin は未実装。native dependency を検出した場合は共有ライブラリを含む明示 base が必要で、暗黙の distroless を使わない。
 
-dependencies/devDependencies/optionalDependencies/peerDependencies のいずれかが非空なら text `bun.lock` が必要。v1 の standalone lock に限定し、root の依存宣言、optional peer metadata、overrides/resolutions、patchedDependencies を照合する。integrity のない entry、未知 schema、workspace/file/link/git/tarball spec などを拒否する。patch 内容は key に含める。
+dependencies/devDependencies/optionalDependencies/peerDependencies のいずれかが非空なら text `bun.lock` が必要。v1 の text lock に限定し、root の依存宣言、optional peer metadata、overrides/resolutions、patchedDependencies を照合する。integrity のない entry、未知 schema、file/link/git/tarball spec などを拒否する。workspace protocol は §8 の制約内で許可する。patch 内容は key に含める。
 
 build dependencies は source snapshot を複製した staging に host 用 frozen install する。external がある場合は別 staging に `--production --os=linux --cpu=x64|arm64` で install する。`--ignore-scripts --linker=isolated --backend=copyfile` を指定し、install 前後で manifest/lock の bytes が変わっていないことも検査する。source の node_modules をコピーせず、元の checkout は変更しない。
 
-M1 の runtime deps は production tree 全体を保持する。external closure の最小化は M2。package 内の data files、peer context、内部 symlink を維持し、外へ出る symlink、dangling link、preinstall/install/postinstall を宣言する runtime package は拒否する。external は production/optional/peer dependency の package root に限定し、typo/unresolved import を自動 external 化しない。
+production strategy の runtime deps は production tree 全体を保持する。external closure の最小化は M2b。package 内の data files、peer context、内部 symlink を維持し、収録する runtime の外へ出る symlink、dangling link、preinstall/install/postinstall を宣言する runtime package は拒否する。external は production/optional/peer dependency の package root に限定し、typo/unresolved import を自動 external 化しない。
 
 native `.node` は ELF64 little-endian、target architecture を検査し、DT_NEEDED を report に記録する。Bun の optional selection が glibc/musl 両方を含む場合は tree を維持する。任意 base の共有ライブラリ・ABI 検証や native source compile は行わない。examples/dependencies の glibc prebuilt addon は amd64/arm64 で実行確認した。
 
@@ -143,3 +144,28 @@ lookup は local → Registry metadata → miss。local blob は compressed dige
 `bun run check` は型チェックとネットワーク不要の unit/integration。Python tarfile で tar/PAX と Docker archive を独立検査する。`bun run test:m1-smoke` は実 Distribution Registry、public npm/base、Docker を使い、両 platform の構築、決定性、source 変更時の deps/assets 再利用、Registry からの pull と Docker 実行、local load を確認する。
 
 サービス別の実 push、汎用 native ABI、musl runtime、HTML の実配信、他 Bun version、性能比較の繰り返し測定は未検証。[検証記録](VALIDATION.md) に実測値と制約を残す。
+
+
+## 8. Workspace と複数 target（M2a）
+
+workspace root の `package.json.workspaces` は相対・正の glob pattern 配列を受け付ける。package 名は member 間で一意にし、宣言と実 directory から membership を決定して root の bun.lock と相互検証する。root を含む全 member の name/version/依存宣言/optional peers を照合する。snapshot 作成中の manifest や membership 変更も拒否する。
+
+member の package directory を明示すると、親の宣言を探索して共通 lock を使う。root からは enabled:false を除く bunko 設定のある子を優先し、それがなければ bin/module を持つ子を選ぶ。候補ゼロはエラー。root 自身の選択は `--target .`、個別 member は package 名または root 相対 path の `--target`（複数可）で指定する。同一 target の重複は除去し、path 順に処理する。root の bunko 設定は子へ継承しない。
+
+構築前に全 target の設定、image 名の衝突、出力制約、lock の整合性を検査する。`--bare` と `--tarball` は単一 target 限定。全 target/platform の構築と決定性比較が成功してから export/push/load する。base の tag 解決結果は同じ invocation 内で共有する。
+
+共通 root を一度 snapshot し、元の workspace 相対構造を維持した別 staging に build / Linux production install する。member の bundling はその directory を cwd にし、metafile と sourcemap の source は workspace snapshot 全体を境界とする。root の相対 tsconfig extends と他 member の source import を許可する。
+
+通常の workspace dependencies は bundle する。runtime external がある場合は root と全 member の production node_modules、それらから参照され得る workspace package の全 files を `workdir/.bunko-workspace/` に収録する。Bun が作った相対 topology と peer context を維持し、選択した service の external roots を `workdir/node_modules/<package>` からその実体へ link する。workdir と app/assets の配置は変えない。存在しない外部 package、収録範囲外への link、install scripts を必要とする runtime package は拒否する。
+
+production strategy は workspace 全体の tree を対象にするため、選んだ service が不要な依存や、bundle 済みの共通 package も含み得る。workspace package が version を宣言しない場合、inventory の version は空文字で未指定を表す。縮小・sharedDeps は M2b の機能とする。
+
+cache key は全 member の依存関連 manifest、全 lock、target path、workspace layout version と、runtime に入り得る workspace package の source 内容を含む。service source だけの変更では deps を再利用でき、runtime shared package の変更では miss になる。source digest は root snapshot 全体であり、他 service の source 変更でも image config / root digest が変わる場合がある。
+
+複数 target の OCI layout は一つの index.json から名前 annotation を付けた各 target root を参照し、到達可能な blob を重複なく収録する。単一 target の export 形式は変えない。
+
+複数 target の report は `{schemaVersion:3,status,targets:[BuildResult...]}`。各 result は targetPath を含む。失敗時は error と pendingTargets を追加し、公開済み root / tags と未更新 tags を targets 内に残す。Registry 公開・local load に横断 transaction はない。stdout は全 target の要求が成功した場合だけ固定順で一行ずつ出す。
+
+API は `buildTargets(options): Promise<BuildResult[]>` を追加する。既存 `build(options)` は一つの target を返し、複数選択は副作用の前に拒否する。
+
+M2a では nested workspace、workspace の object/catalog 形式、否定 glob、file/link package、member ごとの npmrc/overrides/resolutions/patchedDependencies は非対応。後者は root へまとめる。project bunfig と install scripts の制約は M1 と同じ。

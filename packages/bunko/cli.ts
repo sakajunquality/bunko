@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { build } from "./build.ts";
+import { buildTargets } from "./build.ts";
 import { VERSION } from "./config.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (M1 preview)
+const help = `bunko ${VERSION} — Bun to OCI images (M2a preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
@@ -11,6 +11,7 @@ Usage:
   bunko version
 
 Options:
+  --target <name/path>     Select a workspace member; repeatable, root invocation only
   --repo <prefix>          Destination prefix (or BUNKO_REPO)
   --bare                   Use --repo as the exact image repository
   --tag <tag>              Repeatable tag (default: latest and Git revision)
@@ -41,9 +42,9 @@ Options:
 
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
-M1 supports standalone apps, registry npm packages, and explicit production externals.
-Workspace/compile/attestation support is planned for later milestones.
-Logs go to stderr; successful publication prints one repo@digest line to stdout.
+Supports standalone apps and Bun workspaces with production dependencies.
+Dependency closure/compile/attestation support is planned for later milestones.
+Logs go to stderr; successful publication prints one repo@digest line per target.
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -56,6 +57,7 @@ export async function main(argv: string[]): Promise<number> {
         version: { type: "boolean" },
         push: { type: "boolean", default: true },
         repo: { type: "string" },
+        target: { type: "string", multiple: true },
         bare: { type: "boolean" },
         tag: { type: "string", multiple: true },
         tarball: { type: "string" },
@@ -87,9 +89,10 @@ export async function main(argv: string[]): Promise<number> {
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
     if (command !== "build") throw new Error(`Unknown command: ${command ?? "(missing)"}`);
-    if (rest.length) throw new Error("M1 supports one build target per invocation");
+    if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
-    const result = await build({
+    const results = await buildTargets({
+      targets: values.target,
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
@@ -103,7 +106,7 @@ export async function main(argv: string[]): Promise<number> {
       gitMetadata: values["git-metadata"], noIndex: !values.index,
       log: (message) => process.stderr.write(message),
     });
-    if (!result.dryRun) {
+    for (const result of results) if (!result.dryRun) {
       if (result.publication?.published) process.stdout.write(`${result.publication.reference}\n`);
       else if (result.localReference) process.stdout.write(`${result.localReference}\n`);
     }
