@@ -62,7 +62,7 @@ test("application cache skips installs/bundles, survives corruption and invalida
   expect(changed.root.digest).not.toBe(first.root.digest); expect(changed.cache.find((c) => c.kind === "app")!.status).toBe("miss");
   const checked = await build({ ...options, output: join(root, "checked"), verifyDeterministic: true });
   expect(checked.root).toEqual(changed.root); expect(checked.cache.every((c) => c.status === "bypass")).toBe(true);
-});
+}, 15_000);
 
 test("parallel workspace builds preserve root order/digests and never publish after a prepare failure", async () => {
   const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));

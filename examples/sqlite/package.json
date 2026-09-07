@@ -1,0 +1,10 @@
+{
+  "name": "bunko-sqlite",
+  "private": true,
+  "module": "server.ts",
+  "bunko": {
+    "ports": [3000],
+    "env": { "DB_PATH": "/tmp/bunko.sqlite" },
+    "user": "65532:65532"
+  }
+}

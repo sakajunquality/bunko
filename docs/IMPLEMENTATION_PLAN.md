@@ -7,7 +7,7 @@ The owner requested completion through M6, followed by a researched ko gap analy
 - [x] M3: deterministic SPDX inventory and SLSA provenance; OCI subject artifact publication/discovery and layout export; explicit private signing and verification; base inspection; Linux cross compilation; distribution smoke checks.
 - [x] M4: validated external dependency artifacts; apply after complete resolution; preview-first cache pruning with explicit deletion; Distribution interoperability coverage (cloud account/policy gaps remain documented).
 - [x] M5: bounded jobs; shared content validation; reusable application output; concurrent cache safety; scale/failure regression coverage.
-- [ ] M6: diagnostics and configuration usability; executable/installation guidance; runtime compatibility matrix and migration documentation; realistic project fixtures.
+- [x] M6: diagnostics and configuration usability; executable/installation guidance; runtime compatibility matrix and migration documentation; realistic project fixtures.
 - [ ] Research current ko behavior using primary sources, record supported/intentional/inapplicable gaps, implement applicable high-value gaps, and verify them.
 - [ ] Run complete tests, distribution and runtime checks, review changes with Claude where available, fix findings, and create reviewable PRs.
 
@@ -22,3 +22,5 @@ No repository/package visibility changes, public transparency-log submissions, p
 - M3 is PR #11. Claude findings were fixed; CI passed. See M3_REVIEW.md.
 - M4 passed amd64/arm64 external-artifact runtime checks, disposable kind apply, and real Distribution tag deletion with runnable-image retention. Claude findings were fixed; see M4_REVIEW.md.
 - M5 adds bounded target jobs, invocation-local syntax memoization and application layers, with verified local writer conflicts. See PERFORMANCE.md and M5_REVIEW.md.
+
+- M6 adds offline diagnostics, command-specific flag checks and SQLite examples; Bun 1.3.11/1.3.12 each passed bundle/compile runtime checks on amd64/arm64. See COMPATIBILITY.md and validation/m6-runtime.json.

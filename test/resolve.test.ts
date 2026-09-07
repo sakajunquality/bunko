@@ -173,7 +173,7 @@ test("CLI rejects ambiguous modes and leaves stdout empty on input/build errors"
   const failed = await cli(["resolve", "-f", file, "--repo", "registry.test/team"]);
   expect(failed.exit).toBe(1); expect(failed.stdout).toBe("");
   expect((await cli(["resolve", "-f", file, "--dry-run"])).stderr).toContain("requires Registry publication");
-  expect((await cli(["build", "-f", file])).stderr).toContain("require resolve");
+  expect((await cli(["build", "-f", file])).stderr).toContain("not supported by build");
 });
 
 test("CLI stdin success prints only documents, and partial publication failure prints no stdout", async () => {

@@ -1,3 +1,4 @@
+import packageMetadata from "../../package.json";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ import type { InventoryEntry, NativeBinary } from "./deps.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
-export const packFormat = `tar-gzip-v1/bun-${Bun.version}-${Bun.revision}`;
+export const packFormat = `tar-gzip-v1/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
 const maxLayerBytes = 2 * 1024 ** 3;
 
@@ -40,10 +41,12 @@ export class LayerCache {
   readonly events: CacheEvent[] = [];
   private readonly invalidLocal = new Set<Digest>();
   private readonly remoteHits = new Set<Digest>();
+  private readonly persistence: { disabled?: boolean };
   private readonly records = new Map<Digest, CacheRecord>();
   private readonly local?: BlobStore;
   private readonly remote?: Publisher;
-  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; registry?: RegistryOptions; log: (message: string) => void }) {
+  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
+    this.persistence = options.persistence ?? {};
     if (options.directory) this.local = new BlobStore(options.directory);
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
   }
@@ -119,7 +122,7 @@ export class LayerCache {
 
   async remember(record: CacheRecord): Promise<void> {
     this.records.set(record.key, record);
-    if (!this.local) return;
+    if (!this.local || this.persistence.disabled) return;
     const dir = join(this.local.root, "keys", record.kind);
     const temporary = join(dir, `.tmp-${randomUUID()}`);
     try {
@@ -138,8 +141,8 @@ export class LayerCache {
       await mkdir(dir, { recursive: true });
       await writeFile(temporary, canonicalJSON(record), { flag: "wx" });
       await rename(temporary, join(dir, `${record.key.slice(7)}.json`));
-      });
-    } catch (error) { if (error instanceof CacheConflictError) throw error; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
+      }, () => !this.persistence.disabled);
+    } catch (error) { if (error instanceof CacheConflictError) throw error; this.persistence.disabled = true; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
 
@@ -162,7 +165,7 @@ export class LayerCache {
         const config = await this.store.put(canonicalJSON(record), configMedia);
         const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);
         await this.remote.publish(this.store, manifest, [cacheTag(record.kind, record.key)]);
-      } catch (error) { if (error instanceof CacheConflictError) throw error; this.options.log(`Could not publish ${record.kind} cache; image publication is unaffected\n`); }
+      } catch (error) { this.options.log(`Could not publish ${record.kind} cache; image publication is unaffected\n`); }
     }
   }
 }

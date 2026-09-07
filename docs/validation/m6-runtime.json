@@ -1,0 +1,58 @@
+[
+  {
+    "bun": "1.3.11",
+    "platform": "linux/amd64",
+    "mode": "bundle",
+    "digest": "sha256:0dfa474b3fa0d51242d2ea8a5997d8319c0e48733fbfb465dca1982fca70f829",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.11",
+    "platform": "linux/amd64",
+    "mode": "compile",
+    "digest": "sha256:7235130e7e05ef529cd4aa54961c9c781eda4c209b50e33937492a5f0f0e10e1",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.11",
+    "platform": "linux/arm64",
+    "mode": "bundle",
+    "digest": "sha256:cb37c074e04b47615644a402a8b282b6cb95c299fbcc352d64e568d53c9a2632",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.11",
+    "platform": "linux/arm64",
+    "mode": "compile",
+    "digest": "sha256:012d2575b1b4611b3bed70c975b758c384ac62b5eb62059d9f5542d781756ab7",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.12",
+    "platform": "linux/amd64",
+    "mode": "bundle",
+    "digest": "sha256:451e1d38e40e93900c878d53f4b6b188f27ee36b32489199de0540fa578a00d1",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.12",
+    "platform": "linux/amd64",
+    "mode": "compile",
+    "digest": "sha256:69aae962f83a5246c3f3a32077f935230f282c7a29a293d74eb22d0eb958c647",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.12",
+    "platform": "linux/arm64",
+    "mode": "bundle",
+    "digest": "sha256:44b6f0f2547e478cf4035d65a789fa063e5ed6d859d075d20d52b8e101f78b8f",
+    "sqlite": "passed"
+  },
+  {
+    "bun": "1.3.12",
+    "platform": "linux/arm64",
+    "mode": "compile",
+    "digest": "sha256:6e39ecc700906aef69e94cbe2fa88df13837397c541dd8c71f47e311dbfafd63",
+    "sqlite": "passed"
+  }
+]

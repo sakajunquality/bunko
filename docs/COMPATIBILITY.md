@@ -1,0 +1,39 @@
+# Compatibility and diagnostics
+
+The accepted bundling toolchain range is Bun >=1.3.11 <1.4. The CI matrix pins Bun 1.3.11 and 1.3.12 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bun 1.3.12 is an additional compatibility point, not a claim about the latest release. Official release: https://github.com/oven-sh/bun/releases/tag/bun-v1.3.12.
+
+Linux images support amd64 and arm64 with glibc bases. Bundle mode requires the selected Bun runtime in the image. Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
+
+```sh
+bunko doctor ./examples/hello
+bunko check-config ./examples/workspace --target @example/api
+bunko check-base --base oven/bun:1.3.11-distroless --platform linux/amd64,linux/arm64 --run
+```
+
+`check-config` is offline and validates selected manifests, workspace membership, supported settings and the text lockfile/dependency contract. It reports effective entrypoints, modes, platforms, external packages and environment/define **names**, without their values or npm authentication configuration. Missing npm authentication variables do not block diagnostics; variables used in registry URLs must resolve. `doctor` also runs the selected Bun's `--revision` and checks whether optional docker, kubectl and cosign executables exist on PATH. Presence does not prove those tools, a daemon, credentials or a cluster work. Neither command installs dependencies, builds sources, contacts a registry or executes an image. The JSON lists checks it did not perform. Invalid configuration exits nonzero with an empty stdout.
+
+A complete offline image check still requires a prepared base layout and dependency download cache:
+
+```sh
+bunko build ./examples/hello --push=false --base-layout ./base-layout \
+  --oci-layout ./image-layout --verify-deterministic
+```
+
+## Installation and distribution
+
+The supported CLI distribution is the self-contained `bunko.js` release artifact plus Bun. The setup action verifies the archive/checksum and selects this distribution; see RELEASING.md. Source checkout (`bun install --frozen-lockfile --ignore-scripts`, then `bun run build`) remains useful for private development. No npm package or public release is required. Repository and artifact visibility remain private.
+
+Application `--mode compile` is separate from distributing the CLI as a native executable. A standalone CLI binary, Windows support and automatic Bun upgrades are not provided. Explicit pinned Bun installations keep builds and cache keys traceable. A Bun patch change can change compiled output and cache keys; rebuild and recheck both image platforms before updating production.
+
+## Migration from earlier previews
+
+- `|` YAML block scalars preserve a trailing newline and are rejected as invalid bunko references. Use `|-` for an exact URI value.
+- Boolean options accept `--flag`, `--no-flag`, and explicit `--flag=true|false`. A known flag supplied to an unrelated command is now an error, including `push-layout --push=false`; use `build --push=false --oci-layout DIR` for an export.
+- Application cache entries are enabled by default and appear in reports/prune previews. Match cache events by `kind`, not positional index. Use `--no-app-cache` to bypass them.
+- Remote cache hits verify compressed bytes and DiffID during preparation. This can download layers that earlier previews mounted without downloading; unchanged layers still avoid upload.
+- `--jobs` changes preparation concurrency, not publication ordering or the all-target preparation gate. Start with 2 and measure your workspace.
+- SBOM/provenance/signing remain explicit opt-ins. Private signing avoids transparency logs. External dependency artifacts require an exact platform/lock contract. See SUPPLY_CHAIN.md and OPERATIONS.md.
+
+## Examples
+
+`examples/hello` is a minimal HTTP server, `examples/dependencies` exercises JavaScript and native runtime dependencies, and `examples/workspace` demonstrates multiple services with workspace dependencies. `examples/sqlite` demonstrates writable runtime state under `/tmp`, health checks and an application that can be bundled or compiled. Runtime data is not an image asset; attach persistent storage if it must survive container replacement.
