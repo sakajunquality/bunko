@@ -1,13 +1,29 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { object } from "../oci/digest.ts";
+import { packageRoot } from "./deps.ts";
+import type { RegistryOptions } from "../oci/registry.ts";
 import type { Platform } from "../oci/types.ts";
 
 export const VERSION = "0.0.1";
 
 export interface BuildOptions {
   path: string;
-  output: string;
+  output?: string;
+  push?: boolean;
+  repo?: string;
+  bare?: boolean;
+  tags?: string[];
+  tarball?: string;
+  local?: boolean;
+  kind?: string;
+  dryRun?: boolean;
+  cacheDir?: string;
+  localCache?: boolean;
+  cacheRepo?: string;
+  registryCache?: boolean;
+  registry?: RegistryOptions;
+  installCache?: string;
   base?: string;
   baseLayout?: string;
   platform?: string;
@@ -26,6 +42,8 @@ export interface Project {
   name: string;
   entrypoint: string;
   platform: Platform;
+  platforms: Platform[];
+  external: string[];
   base?: string;
   workdir: string;
   bunPath: string;
@@ -76,7 +94,7 @@ function absolutePath(value: string, name: string): string {
 export function platform(value: string): Platform {
   if (value === "linux/amd64") return { os: "linux", architecture: "amd64" };
   if (value === "linux/arm64" || value === "linux/arm64/v8") return { os: "linux", architecture: "arm64", variant: "v8" };
-  throw new Error(`This milestone supports one platform: linux/amd64 or linux/arm64 (received ${value})`);
+  throw new Error(`Supported platforms: linux/amd64 or linux/arm64 (received ${value})`);
 }
 
 export function epoch(value = process.env.SOURCE_DATE_EPOCH): number {
@@ -91,27 +109,33 @@ export async function loadProject(options: BuildOptions): Promise<Project> {
   const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
   const manifestText = await readFile(join(directory, "package.json"), "utf8");
   const manifest = object(JSON.parse(manifestText), "package.json");
-  if (manifest.workspaces !== undefined) throw new Error("Workspaces are not supported in M0a; select a dependency-free package");
-  for (const name of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-    if (manifest[name] !== undefined && Object.keys(object(manifest[name], name)).length) {
-      throw new Error(`M0a supports dependency-free projects only (${name} is non-empty)`);
+  if (manifest.workspaces !== undefined) throw new Error("Workspaces are not supported in M1; select a standalone package");
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+    for (const [name, specifier] of Object.entries(object(manifest[field] ?? {}, field))) {
+      packageRoot(name);
+      if (typeof specifier !== "string" || !specifier || /^(?:file:|link:|workspace:|catalog:|git|github:|https?:|\.|\/)/.test(specifier) || (specifier.includes("/") && !specifier.startsWith("npm:"))) throw new Error(`M1 supports registry dependencies only: ${name}`);
     }
   }
-  if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M0a");
+  if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M1");
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled"], "bunko");
+  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
-  if (config.mode !== undefined && config.mode !== "bundle") throw new Error("Only bundle mode is supported in M0a");
-  if (strings(config.external, "external").length) throw new Error("Runtime external dependencies are not supported in M0a");
+  if (config.mode !== undefined && config.mode !== "bundle") throw new Error("Only bundle mode is supported in M1");
+  const external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
+  const production = { ...object(manifest.dependencies ?? {}, "dependencies"), ...object(manifest.optionalDependencies ?? {}, "optionalDependencies"), ...object(manifest.peerDependencies ?? {}, "peerDependencies") };
+  for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
+  const deps = object(config.deps ?? {}, "deps");
+  knownKeys(deps, ["strategy"], "deps");
+  if (deps.strategy !== undefined && deps.strategy !== "production") throw new Error("M1 supports deps.strategy=production only");
   const build = config.build === undefined ? {} : object(config.build, "build");
   knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target"], "build");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
-  if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported in M0a");
+  if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported in M1");
   if (build.minify !== undefined && typeof build.minify !== "boolean") throw new Error("build.minify must be boolean");
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
   knownKeys(runtime, ["bunPath", "libc"], "runtime");
-  if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported in M0a");
+  if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported in M1");
   const env = stringMap(config.env, "env");
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
   const labels = stringMap(config.labels, "labels");
@@ -138,6 +162,11 @@ export async function loadProject(options: BuildOptions): Promise<Project> {
   if (relative(directory, resolvedEntry).startsWith("..") || !(await stat(resolvedEntry)).isFile()) throw new Error("Entrypoint must be a file inside the project");
   const platforms = strings(config.platforms, "platforms");
   const selectedPlatform = options.platform ?? process.env.BUNKO_DEFAULT_PLATFORMS ?? (platforms.length ? platforms.join(",") : "linux/amd64");
+  const selected = selectedPlatform.split(",").map((value) => platform(value.trim()));
+  if (new Set(selected.map((p) => p.architecture)).size !== selected.length) throw new Error("Duplicate target platform");
+  selected.sort((a, b) => a.architecture.localeCompare(b.architecture));
+  if (options.noIndex && selected.length !== 1) throw new Error("--no-index requires a single platform");
+  if ((options.local || options.kind || options.tarball) && selected.length !== 1) throw new Error("Local/kind/tarball output requires a single platform");
   const name = optionalString(config.imageName, "imageName") ?? optionalString(manifest.name, "package name")?.replace(/^@/, "").replaceAll("/", "-") ?? basename(directory);
   if (!/^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/.test(name)) throw new Error("Invalid image name; set bunko.imageName");
   let ports: number[] | undefined;
@@ -146,7 +175,7 @@ export async function loadProject(options: BuildOptions): Promise<Project> {
     ports = [...new Set(config.ports as number[])].sort((a, b) => a - b);
   }
   return {
-    directory, manifestText, name, entrypoint, platform: platform(selectedPlatform),
+    directory, manifestText, name, entrypoint, platform: selected[0]!, platforms: selected, external,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir: absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir"),
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),

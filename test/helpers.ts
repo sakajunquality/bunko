@@ -42,7 +42,7 @@ export async function readJSON<T>(root: string, descriptor: Descriptor): Promise
 }
 
 export async function cli(args: string[]) {
-  const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), ...args], { stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "--no-local-cache", ...args], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }

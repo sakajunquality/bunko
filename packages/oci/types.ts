@@ -63,7 +63,7 @@ export interface ImageConfig {
 }
 
 export interface Layer {
-  kind: "app" | "assets";
+  kind: "app" | "assets" | "deps";
   descriptor: Descriptor;
   diffId: Digest;
 }

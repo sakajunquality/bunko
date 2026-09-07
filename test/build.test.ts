@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { build } from "../packages/bunko/build.ts";
+import { build as rawBuild } from "../packages/bunko/build.ts";
 import { epoch, loadProject } from "../packages/bunko/config.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { sha256 } from "../packages/oci/digest.ts";
 import { media, type Descriptor, type ImageConfig, type ImageIndex, type ImageManifest } from "../packages/oci/types.ts";
 import { baseLayout, cli, inspectTar, project, readJSON, temporary } from "./helpers.ts";
+
+const build: typeof rawBuild = (options) => rawBuild({ localCache: false, registryCache: false, ...options });
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
@@ -44,13 +46,13 @@ describe("Bun to OCI layout", () => {
     expect(result.verifiedDeterministic).toBe(true);
     expect(result.root.mediaType).toBe(media.index);
     expect(result.layers.map((layer) => layer.kind)).toEqual(["app"]);
-    await verifyLayout(result.layout);
-    const config = await readJSON<ImageConfig>(result.layout, result.config);
+    await verifyLayout(result.layout!);
+    const config = await readJSON<ImageConfig>(result.layout!, result.config);
     expect(config.rootfs.diff_ids).toHaveLength(2);
     expect(config.config?.Env).toContain("BASE_FLAG=retained");
     expect(config.config?.Cmd).toEqual([]);
     expect(config.config?.Entrypoint).toEqual(["/usr/local/bin/bun", "/app/src/server.js"]);
-    const files = await inspectTar(new BlobStore(result.layout).path(result.layers[0]!.descriptor.digest));
+    const files = await inspectTar(new BlobStore(result.layout!).path(result.layers[0]!.descriptor.digest));
     const application = files.find((file) => file.name === "app/src/server.js")!;
     await writeFile(join(root, "server.js"), application.content!);
     const child = Bun.spawn([process.execPath, join(root, "server.js")], { stdout: "pipe", stderr: "pipe" });
@@ -68,7 +70,7 @@ describe("Bun to OCI layout", () => {
     const a = await build({ path: first, baseLayout: base, output: join(root, "out-a"), gitMetadata: false });
     const b = await build({ path: second, baseLayout: base, output: join(root, "out-b"), gitMetadata: false });
     expect(a.root.digest).toBe(b.root.digest);
-    const files = await inspectTar(new BlobStore(a.layout).path(a.layers[0]!.descriptor.digest));
+    const files = await inspectTar(new BlobStore(a.layout!).path(a.layers[0]!.descriptor.digest));
     const maps = files.filter((file) => file.name.endsWith(".map"));
     expect(maps).toHaveLength(1);
     expect(maps[0]!.content).not.toContain(root);
@@ -86,9 +88,9 @@ describe("Bun to OCI layout", () => {
     expect(a.layers.map((layer) => layer.kind)).toEqual(["assets", "app"]);
     expect(a.layers[0]!.descriptor.digest).toBe(b.layers[0]!.descriptor.digest);
     expect(a.layers[1]!.descriptor.digest).not.toBe(b.layers[1]!.descriptor.digest);
-    const assets = await inspectTar(new BlobStore(a.layout).path(a.layers[0]!.descriptor.digest));
+    const assets = await inspectTar(new BlobStore(a.layout!).path(a.layers[0]!.descriptor.digest));
     expect(assets.find((file) => file.name === "srv/service/public/message.txt")?.content).toBe("static\n");
-    const config = await readJSON<ImageConfig>(a.layout, a.config);
+    const config = await readJSON<ImageConfig>(a.layout!, a.config);
     expect(config.config?.WorkingDir).toBe("/srv/service");
     expect(config.config?.Cmd).toEqual(["argument"]);
     expect(config.config?.Env).toContain("ANSWER=42");
@@ -100,7 +102,7 @@ describe("Bun to OCI layout", () => {
     await writeFile(join(source, "index.html"), '<!doctype html><script type="module" src="./client.ts"></script><h1>hello</h1>');
     await writeFile(join(source, "client.ts"), 'console.log("browser");\n');
     const result = await build({ path: source, baseLayout: base, output: join(root, "out"), gitMetadata: false, verifyDeterministic: true });
-    const files = await inspectTar(new BlobStore(result.layout).path(result.layers[0]!.descriptor.digest));
+    const files = await inspectTar(new BlobStore(result.layout!).path(result.layers[0]!.descriptor.digest));
     expect(files.some((file) => file.name === "app/src/server.js")).toBe(true);
     expect(files.some((file) => file.name === "app/index.html")).toBe(true);
     expect(files.filter((file) => file.name.endsWith(".js")).length).toBeGreaterThan(1);
@@ -115,7 +117,7 @@ describe("Bun to OCI layout", () => {
     expect(ok.stderr).toContain("OCI layout:");
     const index: ImageIndex = JSON.parse(await readFile(join(root, "out/index.json"), "utf8"));
     expect(index.manifests[0]!.mediaType).toBe(media.manifest);
-    expect((await cli(["build", source])).stderr).toContain("Registry push is not implemented");
+    expect((await cli(["build", source])).stderr).toContain("Registry push requires --repo");
     expect((await cli(["build", source, "--unknown"])).exit).toBe(1);
     expect((await cli(["version"])).stdout).toBe("0.0.1\n");
   });
@@ -135,7 +137,7 @@ describe("Bun to OCI layout", () => {
     const { root, base } = await setup();
     const source = await project(join(root, "app"), { dependencies: { hono: "4.0.0" } });
     const options = { path: source, baseLayout: base, output: join(root, "out") };
-    await expect(build(options)).rejects.toThrow("dependency-free");
+    await expect(build(options)).rejects.toThrow("text bun.lock");
     await project(source, {}, 'import { value } from "./macro.ts" with /* comment */ { type: "macro" }; console.log(value());\n');
     await expect(build(options)).rejects.toThrow("macros are not supported");
     await project(source);

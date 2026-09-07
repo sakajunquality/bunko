@@ -48,7 +48,14 @@ async function smoke(layout: string) {
       } catch { /* wait for the application to listen */ }
       await Bun.sleep(100);
     }
-    if (response !== "Hello from bunko!\n") throw new Error(`Unexpected response: ${JSON.stringify(response)}`);
+    if (process.argv.includes("--dependencies")) {
+      if (!response) {
+        const logs = Bun.spawn(["docker", "logs", name], { stdout: "pipe", stderr: "pipe" });
+        throw new Error(`No response: ${await new Response(logs.stdout).text()} ${await new Response(logs.stderr).text()}`);
+      }
+      const body = JSON.parse(response);
+      if (body.number !== true || typeof body.hash !== "number") throw new Error(`Unexpected dependency response: ${response}`);
+    } else if (response !== "Hello from bunko!\n") throw new Error(`Unexpected response: ${JSON.stringify(response)}`);
     await command(["docker", "stop", "--time", "5", name]);
     const state = JSON.parse(await command(["docker", "inspect", name]))[0].State;
     if (state.ExitCode !== 0) throw new Error(`SIGTERM did not shut down cleanly: ${state.ExitCode}`);

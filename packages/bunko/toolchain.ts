@@ -3,7 +3,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { isBuiltin } from "node:module";
 import { canonicalJSON, object } from "../oci/digest.ts";
 import type { Project } from "./config.ts";
-import { OUTPUT_DIRECTORY } from "./files.ts";
+import { packageRoot } from "./deps.ts";
+import { OUTPUT_DIRECTORY, rejectMacros } from "./files.ts";
 
 export interface Toolchain { path: string; version: string; revision: string }
 
@@ -22,13 +23,13 @@ async function validateTsconfigs(root: string): Promise<void> {
     if (config.extends === undefined) return;
     const parents = Array.isArray(config.extends) ? config.extends : [config.extends];
     for (const parent of parents) {
-      if (typeof parent !== "string" || !parent.startsWith(".")) throw new Error("M0a supports only relative tsconfig extends inside the project");
+      if (typeof parent !== "string" || !parent.startsWith(".")) throw new Error("M1 supports only relative tsconfig extends inside the project");
       let candidate = resolve(dirname(path), parent);
       if (!candidate.endsWith(".json")) candidate += ".json";
       await visit(candidate);
     }
   }
-  for await (const path of new Bun.Glob("**/tsconfig.json").scan({ cwd: root, dot: true })) await visit(join(root, path));
+  for await (const path of new Bun.Glob("**/tsconfig.json").scan({ cwd: root, dot: true })) if (!path.split("/").includes("node_modules")) await visit(join(root, path));
 }
 
 export async function selectToolchain(path?: string): Promise<Toolchain> {
@@ -44,12 +45,14 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
 
 export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void): Promise<{ outdir: string; entry: string }> {
   await validateTsconfigs(root);
+  for await (const path of new Bun.Glob("node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: root, dot: true, followSymlinks: false })) await rejectMacros(join(root, path), path);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const args = [toolchain.path, "build", `./${project.entrypoint}`, "--target=bun", "--format=esm", "--packages=bundle", "--root=.",
     `--outdir=${OUTPUT_DIRECTORY}/out`, `--metafile=${OUTPUT_DIRECTORY}/meta.json`,
     "--entry-naming=[dir]/[name].[ext]", "--env=disable", "--no-env-file", "--reject-unresolved",
     `--sourcemap=${project.build.sourcemap}`];
+  for (const name of project.external) args.push("--external", name, "--external", `${name}/*`);
   if (project.build.minify) args.push("--minify");
   for (const [key, value] of Object.entries(project.build.define).sort(([a], [b]) => a.localeCompare(b))) args.push("--define", `${key}=${value}`);
   // Use an explicit empty config and a small environment without global overrides.
@@ -82,12 +85,12 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   for (const [path, value] of Object.entries(outputs)) {
     const full = resolve(outdir, path);
     if (relative(outdir, full).startsWith("..")) throw new Error("Bun output escaped the output directory");
-    if (path.endsWith(".node")) throw new Error("Native modules are not supported in M0a");
+    if (path.endsWith(".node")) throw new Error("Native modules must be declared in bunko.external");
     const output = object(value, "Bun output");
     if (Array.isArray(output.imports)) {
       for (const value of output.imports) {
         const item = object(value, "Bun output import");
-        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !/^bun(?::|$)/.test(item.path)))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
+        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !/^bun(?::|$)/.test(item.path) && !project.external.includes(packageRoot(item.path))))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
       }
     }
   }

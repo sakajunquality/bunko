@@ -1,6 +1,6 @@
 # 詳細設計の検証記録
 
-2026-09-07。[DESIGN.md](DESIGN.md) の根拠。§1–7 は設計時の事前調査、§8 はその後に実装した M0a の検証記録。
+2026-09-07。[DESIGN.md](DESIGN.md) の根拠。§1–7 は設計時の事前調査、§8 は M0a、§9 は M0b/M1 の検証記録。
 
 ## 1. 環境と範囲
 
@@ -241,3 +241,73 @@ Docker Engine 29.3.1 の containerd image store に、生成 layout の OCI arch
 - nested output の sourcemap source が `.map` の directory ではなく outdir 基準になるケースがあり、metafile inputs と照合して安定した path へ直す。
 
 registry push/mount、private credentials、native/npm dependencies、linux/arm64 の実 container、他 registry の相互運用は M0a の未検証・未実装範囲として残る。
+
+## 9. M0b / M1 実装の検証
+
+同じ PR で private Registry authentication、push、production dependencies、deps/assets cache、multi-platform、Docker archive/local/kind を追加した。以下は M0a の記録後に確認した結果であり、§7–8 の当時の未実装一覧を更新する。
+
+### 自動試験
+
+Bun 1.3.11 で型チェックと **86 tests / 264 assertions** が成功。通常試験は Docker・ネットワークを使わない。自作 npm fixture の cache は通常 install 用で、実 package の download/integrity 検証を代替しない。
+
+- Docker config/helper の優先順位、Docker Hub aliases、GHCR/Hub/GAR の scoped Bearer、ECR の Basic と資格情報再取得、OAuth identity token。
+- cross-repository mount 201/202/非対応、429、redirect の認証分離、PATCH 切断後の offset 照合、曖昧な manifest PUT、部分 tag 更新、read-only dry-run。
+- build と production の分離、dev deps 除外、scripts 無効、npm credentials の隔離、optional peer の lock 照合、patch 内容による key 更新、symlink 逸脱、ELF architecture。
+- source 変更で remote deps/assets hit、layer GET なし・upload 0、local blob / remote metadata 破損、cache write 拒否時の image 成功、決定性比較の cache bypass。
+- multi-platform index、Python tarfile による Docker archive と非圧縮 layer DiffID の独立検査。
+
+patch の適用自体は別の実 npm package probe で検証した。`is-number@7.0.0` を `num` alias、optional peer、override、`bun patch` で生成した patch とともに準備し、製品の隔離 Linux production install で patch 後の bytes が残ることを確認した。sandbox 内では停止したが、許可された実行環境では成功したため、ネットワーク不要の通常試験では lock 整合性と patch による key 変更を扱う。
+
+### 実 Registry と Linux runtime
+
+`bun run test:m1-smoke` で専用の Distribution 3 container を起動し、`examples/dependencies` を amd64/arm64 に構築して公開した。local layer cache は無効、初回は `--verify-deterministic`。source の応答文字列を変更して再公開し、Registry cache hit と deps/assets の upload 0 を確認した。
+
+| 項目 | 実測値 |
+| --- | --- |
+| host / runtime | macOS arm64、Bun 1.3.11 / revision af24e281、Docker Engine 29.3.1 |
+| base index | `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`（Bun 1.3.11 slim） |
+| bundled JS | `is-number@7.0.0` |
+| native external | `@node-rs/xxhash@1.7.7`、Linux 向け prebuilt addon、scripts 無効 |
+| 初回 image index | `sha256:7913aacab58d9c1b3df0eef5dcfd483166fb442481a0796af9021c7ab1536abf` |
+| source 変更後 index | `sha256:bd589ee76439323cd2f680617a263a346e429ebb689eef8cd5b10dafc297305f` |
+| 両 platform の HTTP | 200、`number:true`、`hash:510391394`、変更後の message |
+| runtime 制約 | user `65532:65532`、read-only rootfs、tmpfs /tmp、cap-drop ALL |
+| shutdown | amd64 / arm64 とも SIGTERM で exit 0 |
+
+Docker Desktop の daemon から host の loopback 公開 port へ直接 `docker pull` する方法は、この環境では接続できなかった。試験は host 側の Registry client で manifest/layer を再取得・digest 検証し、Docker archive にして Docker にロード・実行している。Registry の実 push/pull と独立した Docker runtime は確認済みだが、Docker CLI からの直接 pull が成功したという記録ではない。専用 Registry/container/tag は終了時に削除した。
+
+### source 変更時の転送量
+
+同じ二つの platform を含む公開について、重複 blob を一度だけ数えた payload bytes:
+
+| 種別 | 初回公開 | source 変更後 |
+| --- | ---: | ---: |
+| base layers | 138,615,264 | 0 |
+| deps layers | 1,142,711 | 0 |
+| assets layer | 176 | 0 |
+| app layer | 830 | 833 |
+| image configs | 9,441 | 9,441 |
+| 合計 | 139,768,422 | 10,274 |
+
+deps の圧縮サイズは amd64 584,233 bytes / arm64 558,478 bytes。assets とこの fixture の app は両 platform で共有する。表は layer/config payload のみで、manifest/index、cache metadata、HTTP overhead、再送を含む wire total ではない。
+
+記録上の所要時間は初回 10,036 ms / source 変更後 2,010 ms。ただし **初回は決定性検証のため二重 build、後者は単一 build、npm download cache は事前に温まっている**。公平な速度比較や buildx に対する優位性の根拠には使わない。digest とサイズはこの時点の fixture / 実装に対する記録で、将来の固定期待値ではない。
+
+### Docker / kind
+
+製品の `--local` で単一 platform の Docker archive を生成し、Docker load と inspect に成功した。archive の形式・DiffID は通常試験でも Python で検査する。
+
+kind 0.33.0 の公式 macOS arm64 binary の checksum を照合し、一時 cluster `bunko-m1-6f0ca10` を作成した。製品の `--kind --kind-cluster ... --platform linux/arm64` により image-archive のロードと node 上の `crictl inspecti` に成功。cluster は削除済み。この kind 試験は image の格納確認で、Pod の native HTTP 動作確認ではない。
+
+### 実機で修正した互換性
+
+- Bun 1.3.11 の install 引数は `--config=PATH` / `--registry=URL` / `--cache-dir=PATH` を使う。空白区切りの config が追加 package と解釈されるケースを回避した。
+- HTTP response の native async iterator が reader 解放時に例外になるケースを確認した。明示 reader による streaming と、取得後の digest/size 検査を使う。
+- file-backed Blob slice を PATCH body にした場合の送信不整合を確認した。8 MiB の範囲だけを Buffer に読み、長さを確認して送る。
+- distroless ではこの native addon が必要とする `libgcc_s.so.1` がなく起動に失敗した。example は slim base に変更し、native deps には明示 base を要求する。glibc/musl 両 variant がインストールされる場合も、実行確認は glibc のみ。
+
+### 残る相互運用・性能検証
+
+cloud アカウントへの GHCR / GAR / Docker Hub / ECR の実 push、private npm のサービス実認証、mount のサービス固有挙動は未検証。認証設定と対応表は [REGISTRIES.md](REGISTRIES.md)。HTML のコンテナ配信、汎用 native ABI、musl、別 Bun version、繰り返し benchmark / buildx 比較も未実施。
+
+CI は Linux/macOS の型チェック・unit/integration・CLI bundle と、Linux の実 Distribution smoke を実行する。Linux の smoke は両 platform を build し、amd64 を runtime 検証する。手元の amd64/arm64 runtime 検証と区別する。

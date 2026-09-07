@@ -1,0 +1,1 @@
+Stable asset reused across source changes.

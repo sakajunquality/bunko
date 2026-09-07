@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { RegistryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
 import { BlobStore } from "./blob-store.ts";
 import { descriptor, object, sha256 } from "./digest.ts";
 import { media, type BaseImage, type Descriptor, type ImageConfig, type ImageManifest, type Platform } from "./types.ts";
@@ -33,13 +34,13 @@ export interface RegistryReference {
 export function parseReference(value: string): RegistryReference {
   if (value.includes("://") || /[\s?#]/.test(value)) throw new Error(`Invalid image reference: ${value}`);
   const parts = value.split("@");
-  if (parts.length > 2) throw new Error(`Invalid image reference: ${value}`);
+  if (parts.length > 2 || (parts.length === 2 && !parts[1])) throw new Error(`Invalid image reference: ${value}`);
   let path = parts[0]!;
   let reference = parts[1];
   if (reference) descriptor({ digest: reference, size: 0, mediaType: media.manifest });
   const lastColon = path.lastIndexOf(":"), lastSlash = path.lastIndexOf("/");
   if (lastColon > lastSlash) {
-    if (reference) throw new Error("A base reference must use a tag or a digest, not both");
+    if (reference) throw new Error("An image reference must use a tag or a digest, not both");
     reference = path.slice(lastColon + 1);
     path = path.slice(0, lastColon);
   }
@@ -59,91 +60,31 @@ export function parseReference(value: string): RegistryReference {
   return { registry, repository: components.join("/"), reference };
 }
 
-export type Fetcher = (url: string | URL, init?: RequestInit) => Promise<Response>;
+export { type Fetcher } from "./registry.ts";
 
-async function responseBytes(response: Response, limit: number): Promise<Uint8Array> {
-  if (!response.body) throw new Error("Empty registry response");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of response.body) {
-    size += chunk.byteLength;
-    if (size > limit) throw new Error(`Registry metadata exceeds ${limit} bytes`);
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-/** M0a public-registry reader. Private credentials and write operations belong to M0b. */
 export class RegistrySource implements ImageSource {
   readonly ref: RegistryReference;
-  private token?: string;
-  constructor(value: string, private readonly fetcher: Fetcher = fetch) {
+  readonly client: RegistryClient;
+  constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
+    this.client = new RegistryClient(this.ref.registry, typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options);
   }
-
-  private async request(path: string): Promise<Response> {
-    const origin = `https://${this.ref.registry}`;
-    for (let authAttempt = 0; authAttempt < 2; authAttempt++) {
-      let url = new URL(path, origin);
-      let response: Response | undefined;
-      for (let redirects = 0; redirects <= 5; redirects++) {
-        const headers: Record<string, string> = {
-          Accept: [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "),
-        };
-        if (this.token && url.origin === origin) headers.Authorization = `Bearer ${this.token}`;
-        response = await this.fetcher(url, { headers, redirect: "manual", signal: AbortSignal.timeout(30_000) });
-        if (![301, 302, 303, 307, 308].includes(response.status)) break;
-        const location = response.headers.get("location");
-        await response.body?.cancel();
-        if (!location || redirects === 5) throw new Error("Invalid or excessive registry redirect");
-        url = new URL(location, url);
-        if (url.protocol !== "https:") throw new Error("Registry redirect must use HTTPS");
-      }
-      if (!response) throw new Error("No registry response");
-      if (response.status !== 401 || authAttempt > 0) {
-        if (!response.ok) {
-          await response.body?.cancel();
-          throw new Error(`Registry GET failed (${response.status}): ${this.ref.registry}/${this.ref.repository}`);
-        }
-        return response;
-      }
-      const challenge = response.headers.get("www-authenticate") ?? "";
-      await response.body?.cancel();
-      if (!/^Bearer\s/i.test(challenge)) throw new Error("This milestone supports anonymous Bearer registry access only; use --base-layout for private images");
-      const values = Object.fromEntries([...challenge.matchAll(/([\w]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
-      if (!values.realm) throw new Error("Registry Bearer challenge has no realm");
-      const realm = new URL(values.realm);
-      if (realm.protocol !== "https:" || realm.username || realm.password) throw new Error("Registry token realm must use HTTPS without embedded credentials");
-      if (values.service) realm.searchParams.set("service", values.service);
-      realm.searchParams.set("scope", `repository:${this.ref.repository}:pull`);
-      const tokenResponse = await this.fetcher(realm, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-      if (!tokenResponse.ok) { await tokenResponse.body?.cancel(); throw new Error(`Anonymous registry authentication failed (${tokenResponse.status})`); }
-      const token = object(JSON.parse(Buffer.from(await responseBytes(tokenResponse, 1024 * 1024)).toString()), "Token response");
-      const value = token.token ?? token.access_token;
-      if (typeof value !== "string" || !value) throw new Error("Registry returned no Bearer token");
-      this.token = value;
-    }
-    throw new Error("Registry authentication failed");
-  }
-
   async root() {
-    const response = await this.request(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`);
-    const bytes = await responseBytes(response, 8 * 1024 * 1024);
+    const response = await this.client.request(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`, {}, [`repository:${this.ref.repository}:pull`]);
+    const bytes = await responseBytes(response);
     const digest = sha256(bytes);
     if (this.ref.reference.startsWith("sha256:") && digest !== this.ref.reference) throw new Error("Base manifest digest mismatch");
     const declared = response.headers.get("docker-content-digest");
     if (declared && declared !== digest) throw new Error("Registry manifest digest header mismatch");
     const parsed = object(JSON.parse(Buffer.from(bytes).toString()), "Base manifest");
     const contentType = response.headers.get("content-type")?.split(";")[0];
-    const d = descriptor({ mediaType: parsed.mediaType ?? contentType, digest, size: bytes.length });
-    return { bytes, descriptor: d };
+    return { bytes, descriptor: descriptor({ mediaType: parsed.mediaType ?? contentType, digest, size: bytes.length }) };
   }
-
   async blob(d: Descriptor) {
     const manifest = [media.index, media.manifest, media.dockerIndex, media.dockerManifest].includes(d.mediaType as typeof media.index);
-    const response = await this.request(`/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`);
+    const response = await this.client.request(`/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`, {}, [`repository:${this.ref.repository}:pull`]);
     if (!response.body) throw new Error(`Missing blob body: ${d.digest}`);
-    return response.body;
+    return webStream(response.body);
   }
 }
 
@@ -186,7 +127,7 @@ export function validateImageConfig(value: unknown, platform: Platform, layerCou
   return config as unknown as ImageConfig;
 }
 
-export async function resolveBase(source: ImageSource, platform: Platform, store: BlobStore): Promise<BaseImage> {
+export async function resolveBase(source: ImageSource, platform: Platform, store: BlobStore, lazy = false): Promise<BaseImage> {
   const root = await source.root();
   await store.putStream(ReadableBytes(root.bytes), root.descriptor.mediaType, root.descriptor);
   async function metadata(d: Descriptor): Promise<Record<string, unknown>> {
@@ -218,7 +159,8 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
   const layers: Descriptor[] = [];
   for (const original of selected.manifest.layers) {
     if (![media.tar, media.gzip, media.dockerGzip].includes(original.mediaType as typeof media.tar)) throw new Error(`Unsupported base layer type: ${original.mediaType}`);
-    await store.putStream(await source.blob(original), original.mediaType, original);
+    if (lazy) store.defer(original, () => source.blob(original), source instanceof RegistrySource ? source.ref : undefined);
+    else await store.putStream(await source.blob(original), original.mediaType, original);
     layers.push({ mediaType: original.mediaType === media.dockerGzip ? media.gzip : original.mediaType, digest: original.digest, size: original.size });
   }
   return {

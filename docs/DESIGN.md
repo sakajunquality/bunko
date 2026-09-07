@@ -1,8 +1,8 @@
 # bunko 詳細設計案
 
-2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a を実装、後続は設計案**。
+2026-09-07。対象: [元仕様 v0.1](archive/SPEC-v0.1.md)。状態: **M0a・M0b・M1 を実装、M2 以降は設計案**。
 
-元の仕様書は archive に入力ファイルのまま保存している。M0a で採用した変更と実際の対応範囲は [現行実装仕様](SPEC.md) に統合した。本書の後続 milestone は実装済みの機能を意味しない。実機で確認した結果と残る検証は [VALIDATION.md](VALIDATION.md) に分けた。
+元の仕様書は archive に入力ファイルのまま保存している。M1 までに採用した変更と実際の対応範囲は [現行実装仕様](SPEC.md) に統合した。本書は将来の契約も含む。実装との差分は以下と SPEC.md を優先する。実機で確認した結果と残る検証は [VALIDATION.md](VALIDATION.md) に分けた。
 
 ## 1. 設計の中心
 
@@ -595,7 +595,18 @@ fake registry は protocol の故障注入に使う。自作 client と自作 fa
 
 HTML output の存在は S0 で調べ、動作保証の公開は runtime test が通った段階にする。bytecode/musl は独立した実験項目とし、M0 を止めない。
 
-最初の PR は M0a のうち **`hello -> app.tar.gz -> OCI layout`** に絞る。外部 npm 依存のない fixture と pinned base を用意し、正しい layer/config が作れることを最短で証明する。次に registry push、次に通常 JS dependencies、最後に external の順で広げる。
+最初の PR は M0a から M1 までを含む。real Distribution Registry への公開・再取得、source 変更時の deps/assets upload 0、amd64/arm64 の native fixture 実行、Docker archive/load、kind load を確認した。cloud Registry ごとの認証パターンは自動試験を行ったが、アカウントへの実 push は未検証。
+
+### M1 の実装差分
+
+- deps strategy は production 全体、external は明示指定。workspace/closure の投影は M2。
+- native は target ELF architecture と DT_NEEDED を記録し、必要な共有ライブラリを含む明示 base を要求する。汎用 ABI 起動検査は M3。
+- HTTP は loopback も `--insecure-registry` で明示する。
+- Registry cache は versioned custom artifact、full key tag。作成時刻、prune、cross-process lock は未実装。
+- upload chunk は 8 MiB。build/install/publication は主に直列で、`--jobs` は未提供。
+- report v2 は platform ごとの結果と layer/config payload の transfer を持つ。HTTP wire bytes、全 metadata の独立計測、繰り返し比較 benchmark は後続。
+- install scripts、source symlink、computed application imports、macros は拒否。patch、optional peer、override は standalone lock adapter で扱う。
+- M0a–M1 の実装完了と vendor すべての相互運用完了は分け、[Registry 対応表](REGISTRIES.md) で明示する。
 
 ## 16. 残る判断とリスク
 

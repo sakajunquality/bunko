@@ -7,7 +7,12 @@ import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Digest } from "../oci/types.ts";
 
 export const OUTPUT_DIRECTORY = ".bunko-build";
-const omitted = new Set([".git", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".yarnrc.yml", ".DS_Store"]);
+const omitted = new Set([".git", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
+
+export async function rejectMacros(file: string, name: string): Promise<void> {
+  const code = await readFile(file, "utf8");
+  if (/\b(?:with|assert)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\{/.test(code) || /["']macro:/.test(code)) throw new Error(`Import attributes / macros are not supported in M1: ${name}`);
+}
 
 export async function hashFile(path: string): Promise<Digest> {
   const hash = createHash("sha256");
@@ -30,7 +35,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       names.set(path.toLowerCase(), path);
     }
     const info = await lstat(current);
-    if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported in M0a: ${path}`);
+    if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported in M1: ${path}`);
     if (info.isDirectory()) {
       await mkdir(join(destination, path), { recursive: true });
       if (path) records.push({ path, type: "directory" });
@@ -42,8 +47,9 @@ export async function snapshot(source: string, destination: string, excluded: st
       // Bun 1.3.11's CLI does not reliably honor --no-macros. Reject import
       // attributes conservatively before invoking the bundler; no parser executes.
       if (/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) {
-        const code = await readFile(copied, "utf8");
-        if (/\b(?:with|assert)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$))*\{/.test(code) || /["']macro:/.test(code)) throw new Error(`Import attributes / macros are not supported in M0a: ${path}`);
+        await rejectMacros(copied, path);
+        const code = (await readFile(copied, "utf8")).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
+        if (/\b(?:require|import)\s*\(\s*(?![\s"'])/.test(code) || /\b(?:require|import)\s*\(\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*[^)\s]/.test(code)) throw new Error(`Computed require/import is not supported in application source: ${path}`);
       }
       records.push({ path, type: "file", digest: await hashFile(copied), executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported source file type: ${path}`);

@@ -12,6 +12,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "test:smoke": "bun test/smoke.ts",
+    "test:m1-smoke": "bun test/m1-smoke.ts",
     "check": "bun run typecheck && bun test"
   },
   "devDependencies": {
