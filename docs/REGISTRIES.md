@@ -6,7 +6,7 @@ M1 implements OCI Distribution push/pull and Docker-compatible credentials. Clou
 
 | Registry | Example `--repo` prefix | Authentication | Verification status |
 | --- | --- | --- | --- |
-| GitHub Container Registry | `ghcr.io/OWNER` | Docker login, PAT, or workflow token | Automated helper and Basic-to-scoped-Bearer tests; real service push not verified. |
+| GitHub Container Registry | `ghcr.io/OWNER` | Docker login, PAT, or workflow token | Live workflow-token push, separate cache reuse, direct Docker pull, and amd64/arm64 runtime verified. [Report](LIVE_REGISTRY_VALIDATION.md). |
 | Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | gcloud/gcr helper or access token | Live helper-authenticated push, separate cache reuse, direct Docker pull, and amd64/arm64 runtime verified. [Report](LIVE_REGISTRY_VALIDATION.md). |
 | Docker Hub | `docker.io/USERNAME` | Docker login or credential store | Real public-base pull and automated host-alias/Bearer tests; account push not verified. |
 | Amazon ECR private | `ACCOUNT.dkr.ecr.REGION.amazonaws.com/PREFIX` | ecr-login helper or AWS password | Automated helper/Basic-challenge/credential-refresh tests; real service push not verified. |
@@ -96,7 +96,7 @@ This option does not disable TLS certificate verification.
 
 Cache tags default to `bunko-cache-v1-deps-<full-key>` and `bunko-cache-v1-assets-<full-key>` in the image repository. Use `--cache-repo` or `BUNKO_CACHE_REPO` for a separate cache repository. Unsupported custom OCI artifacts or denied cache writes produce diagnostics while image publication may still succeed. Disable Registry caching with `--no-registry-cache`.
 
-Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads normally use 8 MiB chunks and offset reconciliation. Artifact Registry uses a streamed, full-file PUT because it does not support multiple chunks. Interrupted full-file PUTs are checked by digest before retrying in a fresh session; permanent permission failures are not retried. [Artifact Registry API support](https://docs.cloud.google.com/artifact-registry/docs/reference/docker-api) Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
+Blob placement uses HEAD, then an available same-Registry cross-repository mount, then upload. Uploads normally use 8 MiB chunks and offset reconciliation. GHCR and Artifact Registry use a streamed, full-file PUT. Live tests observed GHCR rejecting the ranged PATCH and Artifact Registry rejecting a second chunk. Interrupted full-file PUTs are checked by digest before retrying in a fresh session; permanent permission failures are not retried. [Artifact Registry API support](https://docs.cloud.google.com/artifact-registry/docs/reference/docker-api) Publish platform manifests and the index by digest before updating tags. Multiple tags are not transactional: `--report` records published digests/tags and pendingTags on failure, with exit 1 and empty stdout. Existing tags are not rolled back.
 
 Registry credentials and npm credentials are separate. Private npm uses HTTPS registry/scoped-registry configuration and `${ENV_NAME}` credentials from project .npmrc. Authentication files exist only in install staging and are removed afterward; values do not enter cache keys, images, or reports.
 
@@ -130,7 +130,7 @@ The report path must be new. Both clients use DOCKER_CONFIG; BUNKO_DOCKER_CONFIG
 
 Runs retain remote `bunko-smoke-<UUID>-first` / `-warm` image tags and `bunko-cache-v1-*` cache tags in the supplied repositories. Reports identify those tags and any partial publication. The harness removes only its own local containers/images/temp files; remote retention or deletion is managed separately. Reports include publication, payload transfers, cache verification, verified descriptors, native runtime responses, and shutdown results. The workflow uploads available reports even on failure.
 
-Token expiry, permission changes during a run, private npm services, referrers, and provider-specific policy combinations remain separate tests. Live provider rows above remain unverified until an actual report and workflow run establish the result.
+Token expiry, permission changes during a run, private npm services, referrers, and provider-specific policy combinations remain separate tests. Only provider rows with linked live results establish service interoperability; the remaining rows are unverified.
 
 ## Authenticated local conformance
 

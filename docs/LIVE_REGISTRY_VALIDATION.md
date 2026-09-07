@@ -2,6 +2,20 @@
 
 2026-09-08 (Asia/Tokyo). These tests use dedicated repositories explicitly selected by the repository owner. Authentication and registry permissions are existing configuration; the tests do not change IAM or repository visibility.
 
+## GitHub Container Registry
+
+- Image: `ghcr.io/sakajunquality/bunko-test`.
+- Cache: `ghcr.io/sakajunquality/bunko-test/cache`.
+- Authentication: the private `sakajunquality/bunko-test` repository's `GITHUB_TOKEN` with `packages:write`.
+- Host: GitHub Actions `ubuntu-latest` AMD64, Bun 1.3.11; ARM64 execution uses QEMU.
+- Evidence: [successful workflow](https://github.com/sakajunquality/bunko-test/actions/runs/34144008149) and [conformance summary](validation/2026-09-08-ghcr.json). The workflow tests the source revision recorded in its `upstream.json` snapshot, without cross-repository credentials or a personal token.
+
+The initial ranged PATCH returned HTTP 416. A subsequent upload-status GET timed out, then redirected to a GitHub URL that returned 404. The [diagnostic run](https://github.com/sakajunquality/bunko-test/actions/runs/34143687813) logs only method, host, endpoint category, content length, status, Range, and duration; it omits credentials, paths, signed queries, and bodies. bunko now also uses a full-file PUT for GHCR. This is an observed compatibility workaround; the test does not establish that every possible GHCR chunked-upload format is unsupported.
+
+The corrected run passed deterministic builds, publication, separate dependency/asset cache reuse, fresh-client and direct Docker digest pulls, config-byte verification, and both platform runtime/shutdown checks. Both containers returned the expected native xxhash result, ran as `65532:65532` with a read-only root filesystem, and exited 0 on SIGTERM.
+
+Initial layer/config payload was 139,768,462 bytes. The source-only update uploaded 10,311 bytes, with zero dependency/asset payload. The successful workflow keeps the full report as its `ghcr-conformance` artifact.
+
 ## Google Artifact Registry
 
 - Image: `asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance`.
@@ -24,4 +38,8 @@ Payload figures exclude cache-publication traffic, HTTP overhead, retries, manif
 
 ## Remaining coverage
 
-GHCR is undergoing live validation. Docker Hub account push and ECR private remain unverified. Token expiry, permission changes during a run, private npm services, referrers, signing, and other repository policy combinations require separate tests. Cache reuse from a different repository does not by itself prove that cross-repository blob mounting occurred.
+Docker Hub account push and ECR private remain unverified. Token expiry, permission changes during a run, private npm services, referrers, signing, and other repository policy combinations require separate tests. Cache reuse from a different repository does not by itself prove that cross-repository blob mounting occurred.
+
+## Regression validation
+
+`bun run check` passes with 170 tests and 579 assertions on the tested source revision. The PR CI additionally checks Linux/macOS distribution installation and authenticated Distribution 3 integration.

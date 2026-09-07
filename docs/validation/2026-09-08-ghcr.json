@@ -1,0 +1,353 @@
+{
+  "schemaVersion": 1,
+  "vendor": "ghcr",
+  "repository": "ghcr.io/sakajunquality/bunko-test",
+  "cacheRepository": "ghcr.io/sakajunquality/bunko-test/cache",
+  "runId": "ae9d73b5-cfb1-417e-8f0c-43052ef33079",
+  "base": "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9",
+  "tags": [
+    "bunko-smoke-ae9d73b5-cfb1-417e-8f0c-43052ef33079-first",
+    "bunko-smoke-ae9d73b5-cfb1-417e-8f0c-43052ef33079-warm"
+  ],
+  "status": "success",
+  "cacheVerified": true,
+  "directDockerPull": true,
+  "tokenExpiryTest": "not-run",
+  "runtime": [
+    {
+      "body": {
+        "hash": 510391394,
+        "message": "bunko conformance ae9d73b5-cfb1-417e-8f0c-43052ef33079 warm",
+        "number": true
+      },
+      "config": "sha256:f6d300bfad9831b0623f824bd0ae10b73ba459a9bd5feb814ec877f50cd90c72",
+      "dockerId": "sha256:f6d300bfad9831b0623f824bd0ae10b73ba459a9bd5feb814ec877f50cd90c72",
+      "exitCode": 0,
+      "manifest": "sha256:4d02da5872434047565ac1dc7f3ac3ccd3f0e3457cb6b4e4c8ed8670e019cee0",
+      "platform": "linux/amd64",
+      "readOnly": true,
+      "user": "65532:65532"
+    },
+    {
+      "body": {
+        "hash": 510391394,
+        "message": "bunko conformance ae9d73b5-cfb1-417e-8f0c-43052ef33079 warm",
+        "number": true
+      },
+      "config": "sha256:6698dd79fee5befcdde6e9504b9e340cf10fa3a4a3c923edbebd7c1ad4b26b4d",
+      "dockerId": "sha256:6698dd79fee5befcdde6e9504b9e340cf10fa3a4a3c923edbebd7c1ad4b26b4d",
+      "exitCode": 0,
+      "manifest": "sha256:b73fd825df0d7947f11b549bcb616555fa05e52bd5e03f7a63bdfaba8116ff89",
+      "platform": "linux/arm64",
+      "readOnly": true,
+      "user": "65532:65532"
+    }
+  ],
+  "validationDate": "2026-09-08",
+  "timezone": "Asia/Tokyo",
+  "sourceRevision": "433c51a590a51f807215a3204cc727241f1d2ef8",
+  "workflowRun": "https://github.com/sakajunquality/bunko-test/actions/runs/34144008149",
+  "bunVersion": "1.3.11",
+  "host": "GitHub Actions ubuntu-latest amd64; arm64 via QEMU",
+  "fullReportSha256": "b5d224dd59e58a4e02df0929c62f5875d7425612e00de58f5fbc28189dfa982e",
+  "builds": [
+    {
+      "reference": "ghcr.io/sakajunquality/bunko-test@sha256:a510059114843d164ad168b433eed2bd21a687127aad9b83b124703488662f1e",
+      "published": true,
+      "tags": [
+        "bunko-smoke-ae9d73b5-cfb1-417e-8f0c-43052ef33079-first"
+      ],
+      "pendingTags": [],
+      "transfers": [
+        {
+          "action": "uploaded",
+          "digest": "sha256:ec781dee3f4719c2ca0dd9e73cb1d4ed834ed1a406495eb6e44b6dfaad5d1f8f",
+          "kind": "base",
+          "size": 29775500,
+          "uploaded": 29775500
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:7121a318badd7246578c0f648517fb8a5b903df105e638bef590df5b1bfd541a",
+          "kind": "base",
+          "size": 296,
+          "uploaded": 296
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:ee21e31559f8ae2bd42ae0b4ffc6e583b9d2e952115fdcc00ead7a655dbbd35d",
+          "kind": "base",
+          "size": 39091818,
+          "uploaded": 39091818
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:ce5883da6fa02306fd819610aa37a9c00235b196dc376ab963f515afbfb8038a",
+          "kind": "base",
+          "size": 184,
+          "uploaded": 184
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:fd77b601fa04a6b78941ab21aed5de5de08506942846d124919d07531b58783c",
+          "kind": "base",
+          "size": 3394,
+          "uploaded": 3394
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:9c0c2b5a8c358da9206fcb4cd20f9d9824a1eacad378f9cb131633c886cef1c2",
+          "kind": "base",
+          "size": 138,
+          "uploaded": 138
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:2f5596e99adf58870af1de23e62eb795852ca4cdde991b52c0b0137ab43050e5",
+          "kind": "deps",
+          "size": 584233,
+          "uploaded": 584233
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:f83c9b0e371912650bcffe3c752f2cd2031d86c8bbf05c1af03fad56286027d9",
+          "kind": "assets",
+          "size": 176,
+          "uploaded": 176
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:3460b77bf8dc0f3e789cbbb9ae7fe4ee2a30113107ffec2f8a2386645b53a44b",
+          "kind": "app",
+          "size": 854,
+          "uploaded": 854
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:42eb2337f6624816c590087716799e1b6d1b3fd8659fbaa18900fa9f41bcdd22",
+          "kind": "config",
+          "size": 4719,
+          "uploaded": 4719
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:f4badedbec24858ef2dc51256f6418328e305e9c3c5a5e093581f83425618bd5",
+          "kind": "base",
+          "size": 30138416,
+          "uploaded": 30138416
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:4870481d62828e93b7f18372579e8933b4508a5b20758136322ec9f6ba24b7b2",
+          "kind": "base",
+          "size": 39601792,
+          "uploaded": 39601792
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:a0e4c87ef1a5eb23aee77ff6b53a944c6a3ed4b04fc4173848c3d4a4fbef64c5",
+          "kind": "base",
+          "size": 183,
+          "uploaded": 183
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:3e94af2d555c2ddaf704b0cc26304198e33f1f4f6fe2e7a49035308d1b5cf80d",
+          "kind": "base",
+          "size": 3405,
+          "uploaded": 3405
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:ea67330cd393b943b537e1e015e2224d913cba74cb4674df0710ad635bd1ff08",
+          "kind": "base",
+          "size": 138,
+          "uploaded": 138
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:eca39bbe28da7d3197bdea52021fe7186f29634e36b1cbf8e98c9f2d7d6dd043",
+          "kind": "deps",
+          "size": 558478,
+          "uploaded": 558478
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:bd19c069e93e5841ccb4d86ced9f2180ae5a3c5e7d516572114eef62cf97e8d4",
+          "kind": "config",
+          "size": 4738,
+          "uploaded": 4738
+        }
+      ],
+      "cache": [
+        {
+          "kind": "assets",
+          "status": "bypass"
+        },
+        {
+          "kind": "deps",
+          "status": "bypass"
+        },
+        {
+          "kind": "deps",
+          "status": "bypass"
+        },
+        {
+          "kind": "assets",
+          "status": "bypass"
+        },
+        {
+          "kind": "deps",
+          "status": "bypass"
+        },
+        {
+          "kind": "deps",
+          "status": "bypass"
+        }
+      ]
+    },
+    {
+      "reference": "ghcr.io/sakajunquality/bunko-test@sha256:547058be12a15f9ab275e29798f73d38d40cc9fc0cebce094c66cfa67c70c7d2",
+      "published": true,
+      "tags": [
+        "bunko-smoke-ae9d73b5-cfb1-417e-8f0c-43052ef33079-warm"
+      ],
+      "pendingTags": [],
+      "transfers": [
+        {
+          "action": "reused",
+          "digest": "sha256:ec781dee3f4719c2ca0dd9e73cb1d4ed834ed1a406495eb6e44b6dfaad5d1f8f",
+          "kind": "base",
+          "size": 29775500,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:7121a318badd7246578c0f648517fb8a5b903df105e638bef590df5b1bfd541a",
+          "kind": "base",
+          "size": 296,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:ee21e31559f8ae2bd42ae0b4ffc6e583b9d2e952115fdcc00ead7a655dbbd35d",
+          "kind": "base",
+          "size": 39091818,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:ce5883da6fa02306fd819610aa37a9c00235b196dc376ab963f515afbfb8038a",
+          "kind": "base",
+          "size": 184,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:fd77b601fa04a6b78941ab21aed5de5de08506942846d124919d07531b58783c",
+          "kind": "base",
+          "size": 3394,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:9c0c2b5a8c358da9206fcb4cd20f9d9824a1eacad378f9cb131633c886cef1c2",
+          "kind": "base",
+          "size": 138,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:2f5596e99adf58870af1de23e62eb795852ca4cdde991b52c0b0137ab43050e5",
+          "kind": "deps",
+          "size": 584233,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:f83c9b0e371912650bcffe3c752f2cd2031d86c8bbf05c1af03fad56286027d9",
+          "kind": "assets",
+          "size": 176,
+          "uploaded": 0
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:de17aabf1118c9533ac03e451068204049dcae2ab552de49102508f5ae187083",
+          "kind": "app",
+          "size": 854,
+          "uploaded": 854
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:f6d300bfad9831b0623f824bd0ae10b73ba459a9bd5feb814ec877f50cd90c72",
+          "kind": "config",
+          "size": 4719,
+          "uploaded": 4719
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:f4badedbec24858ef2dc51256f6418328e305e9c3c5a5e093581f83425618bd5",
+          "kind": "base",
+          "size": 30138416,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:4870481d62828e93b7f18372579e8933b4508a5b20758136322ec9f6ba24b7b2",
+          "kind": "base",
+          "size": 39601792,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:a0e4c87ef1a5eb23aee77ff6b53a944c6a3ed4b04fc4173848c3d4a4fbef64c5",
+          "kind": "base",
+          "size": 183,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:3e94af2d555c2ddaf704b0cc26304198e33f1f4f6fe2e7a49035308d1b5cf80d",
+          "kind": "base",
+          "size": 3405,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:ea67330cd393b943b537e1e015e2224d913cba74cb4674df0710ad635bd1ff08",
+          "kind": "base",
+          "size": 138,
+          "uploaded": 0
+        },
+        {
+          "action": "reused",
+          "digest": "sha256:eca39bbe28da7d3197bdea52021fe7186f29634e36b1cbf8e98c9f2d7d6dd043",
+          "kind": "deps",
+          "size": 558478,
+          "uploaded": 0
+        },
+        {
+          "action": "uploaded",
+          "digest": "sha256:6698dd79fee5befcdde6e9504b9e340cf10fa3a4a3c923edbebd7c1ad4b26b4d",
+          "kind": "config",
+          "size": 4738,
+          "uploaded": 4738
+        }
+      ],
+      "cache": [
+        {
+          "kind": "assets",
+          "status": "registry"
+        },
+        {
+          "kind": "deps",
+          "status": "registry"
+        },
+        {
+          "kind": "deps",
+          "status": "registry"
+        }
+      ]
+    }
+  ]
+}
