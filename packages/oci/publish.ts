@@ -58,21 +58,21 @@ export class Publisher {
       if (response.status === 202) location = this.location(response, path.toString());
     }
     if (!location) {
-      const path = `/v2/${this.ref.repository}/blobs/uploads/`;
-      const response = await this.client.request(path, { method: "POST" }, [this.scope]);
-      await response.body?.cancel();
-      if (response.status !== 202) throw new Error("Registry did not create an upload session");
-      location = this.location(response, new URL(path, this.client.origin).toString());
+      location = await this.startUpload();
     }
     let complete = false;
     try {
       await store.ensure(d);
       const file = Bun.file(store.path(d.digest));
       if (file.size !== d.size) throw new Error("Upload blob size mismatch");
+      // GAR requires monolithic uploads; GHCR rejects our ranged PATCH path.
+      // Stream the complete file in PUT without a whole-layer JavaScript buffer.
+      const host = new URL(this.client.origin).hostname;
+      const monolithic = host === "ghcr.io" || /^[a-z0-9-]+-docker\.pkg\.dev$/.test(host);
       let offset = 0;
       let failures = 0;
       const chunkSize = 8 * 1024 * 1024;
-      while (offset < d.size) {
+      while (!monolithic && offset < d.size) {
         const end = Math.min(offset + chunkSize, d.size);
         try {
           // File-backed slice uploads are unreliable with Bun 1.3.11. Use a
@@ -100,13 +100,8 @@ export class Publisher {
             // Distribution reports 0-0 for an empty session as well as a
             // one-byte session. Start afresh instead of guessing and skipping
             // the first byte. Only this invocation's session is deleted.
-            const cancel = await this.client.request(location, { method: "DELETE" }, [this.scope], [404, 405]);
-            await cancel.body?.cancel();
-            const path = `/v2/${this.ref.repository}/blobs/uploads/`;
-            const fresh = await this.client.request(path, { method: "POST" }, [this.scope]);
-            await fresh.body?.cancel();
-            if (fresh.status !== 202) throw new Error("Registry did not restart upload session");
-            location = this.location(fresh, new URL(path, this.client.origin).toString());
+            await this.cancelUpload(location);
+            location = await this.startUpload();
             continue;
           }
           const confirmed = Number(range[1]) + 1;
@@ -121,15 +116,25 @@ export class Publisher {
         const finish = new URL(location);
         finish.searchParams.set("digest", d.digest);
         try {
-          const response = await this.client.request(finish, { method: "PUT", headers: { "Content-Length": "0" } }, [this.scope]);
+          const response = await this.client.request(finish, { method: "PUT",
+            headers: { "Content-Length": String(monolithic ? d.size : 0), "Content-Type": "application/octet-stream" },
+            body: monolithic ? file : undefined,
+          }, [this.scope]);
           await response.body?.cancel();
           if (response.status !== 201) throw new Error("Registry did not finalize upload");
           const digest = response.headers.get("Docker-Content-Digest");
           if (digest && digest !== d.digest) throw new Error("Registry upload digest mismatch");
           break;
         } catch (error) {
+          if (monolithic && !retryableUpload(error)) throw error;
           if (await this.exists(d)) break;
           if (attempt >= 2) throw error;
+          if (monolithic) {
+            // A failed full-body PUT can consume its session. Reconcile the
+            // digest, then replay the whole file only in a fresh session.
+            await this.cancelUpload(location);
+            location = await this.startUpload();
+          }
         }
       }
       if (!(await this.exists(d))) throw new Error("Uploaded registry blob is missing");
@@ -137,9 +142,24 @@ export class Publisher {
       return { ...result, action: "uploaded", uploaded: d.size };
     } finally {
       if (!complete) {
-        try { const response = await this.client.request(location, { method: "DELETE" }, [this.scope], [404, 405]); await response.body?.cancel(); } catch { /* best effort upload-session cleanup */ }
+        await this.cancelUpload(location);
       }
     }
+  }
+
+  private async startUpload(): Promise<string> {
+    const path = `/v2/${this.ref.repository}/blobs/uploads/`;
+    const response = await this.client.request(path, { method: "POST" }, [this.scope]);
+    await response.body?.cancel();
+    if (response.status !== 202) throw new Error("Registry did not create an upload session");
+    return this.location(response, new URL(path, this.client.origin).toString());
+  }
+
+  private async cancelUpload(location: string): Promise<void> {
+    try {
+      const response = await this.client.request(location, { method: "DELETE" }, [this.scope], [404, 405]);
+      await response.body?.cancel();
+    } catch { /* best effort cleanup of this invocation's upload session */ }
   }
 
   private location(response: Response, from: string): string {
@@ -211,4 +231,9 @@ export class Publisher {
       return result;
     } catch (error) { throw new PublicationError(error instanceof Error ? error.message : "Image publication failed", result, error); }
   }
+}
+
+function retryableUpload(error: unknown): boolean {
+  return error instanceof RegistryError ? [404, 408, 429].includes(error.status) || error.status >= 500
+    : error instanceof Error && error.message.includes("connection failed");
 }

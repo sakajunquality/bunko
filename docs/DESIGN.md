@@ -525,7 +525,7 @@ The first PR grew from M0a through M1, including real Distribution reuse/pull/ru
 
 ### M1 implementation differences
 
-Production dependencies and explicit externals shipped first. Native inspection records ELF/DT_NEEDED and requires an explicit suitable base; general ABI validation remains M3. HTTP always requires explicit host permission. Cache artifacts use full keys but have no creation time, pruning, or process lock. Transfers use 8 MiB chunks and execution is primarily sequential; --jobs is unavailable. Reports count payloads, not complete wire/metadata totals. Scripts, source links, computed application imports, and macros are rejected. Standalone lock adaptation handles patches, optional peers, and overrides. See the [provider matrix](REGISTRIES.md) for unverified service behavior.
+Production dependencies and explicit externals shipped first. Native inspection records ELF/DT_NEEDED and requires an explicit suitable base; general ABI validation remains M3. HTTP always requires explicit host permission. Cache artifacts use full keys but have no creation time, pruning, or process lock. Transfers normally use 8 MiB chunks; GHCR and GAR use full-file PUT after live compatibility validation. Execution is primarily sequential; --jobs is unavailable. Reports count payloads, not complete wire/metadata totals. Scripts, source links, computed application imports, and macros are rejected. Standalone lock adaptation handles patches, optional peers, and overrides. See the [provider matrix](REGISTRIES.md) for unverified service behavior.
 
 ### M2a implementation differences
 

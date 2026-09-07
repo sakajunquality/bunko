@@ -125,7 +125,7 @@ Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary l
 
 A base's explicit root user remains root. Examples explicitly select nonroot. Read-only rootfs is a runtime setting.
 
-See [REGISTRIES.md](REGISTRIES.md) for authentication and provider setup. After every platform builds, publish blobs/configs, platform manifests, the root index, then tags. GET/HEAD have bounded retries. PATCH uses 8 MiB chunks; ambiguous results are reconciled using upload offsets and destination HEAD. Manifest PUT results are read back and checked by digest. Partial failures retain published-state details in reports without rolling tags back.
+See [REGISTRIES.md](REGISTRIES.md) for authentication and provider setup. After every platform builds, publish blobs/configs, platform manifests, the root index, then tags. GET/HEAD have bounded retries. PATCH normally uses 8 MiB chunks; ambiguous results are reconciled using upload offsets and destination HEAD. GHCR and Artifact Registry use a streamed full-file PUT, with digest reconciliation and a fresh upload session for bounded transient retries. Manifest PUT results are read back and checked by digest. Partial failures retain published-state details in reports without rolling tags back.
 
 Complete layouts collect every reachable blob in a temporary directory and rename it into place. Docker archives contain manifest.json, configs, and verified uncompressed layer.tar entries. Tarballs/reports never overwrite existing files. Local loading performs Docker load plus inspect. Kind loading uses image-archive and verifies every node with crictl inspecti.
 
@@ -145,7 +145,7 @@ Determinism verification bypasses persistent layer caches on both runs and compa
 
 `bun run check` runs typechecking and offline unit/integration tests. Python tarfile independently checks tar/PAX and Docker archive output. `test:m1-smoke` uses real Distribution, public npm/base images, and Docker to verify both build platforms, determinism, dependency/asset reuse after source edits, verified pull/run, and local loading.
 
-Individual cloud Registry pushes, arbitrary native ABIs, musl runtime, live HTML serving, other Bun versions, and repeated comparative performance measurements remain unverified. [Validation records](VALIDATION.md) distinguish measurements from limitations.
+Cloud Registry coverage is recorded per provider in the [Registry matrix](REGISTRIES.md). Arbitrary native ABIs, musl runtime, live HTML serving, other Bun versions, and repeated comparative performance measurements remain unverified. [Validation records](VALIDATION.md) distinguish measurements from limitations.
 
 ## 8. Workspaces and multiple targets (M2a)
 
