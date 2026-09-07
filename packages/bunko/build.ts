@@ -61,7 +61,7 @@ async function gitLabels(directory: string): Promise<Record<string, string>> {
   return { "org.opencontainers.image.revision": revision, "org.bunko.git.dirty": String(Boolean(status)) };
 }
 
-async function writeReport(path: string, value: unknown) {
+export async function writeReport(path: string, value: unknown) {
   await mkdir(dirname(path), { recursive: true });
   const temporary = await mkdtemp(join(dirname(path), ".bunko-report-"));
   try {
@@ -257,7 +257,21 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   return (await buildTargets(options, true))[0]!;
 }
 
+export interface PreparedTargets {
+  results: BuildResult[];
+  finish(): Promise<BuildResult[]>;
+  dispose(): Promise<void>;
+}
+
 export async function buildTargets(options: BuildOptions, single = false): Promise<BuildResult[]> {
+  const prepared = await prepareTargets(options, single);
+  try { return await prepared.finish(); }
+  finally { await prepared.dispose(); }
+}
+
+/** Prepare independently from publication so resolve can validate/build every
+ * source context before any image is published. Always dispose the returned batch. */
+export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;
@@ -290,6 +304,17 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
   const finished = new Set<string>();
+  const dispose = async () => {
+    await Promise.all(prepared.map((item) => item.dispose()));
+    await rm(temporary, { recursive: true, force: true });
+  };
+  const failure = async (error: unknown) => {
+    if (multiple && report && !(await Bun.file(report).exists())) await writeReport(report, {
+      schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
+      targets: prepared.map((item) => item.result),
+      pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
+    });
+  };
   try {
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
@@ -303,7 +328,6 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
     }
     const plan = await dependencyPlan(projects[0]!, source), toolchain = await selectToolchain(options.bunPath);
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
-    const sources: BuildContext["sources"] = new Map();
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
     const closure: BuildContext["closure"] = (selected, platform, iteration) => {
@@ -318,21 +342,21 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
       return closures.get(key)!;
     };
     for (const project of projects) prepared.push(await prepareBuild({ ...options, registry }, { project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }));
-    // No target is exported or published until every selected build succeeds.
-    if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
-    for (const item of prepared) { await item.finish(); finished.add(item.result.target); }
     const results = prepared.map((item) => item.result);
-    if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });
-    return results;
+    let finishedOnce = false;
+    return { results, dispose, finish: async () => {
+      if (finishedOnce) throw new Error("Prepared targets may only be published once");
+      finishedOnce = true;
+      try {
+        // No target is exported or published until every selected build succeeds.
+        if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
+        for (const item of prepared) { await item.finish(); finished.add(item.result.target); }
+        if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });
+        return results;
+      } catch (error) { await failure(error); throw error; }
+    } };
   } catch (error) {
-    if (multiple && report && !(await Bun.file(report).exists())) await writeReport(report, {
-      schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
-      targets: prepared.map((item) => item.result),
-      pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
-    });
+    try { await failure(error); } finally { await dispose(); }
     throw error;
-  } finally {
-    await Promise.all(prepared.map((item) => item.dispose()));
-    await rm(temporary, { recursive: true, force: true });
   }
 }
