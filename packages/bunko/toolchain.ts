@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { isBuiltin } from "node:module";
 import { canonicalJSON, object } from "../oci/digest.ts";
 import type { Project } from "./config.ts";
-import { packageRoot } from "./deps.ts";
+import { type InventoryEntry, inspectELF, packageRoot } from "./deps.ts";
 import { OUTPUT_DIRECTORY, rejectMacros } from "./files.ts";
 
 export interface Toolchain { path: string; version: string; revision: string }
@@ -43,7 +43,7 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root): Promise<{ outdir: string; entry: string }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[] }> {
   await validateTsconfigs(contextRoot);
   for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
@@ -111,5 +111,38 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     delete map.sourceRoot;
     await writeFile(full, canonicalJSON(map));
   }
-  return { outdir, entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
+  const inventory: InventoryEntry[] = [];
+  const packageDirectories = new Set<string>();
+  for (const input of inputs) {
+    if (!relative(contextRoot, input).split("/").includes("node_modules")) continue;
+    let directory = dirname(input);
+    while (inside(contextRoot, directory) && directory !== contextRoot) {
+      if (packageDirectories.has(directory)) break;
+      const manifest = Bun.file(join(directory, "package.json"));
+      if (await manifest.exists()) {
+        const pkg = object(await manifest.json(), "Bundled package");
+        if (typeof pkg.name === "string" && typeof pkg.version === "string") {
+          packageDirectories.add(directory);
+          inventory.push({ path: relative(contextRoot, directory), name: pkg.name, version: pkg.version });
+          break;
+        }
+      }
+      directory = dirname(directory);
+    }
+  }
+  inventory.sort((a, b) => a.path.localeCompare(b.path));
+  if (project.mode === "compile") {
+    if (project.build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
+    const executable = "bunko-app";
+    const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
+    const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--outfile=${executable}`, "--env=disable", "--no-env-file"],
+      { cwd: outdir, env: { PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
+    const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
+    if (code) throw new Error(`Bun compile failed (exit ${code})`);
+    if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
+    await chmod(join(outdir, executable), 0o755);
+    for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
+    return { outdir, inventory, entry: executable };
+  }
+  return { outdir, inventory, entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
 }

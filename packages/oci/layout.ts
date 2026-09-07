@@ -49,7 +49,7 @@ export async function exportLayouts(output: string, images: { source: BlobStore;
     await writeFile(join(temporary, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
     await writeFile(join(temporary, "index.json"), canonicalJSON({
       schemaVersion: 2, mediaType: media.index,
-      manifests: images.map(({ root, refName }) => ({ ...root, annotations: { "org.opencontainers.image.ref.name": refName } })),
+      manifests: images.flatMap(({ root, refName, all }) => [{ ...root, annotations: { "org.opencontainers.image.ref.name": refName } }, ...all.filter((d) => d.artifactType)]),
     }));
     await assertOutputAvailable(output);
     // rename replaces an empty directory, but cannot overwrite a non-empty directory.

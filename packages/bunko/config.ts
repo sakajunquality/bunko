@@ -11,7 +11,12 @@ export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   path: string;
+  mode?: string;
   targets?: string[];
+  sbom?: boolean;
+  provenance?: boolean;
+  signKey?: string;
+  cosignPath?: string;
   depsStrategy?: string;
   sharedDeps?: boolean;
   output?: string;
@@ -42,6 +47,7 @@ export interface BuildOptions {
 }
 
 export interface Project {
+  mode: "bundle" | "compile";
   directory: string;
   manifestText: string;
   workspace?: Workspace;
@@ -136,8 +142,10 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
   knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
-  if (config.mode !== undefined && config.mode !== "bundle") throw new Error("Only bundle mode is supported in M1");
+  const mode = options.mode ?? config.mode ?? "bundle";
+  if (mode !== "bundle" && mode !== "compile") throw new Error("mode must be bundle or compile");
   const external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
+  if (mode === "compile" && external.length) throw new Error("Compile mode currently requires bundled JavaScript dependencies; runtime externals are unsupported");
   const production = { ...object(manifest.dependencies ?? {}, "dependencies"), ...object(manifest.optionalDependencies ?? {}, "optionalDependencies"), ...object(manifest.peerDependencies ?? {}, "peerDependencies") };
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
   const deps = object(config.deps ?? {}, "deps");
@@ -151,6 +159,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported in M1");
   if (build.minify !== undefined && typeof build.minify !== "boolean") throw new Error("build.minify must be boolean");
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
+  if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
   knownKeys(runtime, ["bunPath", "libc"], "runtime");
   if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported in M1");
@@ -193,7 +202,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     ports = [...new Set(config.ports as number[])].sort((a, b) => a - b);
   }
   return {
-    directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
+    mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir: absolutePath(optionalString(config.workdir, "workdir") ?? "/app", "workdir"),
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),

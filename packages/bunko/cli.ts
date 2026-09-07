@@ -24,14 +24,18 @@ THE SOFTWARE.
 import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
 import { VERSION, type BuildOptions } from "./config.ts";
+import { checkBase } from "./check-base.ts";
+import { verifyImage } from "./attest.ts";
 import { resolveDocuments } from "./resolve.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (M2 preview)
+const help = `bunko ${VERSION} — Bun to OCI images (M3 preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
   bunko build [path] --push=false --oci-layout <directory>
   bunko resolve -f <file|directory|-> --repo <registry/prefix>
+  bunko check-base --base <reference> [--platform <list>] [--run]
+  bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko version
 
 Options:
@@ -66,6 +70,11 @@ Options:
   --verify-deterministic   Build twice independently, bypassing layer cache
   --git-metadata=false     Omit automatic Git labels and Git-derived tags
   --no-index               Produce one manifest (single platform only)
+  --mode <mode>           bundle (default) or compile (Linux executable)
+  --sbom                   Attach per-platform SPDX package inventories
+  --provenance             Attach SLSA provenance to the image root
+  --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
+  --cosign-path <file>     cosign executable (default: PATH)
   --report <file>          Write a JSON result, including transfers/cache/partial publication
   --help                   Show this help
 
@@ -74,7 +83,7 @@ Boolean options accept --flag, --no-flag, and --flag=true|false.
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
 Supports standalone apps and Bun workspaces with production dependencies.
-Compile/attestation support is planned for later milestones.
+SBOM/provenance are opt-in. Private signing never uploads to transparency logs.
 Logs go to stderr; successful publication prints one repo@digest line per target.
 `;
 
@@ -111,6 +120,15 @@ export async function main(argv: string[]): Promise<number> {
       repo: { type: "string" },
       "deps-strategy": { type: "string" },
       "shared-deps": { type: "boolean" },
+      run: { type: "boolean" },
+      "runtime-path": { type: "string" },
+      "verify-key": { type: "string" },
+      "private-signatures": { type: "boolean" },
+      mode: { type: "string" },
+      sbom: { type: "boolean" },
+      provenance: { type: "boolean" },
+      "sign-key": { type: "string" },
+      "cosign-path": { type: "string" },
       target: { type: "string", multiple: true },
       bare: { type: "boolean" },
       tag: { type: "string", multiple: true },
@@ -145,12 +163,27 @@ export async function main(argv: string[]): Promise<number> {
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
+    if (command === "check-base") {
+      if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
+      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], registry: { insecure: values["insecure-registry"] } });
+      process.stdout.write(JSON.stringify(result) + "\n");
+      return 0;
+    }
+    if (command === "verify") {
+      if (positionals.length !== 2 || !values["verify-key"]) throw new Error("verify requires an image@digest and --verify-key");
+      await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"]);
+      process.stdout.write(`${path}\n`);
+      return 0;
+    }
+    if (values.run || values["runtime-path"]) throw new Error("--run/--runtime-path require check-base");
+    if (values["verify-key"] || values["private-signatures"]) throw new Error("--verify-key/--private-signatures require verify");
     if (command !== "build" && command !== "resolve") throw new Error(`Unknown command: ${command ?? "(missing)"}`);
     if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
     if (values["kind-cluster"] && !values.kind) throw new Error("--kind-cluster requires --kind");
     if (command === "build" && (values.filename || values.context || values.recursive)) throw new Error("-f/--context/--recursive require resolve");
     if (command === "resolve" && positionals.length > 1) throw new Error("Use -f for resolve inputs and --context for source paths");
     const buildOptions: BuildOptions = {
+      mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
