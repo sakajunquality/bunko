@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "registry": "Distribution 3",
+  "orderedReadFallback": true,
+  "readHitPromotion": true,
+  "freshDestinationRead": true,
+  "managedBytes": 736,
+  "reclaimedBytes": 736,
+  "remainingManagedBytes": 0
+}

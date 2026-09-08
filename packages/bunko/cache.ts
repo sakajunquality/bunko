@@ -1,5 +1,5 @@
 import packageMetadata from "../../package.json";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
@@ -19,6 +19,14 @@ const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
 export const packFormat = `tar-gzip-v2/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
+export const cacheMetadataLimit = 8 * 1024 ** 2;
+async function readMetadata(path: string): Promise<unknown> {
+  const file = Bun.file(path);
+  if (file.size > cacheMetadataLimit) throw new Error("Cache metadata exceeds size limit");
+  const bytes = await file.bytes();
+  if (bytes.length > cacheMetadataLimit) throw new Error("Cache metadata exceeds size limit");
+  return JSON.parse(Buffer.from(bytes).toString());
+}
 const maxLayerBytes = 2 * 1024 ** 3;
 
 export interface CacheRecord {
@@ -27,7 +35,7 @@ export interface CacheRecord {
   inventory: InventoryEntry[]; native: NativeBinary[];
   application?: { entry: string; entries: { path: string; type: "file" | "directory" }[] };
 }
-export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass" }
+export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
 export function cacheTag(kind: string, key: Digest) { assertDigest(key); return `bunko-cache-v1-${kind}-${key.slice(7)}`; }
 
@@ -40,15 +48,19 @@ export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
 export class LayerCache {
   readonly events: CacheEvent[] = [];
   private readonly invalidLocal = new Set<Digest>();
+  private readonly origins = new Map<Digest, string>();
+  private readonly fetched = new Set<Digest>();
   private readonly remoteHits = new Set<Digest>();
   private readonly persistence: { disabled?: boolean };
   private readonly records = new Map<Digest, CacheRecord>();
   private readonly local?: BlobStore;
   private readonly remote?: Publisher;
-  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
+  private readonly readers: Publisher[];
+  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; readRepositories?: string[]; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
     this.persistence = options.persistence ?? {};
     if (options.directory) this.local = new BlobStore(options.directory);
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
+    this.readers = [...new Set([...(options.readRepositories ?? []), ...options.repository ? [options.repository] : []].map((value) => repositoryName(new Publisher(value, options.registry).ref)))].map((value) => new Publisher(value, options.registry));
   }
   private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null }): CacheRecord {
     const value = object(input, "Cache config");
@@ -82,27 +94,30 @@ export class LayerCache {
   }
 
   async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null }): Promise<CacheRecord | undefined> {
-    if (bypass) { this.events.push({ key, kind, status: "bypass" }); return; }
+    if (bypass) { this.events.push({ key, kind, status: "bypass", reason: "disabled" }); return; }
     const memory = this.records.get(key);
-    if (memory) { this.events.push({ key, kind, status: "local" }); return memory; }
+    if (memory) { const source = this.origins.get(key); this.events.push({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }
     if (this.local) {
+      let found = false;
       try {
-        const record = this.validate(JSON.parse(await readFile(join(this.local!.root, "keys", kind, `${key.slice(7)}.json`), "utf8")), key, kind, expected);
+        const value = await readMetadata(join(this.local!.root, "keys", kind, `${key.slice(7)}.json`)); found = true;
+        const record = this.validate(value, key, kind, expected);
         await this.store.copyFrom(this.local!, record.layer.descriptor);
         await decodeLayer(this.store, record.layer.descriptor, record.layer.diffId, undefined, maxLayerBytes);
         this.records.set(key, record);
         this.events.push({ key, kind, status: "local" });
         return record;
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") { this.invalidLocal.add(key); this.options.log(`Ignoring invalid local ${kind} cache\n`); } }
+      } catch (error) { if (found || (error as NodeJS.ErrnoException).code !== "ENOENT") { this.invalidLocal.add(key); this.options.log(`Ignoring invalid local ${kind} cache\n`); } }
     }
-    if (this.remote) {
+    let unavailable = false;
+    for (const reader of this.readers) {
       try {
-        const source = new RegistrySource(`${repositoryName(this.remote.ref)}:${cacheTag(kind, key)}`, this.options.registry);
+        const source = new RegistrySource(`${repositoryName(reader.ref)}:${cacheTag(kind, key)}`, this.options.registry);
         const root = await source.root();
         const manifest = object(JSON.parse(Buffer.from(root.bytes).toString()), "Cache manifest");
         if (root.descriptor.mediaType !== media.manifest || manifest.schemaVersion !== 2 || manifest.artifactType !== artifactMedia || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new Error("Invalid cache artifact");
         const config = descriptor(manifest.config), layer = descriptor(manifest.layers[0]);
-        if (config.mediaType !== configMedia || config.size > 8 * 1024 * 1024) throw new Error("Invalid cache config descriptor");
+        if (config.mediaType !== configMedia || config.size > cacheMetadataLimit) throw new Error("Invalid cache config descriptor");
         await this.store.putStream(await source.blob(config), config.mediaType, config);
         const record = this.validate(JSON.parse(Buffer.from(await this.store.read(config)).toString()), key, kind, expected);
         if (Buffer.compare(Buffer.from(canonicalJSON(record.layer.descriptor)), Buffer.from(canonicalJSON(layer)))) throw new Error("Cache layer descriptor mismatch");
@@ -111,16 +126,23 @@ export class LayerCache {
         await this.store.putStream(await source.blob(layer), layer.mediaType, layer);
         await decodeLayer(this.store, layer, record.layer.diffId, undefined, maxLayerBytes);
         this.store.origins.set(layer.digest, source.ref);
-        this.records.set(key, record);
-        this.remoteHits.add(key);
-        this.events.push({ key, kind, status: "registry" });
+        this.records.set(key, record); this.origins.set(key, repositoryName(reader.ref)); this.fetched.add(key);
+        if (this.remote && repositoryName(reader.ref) === repositoryName(this.remote.ref)) this.remoteHits.add(key);
+        this.events.push({ key, kind, status: "registry", source: repositoryName(reader.ref) });
         return record;
-      } catch (error) { if (!(error instanceof RegistryError && error.status === 404)) this.options.log(`Registry ${kind} cache unavailable; rebuilding\n`); }
+      } catch (error) { if (!(error instanceof RegistryError && error.status === 404)) { unavailable = true; this.options.log(`Registry ${kind} cache unavailable; trying remaining sources\n`); } }
     }
-    this.events.push({ key, kind, status: "miss" });
+    this.events.push({ key, kind, status: "miss", reason: unavailable || this.invalidLocal.has(key) ? "invalid-or-unavailable" : "not-found" });
+  }
+
+  async persistHits(): Promise<void> {
+    for (const key of this.fetched) await this.remember(this.records.get(key)!);
+    this.fetched.clear();
   }
 
   async remember(record: CacheRecord): Promise<void> {
+    const bytes = canonicalJSON(record);
+    if (bytes.length > cacheMetadataLimit) { this.options.log("Cache metadata exceeds size limit; skipping cache persistence and publication\n"); return; }
     this.records.set(record.key, record);
     if (!this.local || this.persistence.disabled) return;
     const dir = join(this.local.root, "keys", record.kind);
@@ -129,7 +151,7 @@ export class LayerCache {
       await withCacheLock(this.local.root, async () => {
       if (!this.invalidLocal.has(record.key)) {
         let previous: CacheRecord | undefined;
-        try { previous = this.validate(JSON.parse(await readFile(join(dir, `${record.key.slice(7)}.json`), "utf8")), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
+        try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
         catch { /* Missing or malformed entries are replaced by verified outputs. */ }
         if (previous && previous.layer.descriptor.digest !== record.layer.descriptor.digest) {
           let valid = false;
@@ -139,7 +161,7 @@ export class LayerCache {
       }
       await this.local!.copyFrom(this.store, record.layer.descriptor);
       await mkdir(dir, { recursive: true });
-      await writeFile(temporary, canonicalJSON(record), { flag: "wx" });
+      await writeFile(temporary, bytes, { flag: "wx" });
       await rename(temporary, join(dir, `${record.key.slice(7)}.json`));
       }, () => !this.persistence.disabled);
     } catch (error) { if (error instanceof CacheConflictError) throw error; this.persistence.disabled = true; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
@@ -156,7 +178,7 @@ export class LayerCache {
           const existing = object(JSON.parse(Buffer.from((await source.root()).bytes).toString()), "Existing cache manifest");
           if (existing.artifactType !== artifactMedia) throw new Error("Cache tag is occupied by an unrelated artifact");
           const config = descriptor(existing.config);
-          if (config.mediaType !== configMedia || config.size > 8 * 1024 ** 2) throw new Error("Invalid existing cache config");
+          if (config.mediaType !== configMedia || config.size > cacheMetadataLimit) throw new Error("Invalid existing cache config");
           await this.store.putStream(await source.blob(config), config.mediaType, config);
           const previous = this.validate(JSON.parse(Buffer.from(await this.store.read(config)).toString()), record.key, record.kind, { destination: record.destination, platform: record.platform });
           if (Buffer.compare(Buffer.from(canonicalJSON(previous.layer)), Buffer.from(canonicalJSON(record.layer)))) throw new CacheConflictError("Different output for the same Registry cache key; refusing to overwrite it");

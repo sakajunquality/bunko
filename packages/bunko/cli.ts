@@ -48,6 +48,7 @@ Usage:
   bunko resolve -f <file|directory|-> --repo <registry/prefix>
   bunko apply -f <file|directory|-> --repo <registry/prefix> [--kube-dry-run server]
   bunko push-layout <directory> --repo <exact-repository> [--tag <tag>]
+  bunko cache-info [--cache-dir <directory>]
   bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
   bunko check-base --base <reference> [--platform <list>] [--run]
@@ -64,6 +65,9 @@ Options:
   --recursive             Include nested input directories for resolve
   --target <name/path>     Select a workspace member; repeatable, root invocation only
   --execute               Execute prune deletions (default: preview only)
+  --keep-bytes <bytes>     Local managed cache budget (exclusive with --older-than)
+  --cache-from <repo>      Ordered cache read source; repeat to add more
+  --cache-write=false     Disable registry cache writes; retain reads
   --older-than <seconds>  Local prune age (default: 604800)
   --kubectl-path <file>   kubectl executable for apply
   --kube-context <name>   Kubernetes context for apply
@@ -216,6 +220,9 @@ export async function main(argv: string[]): Promise<number> {
       "registry-cache": { type: "boolean", default: true },
       "cache-dir": { type: "string" },
       "cache-repo": { type: "string" },
+      "cache-from": { type: "string", multiple: true },
+      "cache-write": { type: "boolean", default: true },
+      "keep-bytes": { type: "string" },
       "install-cache": { type: "string" },
       "insecure-registry": { type: "string", multiple: true },
       "dry-run": { type: "boolean" },
@@ -256,14 +263,20 @@ export async function main(argv: string[]): Promise<number> {
       const result = await pushLayout(path, values.repo, values.tag, registry, values.report);
       process.stdout.write(`${result.reference}\n`); return 0;
     }
+    if (command === "cache-info") {
+      if (positionals.length !== 1) throw new Error("cache-info accepts no positional path");
+      const result = await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), false, 0, Number.MAX_SAFE_INTEGER);
+      process.stdout.write(JSON.stringify({ managedBytes: result.managedBytes, scope: "validated key metadata and referenced blobs; unreferenced files are excluded" }) + "\n"); return 0;
+    }
     if (command === "prune") {
       if (values["dry-run"] === false) throw new Error("prune requires --execute for deletion; --dry-run=false is unsupported");
       if (values["insecure-registry"] && !values["cache-repo"]) throw new Error("--insecure-registry requires remote prune with --cache-repo");
       if (positionals.length !== 1 || values.execute && values["dry-run"]) throw new Error("prune accepts no positional path; --execute and --dry-run cannot be combined");
-      if (values["cache-repo"] && (values["cache-dir"] || values["older-than"])) throw new Error("Remote prune cannot be combined with local cache/age options");
+      if (values["cache-repo"] && (values["cache-dir"] || values["older-than"] || values["keep-bytes"])) throw new Error("Remote prune cannot be combined with local cache/age options");
       if (values["older-than"] !== undefined && !/^\d+$/.test(values["older-than"])) throw new Error("--older-than must be non-negative integer seconds");
+      if (values["keep-bytes"] !== undefined && (!/^\d+$/.test(values["keep-bytes"]) || values["older-than"] !== undefined)) throw new Error("--keep-bytes must be integer bytes and cannot be combined with --older-than");
       const result = values["cache-repo"] ? await pruneRegistry(values["cache-repo"], values.execute, registry)
-        : await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), values.execute, values["older-than"] === undefined ? undefined : Number(values["older-than"]));
+        : await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), values.execute, values["older-than"] === undefined ? undefined : Number(values["older-than"]), values["keep-bytes"] === undefined ? undefined : Number(values["keep-bytes"]));
       process.stdout.write(JSON.stringify(result) + "\n"); return 0;
     }
     if (values.execute || values["older-than"]) throw new Error("--execute/--older-than require prune");
@@ -325,7 +338,7 @@ export async function main(argv: string[]): Promise<number> {
       push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
-      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"],
+      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
       localCache: values.cache && values["local-cache"], registryCache: values.cache && values["registry-cache"],
       installCache: values["install-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,

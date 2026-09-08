@@ -43,6 +43,8 @@ export interface BuildOptions {
   cacheDir?: string;
   localCache?: boolean;
   cacheRepo?: string;
+  cacheFrom?: string[];
+  cacheWrite?: boolean;
   registryCache?: boolean;
   registry?: RegistryOptions;
   installCache?: string;
