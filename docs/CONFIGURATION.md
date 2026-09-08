@@ -47,7 +47,7 @@ An exact `packageManager: "bun@1.3.11"` also constrains the selection. Bun packa
 
 ## Asset exclusions and permissions
 
-`bunko.assetExcludes` contains positive glob patterns relative to the selected project. It narrows files selected by `assets` and the automatic bunkodata selection. Excluding a directory excludes its descendants. Required build files remain available to bundle/compile processing; source mode rejects exclusions that would remove an entrypoint or required package/configuration scope. Excluded asset-only data does not enter the source snapshot or asset layer. A workspace exclusion that removes another selected target's required source is rejected.
+`bunko.assetExcludes` contains positive glob patterns relative to the selected project. It narrows files selected by `assets` and the automatic bunkodata selection. Excluding a directory excludes its descendants. Required build files remain available to bundle/compile processing; source mode rejects exclusions that would remove an entrypoint or required package/configuration scope. Excluded asset-only data does not enter the source snapshot or asset layer.
 
 `bunko.assetMode` accepts `preserve` (default), `0444`, `0555`, `0644` or `0755`. The default preserves the executable classification and uses normalized 0644/0755 permissions, not arbitrary host permission bits. Explicit modes affect selected files; directories remain 0755. Special permission bits are unsupported. In source mode, declared assets remain at their original source positions while these exclusions and file modes apply there.
 
