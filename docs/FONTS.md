@@ -35,6 +35,10 @@ bunko build . --asset-context fonts=./font-inputs \
 
 Pin the base digest for reproducible builds. Do not assume a base contains the fonts or native libraries your application needs. Select explicit runtime externals for native renderers and test the resulting image. See the [pinned validation fixture](../examples/font-validation/package.json).
 
+## Runnable recipes
+
+Start with the [complete Canvas/Resvg example](../examples/font-validation/README.md). It includes pinned font preparation, manual build/run commands, copyable renderer settings and troubleshooting. `bun run test:fonts` tests both bundle and source modes with the fontconfig and direct-directory recipes, plus missing-configuration negative controls. CI runs this matrix on amd64; local validation defaults to both architectures.
+
 ## Input and destination policy
 
 - Only regular `.ttf`, `.otf`, `.ttc` and `.otc` files, plus accompanying `OFL`, `LICENSE`, `LICENCE`, `COPYING`, `NOTICE` and `README` files, are accepted in the font namespaces. Notice names may have a dot, underscore or hyphen suffix such as `LICENSE.txt` or `OFL-CJK.txt`.
