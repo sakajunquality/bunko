@@ -258,3 +258,8 @@ Builder identity is an input to application caching and runnable image labels. D
 ### Named asset contexts
 
 `bunko.assetMappings` accepts `{context, from, to}` records. `--asset-context NAME=DIR` binds each logical context to a local directory. `from` selects an exact relative file or subtree; `to` is its exact absolute image destination. Only selected inputs are frozen. Exclusions, symlink rejection, protected destinations, cross-layer collisions, content-based caching, and logical material provenance follow the [application compatibility contract](APPLICATION_COMPATIBILITY.md#named-local-asset-contexts). Host context paths are not persisted in materials.
+
+
+## Injected runtime layers
+
+`runtime.inject: "release"` optionally adds a signed official Bun runtime layer between the base and dependencies. It requires an explicit glibc base and bundle mode; supported versions, verification policy, cache behavior, licensing notices and execution checks are specified in [runtime injection](RUNTIME_INJECTION.md). It does not alter normal runtime inheritance or imply that native addon libraries are installed.

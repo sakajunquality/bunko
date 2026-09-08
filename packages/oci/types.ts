@@ -65,7 +65,7 @@ export interface ImageConfig {
 }
 
 export interface Layer {
-  kind: "app" | "assets" | "deps";
+  kind: "app" | "assets" | "deps" | "runtime";
   descriptor: Descriptor;
   diffId: Digest;
 }

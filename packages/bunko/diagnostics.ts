@@ -17,7 +17,7 @@ export async function checkConfig(options: BuildOptions) {
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts);
     projects.push({ entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external,
-      workdir: project.workdir, runtimePath: project.bunPath, assets: project.assets,
+      workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort() });
   }
   if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
@@ -29,6 +29,6 @@ export async function doctor(options: BuildOptions) {
   const config = await checkConfig(options), toolchain = await selectToolchain(options.bunPath);
   return { ...config, toolchain: { version: toolchain.version, revision: toolchain.revision },
     host: { os: process.platform, architecture: process.arch, runtime: Bun.version },
-    optionalTools: Object.fromEntries(["docker", "kubectl", "cosign"].map((name) => [name, Boolean(Bun.which(name === "cosign" ? options.cosignPath ?? name : name))])),
+    optionalTools: Object.fromEntries(["docker", "kubectl", "cosign", "gpgv"].map((name) => [name, Boolean(Bun.which(name === "cosign" ? options.cosignPath ?? name : name))])),
     advice: ["Use check-base --run to verify a base in Docker.", "Use build --push=false --oci-layout DIR for a complete local build check."] };
 }

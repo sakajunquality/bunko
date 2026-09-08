@@ -1,6 +1,6 @@
 /** Reject explicitly supplied options that a command would otherwise ignore. */
 export function validateCommandOptions(command: string, names: string[]): void {
-  const build = "asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config progress image-label image-annotation image-user image-refs repo bare tag push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-write local-cache registry-cache app-cache install-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom provenance sign-key cosign-path report target deps-strategy shared-deps";
+  const build = "asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config progress image-label image-annotation image-user image-refs repo bare tag push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-write local-cache registry-cache app-cache install-cache runtime-inject runtime-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom provenance sign-key cosign-path report target deps-strategy shared-deps";
   const input = "filename context recursive selector";
   const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run";
   const diagnostic = "asset-context target platform mode deps-strategy shared-deps";
@@ -9,7 +9,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
     "cache-info": "cache-dir",
     metadata: "metadata-dir insecure-registry registry-config",
     "push-layout": "repo tag insecure-registry registry-config report", prune: "cache-dir cache-repo older-than keep-bytes execute dry-run insecure-registry registry-config",
-    "pack-deps": "lockfile platform oci-layout workdir artifact-target", "check-base": "base base-layout platform bun-path run runtime-path insecure-registry registry-config",
+    "pack-deps": "lockfile platform oci-layout workdir artifact-target", "check-base": "base base-layout platform bun-path run runtime-path runtime-inject runtime-cache insecure-registry registry-config",
     verify: "verify-key private-signatures cosign-path insecure-registry", "check-config": diagnostic, doctor: `${diagnostic} bun-path cosign-path`, version: "",
   };
   if (!(command in allowed)) throw new Error(`Unknown command: ${command}`);

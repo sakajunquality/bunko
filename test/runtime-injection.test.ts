@@ -1,0 +1,112 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { archiveChecksum, extractRuntime, runtimeAsset, runtimeBytes, runtimeELF, verifiedChecksums, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
+import { baseFilesystem, baseNode, runtimeEntries } from "../packages/bunko/runtime-layer.ts";
+import { loadProject } from "../packages/bunko/config.ts";
+import { project } from "./helpers.ts";
+import { BlobStore } from "../packages/oci/blob-store.ts";
+import { packLayer } from "../packages/oci/tar.ts";
+import { LayerCache, cacheKey, packFormat } from "../packages/bunko/cache.ts";
+import { sha256 } from "../packages/oci/digest.ts";
+import type { BaseImage } from "../packages/oci/types.ts";
+
+const roots: string[] = [];
+afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+async function temp() { const root = await mkdtemp(join(tmpdir(), "bunko-runtime-test-")); roots.push(root); return root; }
+const platform = { os: "linux", architecture: "arm64" } as const;
+const toolchain = { path: "bun", version: "1.3.11", revision: "af24e281e" };
+
+test("runtime injection rejects unsupported modes, libc, versions and destinations before work", async () => {
+  const root = await temp();
+  for (const config of [{ runtime: { inject: "release" } }, { base: "example/base", mode: "compile", runtime: { inject: "release" } }, { base: "example/base", runtime: { inject: "release", libc: "musl" } }, { base: "example/base", runtime: { inject: "release", bunPath: "/app/node_modules/bun" } }]) {
+    await project(root, { bunko: config }); await expect(loadProject({ path: root })).rejects.toThrow();
+  }
+  expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
+  expect(() => runtimeAsset({ ...toolchain, version: "1.4.0" }, platform)).toThrow();
+});
+
+test.skipIf(!Bun.which("gpgv"))("official clear-signed checksums verify offline and reject tampering", async () => {
+  const signed = await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc", import.meta.url));
+  const checksums = await verifiedChecksums(signed);
+  expect(archiveChecksum(checksums, "bun-linux-aarch64")).toBe("sha256:d13944da12a53ecc74bf6a720bd1d04c4555c038dfe422365356a7be47691fdf");
+  await expect(verifiedChecksums(Buffer.from(signed.toString().replace("bun-linux-aarch64.zip", "bun-linux-unknown.zip")))).rejects.toThrow("signature verification");
+  await expect(verifiedChecksums(Buffer.from(checksums))).rejects.toThrow();
+  expect(() => archiveChecksum(checksums + "\n" + checksums, "bun-linux-aarch64")).toThrow("duplicate");
+  expect(() => archiveChecksum(checksums, "absent")).toThrow("absent");
+});
+
+test("downloads retry interrupted bodies, reject foreign redirects and bound bytes", async () => {
+  let calls = 0;
+  const bytes = await runtimeBytes("https://github.com/release", 10, async () => {
+    if (++calls === 1) return new Response(new ReadableStream({ start(c) { c.error(new Error("lost body")); } }));
+    return new Response("ok");
+  });
+  expect(bytes.toString()).toBe("ok"); expect(calls).toBe(2);
+  await expect(runtimeBytes("https://github.com/release", 10, async () => new Response(null, { status: 302, headers: { location: "https://attacker.invalid/bun" } }))).rejects.toThrow("origin");
+  await expect(runtimeBytes("https://github.com/release", 1, async () => new Response("large"))).rejects.toThrow("size limit");
+  let forbidden = 0;
+  await expect(runtimeBytes("https://github.com/release", 1, async () => { forbidden++; return new Response(null, { status: 404 }); })).rejects.toThrow("404");
+  expect(forbidden).toBe(1);
+});
+
+async function zip(entries: { name: string; content: string; mode?: number }[]) {
+  const root = await temp(), input = join(root, "entries.json"), output = join(root, "fixture.zip");
+  await writeFile(input, JSON.stringify(entries));
+  const process = Bun.spawn(["python3", "-c", `import zipfile,json,sys
+with zipfile.ZipFile(sys.argv[2],'w',compression=zipfile.ZIP_DEFLATED) as z:
+ for e in json.load(open(sys.argv[1])):
+  i=zipfile.ZipInfo(e['name']); i.create_system=3; i.external_attr=e.get('mode',0o100755)<<16; z.writestr(i,e['content'])`, input, output], { stdout: "ignore", stderr: "ignore" });
+  if (await process.exited) throw new Error("ZIP fixture failed"); return readFile(output);
+}
+
+test("ZIP extraction permits only one regular executable and rejects traversal, links and duplicates", async () => {
+  const name = "bun-linux-aarch64/bun";
+  expect((await extractRuntime(await zip([{ name, content: "binary" }]), "bun-linux-aarch64")).toString()).toBe("binary");
+  for (const entries of [[{ name: "../bun", content: "bad" }], [{ name, content: "target", mode: 0o120777 }], [{ name, content: "first" }, { name, content: "second" }], [{ name: "other", content: "bad" }]]) await expect(extractRuntime(await zip(entries), "bun-linux-aarch64")).rejects.toThrow();
+});
+
+function elf() {
+  const b = Buffer.alloc(1024); b.write("\x7fELF"); b[4]=2; b[5]=1; b.writeUInt16LE(3,16); b.writeUInt16LE(183,18); b.writeBigUInt64LE(64n,32); b.writeUInt16LE(56,54); b.writeUInt16LE(3,56);
+  function segment(index:number,type:number,offset:number,size:number) { const p=64+index*56; b.writeUInt32LE(type,p); b.writeBigUInt64LE(BigInt(offset),p+8); b.writeBigUInt64LE(BigInt(offset),p+16); b.writeBigUInt64LE(BigInt(size),p+32); }
+  segment(0,1,0,1024); const interpreter="/lib/ld-linux-aarch64.so.1\0"; b.write(interpreter,300); segment(1,3,300,interpreter.length); segment(2,2,400,64);
+  const strings="\0libc.so.6\0GLIBC_2.25\0"; b.write(strings,600);
+  for(const [i,[tag,value]] of [[5,600],[10,strings.length],[1,1],[0,0]].entries()) { b.writeBigUInt64LE(BigInt(tag!),400+i*16); b.writeBigUInt64LE(BigInt(value!),408+i*16); }
+  return b;
+}
+
+test("ELF inspection checks architecture, bounds, loader, libraries and symbol versions", () => {
+  expect(runtimeELF(elf(),platform)).toEqual({ interpreter:"/lib/ld-linux-aarch64.so.1", needed:["libc.so.6"], glibcSymbols:["GLIBC_2.25"] });
+  expect(() => runtimeELF(elf(),{os:"linux",architecture:"amd64"})).toThrow("ELF64");
+  expect(() => runtimeELF(elf().subarray(0,64),platform)).toThrow();
+  const bad=elf(); bad.writeBigUInt64LE(999999n,32); expect(() => runtimeELF(bad,platform)).toThrow();
+});
+
+test("base metadata handles whiteouts and links without extracting host files", async () => {
+  const root=await temp(), store=new BlobStore(join(root,"store"));
+  const first=(await packLayer(store,[{path:"lib/loader",type:"file",content:Buffer.from("loader"),executable:true},{path:"lib/old",type:"file",content:Buffer.from("old")},{path:"lib/link",type:"symlink",target:"loader"}],"assets",0))!;
+  const archive=join(root,"overlay.tar");
+  const child=Bun.spawn(["python3","-c", "import tarfile,io,sys\nwith tarfile.open(sys.argv[1],'w') as t:\n for name,data in [('lib/.wh..wh..opq',b''),('lib/new',b'new')]:\n  i=tarfile.TarInfo(name); i.size=len(data); t.addfile(i,io.BytesIO(data))",archive],{stdout:"ignore",stderr:"ignore"});
+  expect(await child.exited).toBe(0);
+  const bytes=await readFile(archive),second={descriptor:await store.put(bytes,"application/vnd.oci.image.layer.v1.tar"),diffId:sha256(bytes)};
+  const base={manifest:{layers:[first.descriptor,second.descriptor]},config:{rootfs:{diff_ids:[first.diffId,second.diffId]}}} as BaseImage;
+  const tree=await baseFilesystem(store,base,root);
+  expect(tree.has("lib/old")).toBe(false); expect(tree.has("lib/new")).toBe(true);
+  tree.set("lib/loader",{type:"file",mode:0o755,size:10}); tree.set("lib/ld-linux-aarch64.so.1",{type:"symlink",link:"loader",mode:0o777,size:0});
+  expect(baseNode(tree,"/lib/ld-linux-aarch64.so.1")!.type).toBe("file");
+  const metadata={path:"/usr/local/bin/bun",interpreter:"/lib/ld-linux-aarch64.so.1"} as InjectedRuntime;
+  expect(runtimeEntries(metadata,elf(),tree)[0]!.path).toBe("usr/local/bin/bun");
+  tree.set("usr/local",{type:"symlink",link:"/outside",mode:0o777,size:0}); expect(()=>runtimeEntries(metadata,elf(),tree)).toThrow("parent");
+  tree.delete("usr/local"); tree.delete("lib/loader"); expect(()=>runtimeEntries(metadata,elf(),tree)).toThrow("loader");
+});
+
+test("runtime layer records survive local cache serialization", async () => {
+  const root=await temp(),store=new BlobStore(join(root,"store")),directory=join(root,"cache");
+  const layer=(await packLayer(store,[{path:"usr/local/bin/bun",type:"file",content:elf(),executable:true}],"runtime",0))!;
+  const key=cacheKey({kind:"runtime",digest:sha256(elf())});
+  const record={schemaVersion:1 as const,key,kind:"runtime" as const,packFormat,destination:"/usr/local/bin/bun",platform,layer,inventory:[],native:[]};
+  const cache=new LayerCache(store,{directory,log:()=>{}}); await cache.remember(record);
+  const next=new LayerCache(new BlobStore(join(root,"next")),{directory,log:()=>{}});
+  expect((await next.get(key,"runtime",false,{destination:record.destination,platform}))!.layer).toEqual(layer);
+});

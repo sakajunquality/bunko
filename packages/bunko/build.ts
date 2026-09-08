@@ -1,3 +1,5 @@
+import { downloadRuntime, type InjectedRuntime } from "./runtime-download.ts";
+import { baseFilesystem, injectedLayer } from "./runtime-layer.ts";
 import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
@@ -39,6 +41,7 @@ import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  runtime?: InjectedRuntime;
   locations?: LocationDiagnostics;
   baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
   entrypoints?: Record<string, string>;
@@ -172,6 +175,16 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       if (source instanceof RegistrySource) for (const layer of base.manifest.layers) store.origins.set(layer.digest, source.ref);
       bases.push(base);
     }
+    const runtimes: (Awaited<ReturnType<typeof injectedLayer>> & { metadata: InjectedRuntime })[] = [];
+    if (project.runtimeInject) {
+      for (const [index, platform] of project.platforms.entries()) {
+        const runtime = await downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache });
+        runtime.metadata.path = project.bunPath;
+        const tree = await baseFilesystem(store, bases[index]!, temporary);
+        const packed = await injectedLayer(store, runtime.metadata, runtime.executable, tree, timestamp);
+        runtimes.push({ ...packed, metadata: runtime.metadata });
+      }
+    }
     const baseInventories = await Promise.all(bases.map(async (base, i) => {
       const ref = options.baseSBOMs?.[`linux/${project.platforms[i]!.architecture}`];
       return ref ? await baseInventory(ref, [base.descriptor.digest], registry) : undefined;
@@ -195,6 +208,14 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       }
       for (const [index, platform] of project.platforms.entries()) {
         const base = bases[index]!;
+        const runtime = runtimes[index];
+        if (runtime) {
+          const key = cacheKey({ kind: "runtime", packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
+          const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
+          // Authenticated bytes, not registry-supplied metadata, determine the injected layer.
+          if (hit && (hit.layer.descriptor.digest !== runtime.layer.descriptor.digest || hit.layer.diffId !== runtime.layer.diffId)) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
+          if (!hit && iteration === 1) records.push({ schemaVersion: 1, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
+        }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         await cp(snapshotRoot, root, { recursive: true });
         const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
@@ -275,10 +296,10 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
         app.push(...aliases);
-        assertNoLayerCollision([depsEntries, assets, app]);
+        assertNoLayerCollision([runtime?.entries ?? [], depsEntries, assets, app]);
         const appLayer = appHit?.layer ?? await packLayer(store, app, "app", timestamp);
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
-        const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
+        const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath] : [project.bunPath, `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
@@ -288,7 +309,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }, true);
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
-        result.push({ locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
       }
       return result;
     }
@@ -386,7 +407,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
-  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
+  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
   const jobs = options.jobs ?? 1;
   if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
@@ -437,7 +458,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
-  const exclusions = [signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const exclusions = [options.runtimeCache ? await canonicalOutput(options.runtimeCache) : join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "runtime", "v1"), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];

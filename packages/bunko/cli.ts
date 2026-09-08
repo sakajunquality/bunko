@@ -79,6 +79,8 @@ Options:
   --lockfile <file>       Text Bun lock for pack-deps
   --workdir <path>        Image workdir for pack-deps (default: /app)
   --run                  Execute check-base runtime validation through Docker
+  --runtime-inject release  Inject a signed official Bun release (requires explicit base and gpgv)
+  --runtime-cache <dir>    Verified Bun release download cache
   --runtime-path <path>  Runtime path checked by check-base
   --verify-key <file>     Public key for verify
   --private-signatures  Verify signatures without transparency-log evidence
@@ -227,6 +229,7 @@ export async function main(argv: string[]): Promise<number> {
       "cache-write": { type: "boolean", default: true },
       "keep-bytes": { type: "string" },
       "install-cache": { type: "string" },
+      "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
       "insecure-registry": { type: "string", multiple: true },
       "dry-run": { type: "boolean" },
       "oci-layout": { type: "string" },
@@ -291,7 +294,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.lockfile || values.workdir) throw new Error("--lockfile/--workdir require pack-deps");
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
-      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], registry: registry });
+      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
       process.stdout.write(JSON.stringify(result) + "\n");
       return 0;
     }
@@ -344,7 +347,7 @@ export async function main(argv: string[]): Promise<number> {
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
       localCache: values.cache && values["local-cache"], registryCache: values.cache && values["registry-cache"],
-      installCache: values["install-cache"], registry: registry, dryRun: values["dry-run"],
+      installCache: values["install-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,
       baseLayout: values["base-layout"], platform: values.platform,
       bunPath: values["bun-path"], report: values.report,

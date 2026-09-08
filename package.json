@@ -43,11 +43,16 @@
     "test:prune-smoke": "bun test/prune-smoke.ts",
     "test:multiple-entrypoints": "bun test/multiple-entrypoints-smoke.ts",
     "test:asset-contexts": "bun test/asset-contexts-smoke.ts",
-    "test:application-validation": "bun scripts/validation/run-fixture.ts"
+    "test:application-validation": "bun scripts/validation/run-fixture.ts",
+    "test:runtime-injection": "bun scripts/validation/runtime-smoke.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",
+    "@types/tar-stream": "3.1.4",
+    "@types/yauzl": "3.4.0",
+    "tar-stream": "3.2.1",
     "typescript": "5.9.3",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "yauzl": "3.4.0"
   }
 }

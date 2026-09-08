@@ -8,7 +8,8 @@ import { exportDockerArchive } from "../../packages/oci/archive.ts";
 import type { BuildResult } from "../../packages/bunko/build.ts";
 import { scanPrivateOutput } from "./privacy.ts";
 
-const base = "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
+const inject = process.env.BUNKO_SMOKE_INJECT === "1";
+const base = inject ? "gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f" : "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
 const database = "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73";
 const root = await mkdtemp(join(tmpdir(), "bunko-acceptance-")); await chmod(root,0o700);
 const id = randomUUID(), network = `bunko-acceptance-${id}`, db = `bunko-db-${id}`;
@@ -37,10 +38,14 @@ try {
   await cp(resolve("examples/application-validation"),source,{recursive:true,filter:path=>!path.split("/").includes("node_modules")});
   await mkdir(inputs); await writeFile(join(inputs,"settings.json"),JSON.stringify({message:"configured-content"}));
   const layout=join(root,"layout"), report=join(root,"raw-report.json");
-  await command([process.execPath,resolve("dist/bunko.js"),"build",source,"--base",base,"--platform",process.env.BUNKO_SMOKE_PLATFORMS??"linux/amd64,linux/arm64","--asset-context",`generated=${inputs}`,"--oci-layout",layout,"--report",report,"--push=false","--no-cache","--git-metadata=false"],300000);
+  await command([process.execPath,resolve("dist/bunko.js"),"build",source,"--base",base,...inject ? ["--runtime-inject","release"] : [],"--platform",process.env.BUNKO_SMOKE_PLATFORMS??"linux/amd64,linux/arm64","--asset-context",`generated=${inputs}`,"--oci-layout",layout,"--report",report,"--push=false","--no-cache","--git-metadata=false"],300000);
   const built=JSON.parse(await readFile(report,"utf8")) as BuildResult;
   await scanPrivateOutput(layout,["private-organization-sentinel"]);
   checks.artifactGate=true;
+  if (inject) {
+    if (built.images.some((image) => !image.runtime || image.runtime.revisionVerified || image.layers[0]?.kind !== "runtime")) throw new Error("RUNTIME_INJECTION_METADATA_FAILED");
+    checks.injectedRuntime=true;
+  }
   for (const image of built.images) {
     const arch=image.platform.architecture, platform=`linux/${arch}`, tag=`bunko.local/acceptance-${id}:${arch}`;
     const archive=join(root,`${arch}.tar`); await exportDockerArchive(new BlobStore(layout),image.manifest,archive,tag,0);

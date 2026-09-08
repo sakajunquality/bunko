@@ -10,7 +10,7 @@ This is a delivery plan, not a promise of release dates or complete ko/BuildKit 
 - Re-run the registry matrix with the exact RC artifact before carrying forward alpha.2 interoperability claims. Record unavailable credentials or services as not-run.
 - Promote to a stable release only after applicable workload checks and migration/rollback instructions have an explicit disposition.
 
-Completion means a reader can install the candidate and distinguish verified behavior from remaining workload/provider checks. Runtime injection and source-preserving mode require separate design and ABI validation.
+Completion means a reader can install the candidate and distinguish verified behavior from remaining workload/provider checks. Runtime injection now has an opt-in implementation and separate ABI/runtime validation; source-preserving mode remains future work.
 
 ## Real workload and registry stability
 

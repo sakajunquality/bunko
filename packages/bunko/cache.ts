@@ -31,12 +31,12 @@ async function readMetadata(path: string): Promise<unknown> {
 const maxLayerBytes = 2 * 1024 ** 3;
 
 export interface CacheRecord {
-  schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app"; packFormat: string;
+  schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app" | "runtime"; packFormat: string;
   destination: string; platform: Platform | null; layer: Layer;
   inventory: InventoryEntry[]; native: NativeBinary[];
   application?: { locations: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
 }
-export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
+export interface CacheEvent { kind: "deps" | "assets" | "app" | "runtime"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
 export function cacheTag(kind: string, key: Digest) { assertDigest(key); return `bunko-cache-v1-${kind}-${key.slice(7)}`; }
 
@@ -63,7 +63,7 @@ export class LayerCache {
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
     this.readers = [...new Set([...(options.readRepositories ?? []), ...options.repository ? [options.repository] : []].map((value) => repositoryName(new Publisher(value, options.registry).ref)))].map((value) => new Publisher(value, options.registry));
   }
-  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): CacheRecord {
+  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app" | "runtime", expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): CacheRecord {
     const value = object(input, "Cache config");
     const layer = object(value.layer, "Cache layer");
     if (value.schemaVersion !== 1 || value.key !== key || value.kind !== kind || value.packFormat !== packFormat || layer.kind !== kind
@@ -103,7 +103,7 @@ export class LayerCache {
     return value as unknown as CacheRecord;
   }
 
-  async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): Promise<CacheRecord | undefined> {
+  async get(key: Digest, kind: "deps" | "assets" | "app" | "runtime", bypass = false, expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): Promise<CacheRecord | undefined> {
     if (bypass) { this.events.push({ key, kind, status: "bypass", reason: "disabled" }); return; }
     const memory = this.records.get(key);
     if (memory) { const source = this.origins.get(key); this.events.push({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }

@@ -52,6 +52,8 @@ export interface BuildOptions {
   registryCache?: boolean;
   registry?: RegistryOptions;
   installCache?: string;
+  runtimeCache?: string;
+  runtimeInject?: string;
   base?: string;
   baseLayout?: string;
   platform?: string;
@@ -81,6 +83,7 @@ export interface Project {
   base?: string;
   workdir: string;
   bunPath: string;
+  runtimeInject?: "release";
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
@@ -195,7 +198,11 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
-  knownKeys(runtime, ["bunPath", "libc"], "runtime");
+  knownKeys(runtime, ["bunPath", "libc", "inject"], "runtime");
+  const runtimeInject = options.runtimeInject ?? runtime.inject;
+  if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
+  if (runtimeInject && (options.mode ?? config.mode ?? "bundle") !== "bundle") throw new Error("Runtime injection requires bundle mode");
+  if (runtimeInject && !(options.base ?? process.env.BUNKO_DEFAULT_BASE ?? config.base) && !options.baseLayout) throw new Error("Runtime injection requires an explicit base or base layout");
   if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported");
   const env = stringMap(config.env, "env");
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
@@ -267,12 +274,15 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     if (env.BUNKO_DATA_PATH !== undefined && env.BUNKO_DATA_PATH !== dataPath) throw new Error("BUNKO_DATA_PATH is reserved when bunkodata exists");
     env.BUNKO_DATA_PATH = dataPath;
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const runtimePath = absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath");
+  if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
     mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
-    bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),
+    runtimeInject: runtimeInject as "release" | undefined,
+    bunPath: runtimePath,
     user: optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user"), env, labels, ports,
     args: strings(config.args, "args"),
     assetMappings: assetMappings(config.assetMappings),
