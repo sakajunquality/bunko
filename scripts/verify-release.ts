@@ -4,7 +4,7 @@ import { assetNames, releaseTag } from "./distribution.ts";
 export function verificationArguments(path: string, bundle: string, repository: string, sourceRef: string, sourceDigest?: string): string[] {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.split("/").some((p) => p === "." || p === "..")) throw new Error("Invalid attestation repository");
   if (!/^refs\/(heads\/main|tags\/v[0-9A-Za-z.-]+)$/.test(sourceRef)) throw new Error("Attestation source must be main or an explicit version tag");
-  if (sourceDigest !== undefined && !/^[a-f0-9]{40,64}$/.test(sourceDigest)) throw new Error("Invalid attestation source digest");
+  if (sourceDigest !== undefined && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sourceDigest)) throw new Error("Invalid attestation source digest");
   return ["attestation", "verify", path, "--bundle", bundle, "--repo", repository,
     "--signer-workflow", `${repository}/.github/workflows/release.yml`, "--source-ref", sourceRef,
     "--deny-self-hosted-runners", ...sourceDigest ? ["--source-digest", sourceDigest] : []];
@@ -16,11 +16,12 @@ export async function verifyRelease(directory: string, repository: string, sourc
     const args = verificationArguments(join(directory, name), join(directory, "PROVENANCE.jsonl"), repository, sourceRef, sourceDigest);
     const child = Bun.spawn([gh, ...args], { env: { ...process.env, ...token ? { GH_TOKEN: token } : {} }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 60_000);
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 60_000);
     try {
       // Drain diagnostics but do not expose authentication or transport details.
       const [, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-      if (timedOut || code !== 0) throw new Error(`Release attestation verification failed: ${name}`);
+      if (timedOut) throw new Error(`Release attestation verification timed out: ${name}`);
+      if (code !== 0) throw new Error(`Release attestation verification failed: ${name}`);
     } finally { clearTimeout(timer); }
   }
 }
