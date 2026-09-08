@@ -10,16 +10,17 @@ export function verificationArguments(path: string, bundle: string, repository: 
     "--deny-self-hosted-runners", ...sourceDigest ? ["--source-digest", sourceDigest] : []];
 }
 
-export async function verifyRelease(directory: string, repository: string, sourceRef: string, sourceDigest?: string): Promise<void> {
+export async function verifyRelease(directory: string, repository: string, sourceRef: string, sourceDigest?: string, token?: string): Promise<void> {
   const gh = Bun.which("gh"); if (!gh) throw new Error("Release attestation verification requires the GitHub CLI (gh)");
   for (const name of [...assetNames, "SHA256SUMS"]) {
     const args = verificationArguments(join(directory, name), join(directory, "PROVENANCE.jsonl"), repository, sourceRef, sourceDigest);
-    const child = Bun.spawn([gh, ...args], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill(), 60_000);
+    const child = Bun.spawn([gh, ...args], { env: { ...process.env, ...token ? { GH_TOKEN: token } : {} }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 60_000);
     try {
       // Drain diagnostics but do not expose authentication or transport details.
       const [, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-      if (code) throw new Error(`Release attestation verification failed: ${name}`);
+      if (timedOut || code !== 0) throw new Error(`Release attestation verification failed: ${name}`);
     } finally { clearTimeout(timer); }
   }
 }

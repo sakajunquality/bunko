@@ -109,3 +109,11 @@ test("attestation opt-in rejects an unattested artifact before executing checksu
   finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
   expect(await Bun.file(marker).exists()).toBe(false);
 });
+
+test("attestation verification pins repository, workflow, ref and optional commit", async () => {
+  const { verificationArguments } = await import("../scripts/verify-release.ts");
+  const commit = "a".repeat(40);
+  const args = verificationArguments("/a path/bunko.js", "/a path/PROVENANCE.jsonl", "owner/repo", "refs/tags/v1.2.3", commit);
+  expect(args).toEqual(["attestation", "verify", "/a path/bunko.js", "--bundle", "/a path/PROVENANCE.jsonl", "--repo", "owner/repo", "--signer-workflow", "owner/repo/.github/workflows/release.yml", "--source-ref", "refs/tags/v1.2.3", "--deny-self-hosted-runners", "--source-digest", commit]);
+  for (const [repository, ref, digest] of [["../repo", "refs/heads/main", commit], ["owner/repo", "refs/heads/untrusted", commit], ["owner/repo", "refs/heads/main", "short"]]) expect(() => verificationArguments("file", "bundle", repository!, ref!, digest)).toThrow();
+});

@@ -112,9 +112,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          wrong_ref=refs/heads/main
+          if [ "$GITHUB_REF" = refs/heads/main ]; then wrong_ref=refs/tags/v0.0.0-invalid; fi
           if gh attestation verify candidate/bunko.js --bundle candidate/PROVENANCE.jsonl \
             --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
-            --source-ref refs/tags/v0.0.0-invalid --deny-self-hosted-runners; then
+            --source-ref "$wrong_ref" --deny-self-hosted-runners; then
             echo "An incorrect source identity was accepted" >&2
             exit 1
           fi
