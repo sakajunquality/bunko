@@ -43,6 +43,7 @@ import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } f
 
 export interface PlatformResult {
   runtime?: InjectedRuntime;
+  compileRuntime?: Omit<InjectedRuntime, "path">;
   locations?: LocationDiagnostics;
   baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
   entrypoints?: Record<string, string>;
@@ -189,6 +190,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       bases.push(base);
       for (const layer of base.manifest.layers) if (!basePlatforms.has(layer.digest)) basePlatforms.set(layer.digest, platform);
     }
+    const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
+    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, log }), platform));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
@@ -277,7 +280,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
         const appKey = cacheKey({ kind: "app", format: "application-v2", builder: context.builder.digest, packFormat, epoch: timestamp,
-          sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
+          compileRuntime: compileRuntimes[index]?.metadata, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
         const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, path.replace(/\.[^.]+$/, ".js")])) : undefined;
@@ -295,7 +298,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Preparing build dependencies (${platform.architecture})\n`);
           if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache);
           log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-          const built = sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax));
+          const built = sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           if (project.mode === "bundle") sharedBundle = built;
           cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
@@ -324,7 +327,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }, true);
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
-        result.push({ runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
+        result.push({ compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;

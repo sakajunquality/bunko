@@ -22,7 +22,7 @@ export interface InjectedRuntime {
   interpreter: string; needed: string[]; glibcSymbols: string[];
 }
 export function runtimeAsset(toolchain: Toolchain, platform: Platform) {
-  if (!/^1\.3\.(11|12|13)$/.test(toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error("Runtime injection supports official Bun 1.3.11, 1.3.12 and 1.3.13 releases");
+  if (!/^1\.3\.(11|12|13)$/.test(toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error("Verified runtime selection supports official Bun 1.3.11, 1.3.12 and 1.3.13 releases");
   if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported injected runtime platform");
   return `bun-linux-${platform.architecture === "amd64" ? "x64-baseline" : "aarch64"}`;
 }
@@ -36,7 +36,7 @@ if (/\[GNUPG:\] (?:EXPKEYSIG|REVKEYSIG|EXPSIG|BADSIG|ERRSIG|NO_PUBKEY)\b/.test(s
 export async function verifiedChecksums(signed: Uint8Array): Promise<string> {
   if (signed.length > manifestLimit) throw new Error("Runtime checksum document exceeds size limit");
   const executable = Bun.which("gpgv");
-  if (!executable) throw new Error("Runtime injection requires gpgv (install GnuPG); unsigned verification is not supported");
+  if (!executable) throw new Error("Verified runtime selection requires gpgv (install GnuPG); unsigned verification is not supported");
   const root = await mkdtemp(join(tmpdir(), "bunko-runtime-signature-"));
   try {
     await writeFile(join(root, "trusted.gpg"), Buffer.from(runtimeKey, "base64"), { mode: 0o600 });
@@ -177,7 +177,7 @@ export function runtimeELF(bytes: Buffer, platform: Platform) {
 }
 
 export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
-  if (!Bun.which("gpgv")) throw new Error("Runtime injection requires gpgv (install GnuPG); unsigned verification is not supported");
+  if (!Bun.which("gpgv")) throw new Error("Verified runtime selection requires gpgv (install GnuPG); unsigned verification is not supported");
   const asset = runtimeAsset(toolchain, platform), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
   const ephemeral = options.cache === false ? await mkdtemp(join(tmpdir(), "bunko-runtime-cache-")) : undefined;
   const cache = ephemeral ?? await runtimeCachePath(typeof options.cache === "string" ? options.cache : undefined);
