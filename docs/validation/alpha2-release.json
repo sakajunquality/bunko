@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.2",
+  "host": "macOS arm64 / Docker Desktop; amd64 emulation",
+  "bunVersion": "1.3.11",
+  "tests": {
+    "passed": 233,
+    "failed": 0,
+    "assertions": 904
+  },
+  "assets": {
+    "bunko.js": {
+      "sha256": "2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+      "bytes": 3984235
+    },
+    "LICENSE": {
+      "sha256": "b7663a9c157de4777007ead4215c427420f8ebfb89a243598454c7a6e91a923d",
+      "bytes": 1071
+    },
+    "THIRD_PARTY_NOTICES.md": {
+      "sha256": "7fc7f9a59577c49d580d04c901714d7097ee36b06e22c44db7d1186df3083136",
+      "bytes": 48016
+    }
+  },
+  "distributedRuntime": [
+    {
+      "platform": "linux/amd64",
+      "mode": "bundle",
+      "digest": "sha256:2cefc0dbfaff76d4bb37a99f07c70e3a680a9cb55add500a93f072bda962b94a",
+      "builder": {
+        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "kind": "bundle",
+        "version": "0.1.0-alpha.2"
+      },
+      "sqlite": "passed"
+    },
+    {
+      "platform": "linux/amd64",
+      "mode": "compile",
+      "digest": "sha256:502a5b2ed965abf3f800e6f892e6e5dbfc9dc3656c64b7aef9423c224f9ea855",
+      "builder": {
+        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "kind": "bundle",
+        "version": "0.1.0-alpha.2"
+      },
+      "sqlite": "passed"
+    },
+    {
+      "platform": "linux/arm64",
+      "mode": "bundle",
+      "digest": "sha256:d921f7661423f4f4841c3f77f6c4ddf2dcb46458db9cb6abb93293a125423271",
+      "builder": {
+        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "kind": "bundle",
+        "version": "0.1.0-alpha.2"
+      },
+      "sqlite": "passed"
+    },
+    {
+      "platform": "linux/arm64",
+      "mode": "compile",
+      "digest": "sha256:442a563b7736d241235bf1a9cd8b3db5190e20239015cf441af0eb098beac725",
+      "builder": {
+        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "kind": "bundle",
+        "version": "0.1.0-alpha.2"
+      },
+      "sqlite": "passed"
+    }
+  ],
+  "secretScanning": {
+    "scanner": "Gitleaks 8.30.1",
+    "source": "no findings",
+    "history": "no findings",
+    "distribution": "no findings"
+  },
+  "notes": [
+    "SQLite read/write checks use a non-root read-only container with writable temporary state.",
+    "Metadata and provider checkpoints are linked separately; runtime checks do not imply scanner completeness or every native package ABI.",
+    "Candidate preparation only; no version tag or release publication."
+  ]
+}

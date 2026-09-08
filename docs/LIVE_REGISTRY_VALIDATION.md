@@ -42,7 +42,7 @@ Docker Hub account push and ECR private remain unverified. Token expiry, permiss
 
 ## Regression validation
 
-`bun run check` passes with 170 tests and 579 assertions on the tested source revision. The PR CI additionally checks Linux/macOS distribution installation and authenticated Distribution 3 integration.
+The historical conformance snapshot passed its typecheck and regression suite. Its PR CI additionally checked Linux/macOS distribution installation and authenticated Distribution 3 integration.
 
 ## Portable ko workflows: private supply-chain validation
 
@@ -58,3 +58,9 @@ GHCR used the existing packages-write GITHUB_TOKEN in the **private** bunko-test
 GAR used the existing Docker gcloud helper with the private gcloud configuration; IAM and visibility were unchanged. [GAR supply-chain report](validation/2026-09-08-gar-supply-chain.json).
 
 This closes the earlier unverified referrer/signing item for these particular provider configurations. It does not establish every registry policy or key backend. Docker Hub account publication and ECR private remain unverified. OS/runtime checks remain separately recorded in validation/runtime-compatibility.json and validation/ko-runtime.json.
+
+## Alpha.2 metadata and registry checkpoint
+
+The [alpha.2 GHCR workflow](https://github.com/sakajunquality/bunko-test/actions/runs/34176047278) passed source checkpoint `f875663`: native dependency runtime on both architectures, direct digest pulls, cache reuse, three discovered metadata payloads and six private signatures. [Summary and report hashes](validation/alpha2-ghcr.json) retain the exact scope. The workflow uses the private test repository's scoped GITHUB_TOKEN and does not change package visibility.
+
+The [metadata GAR checkpoint](validation/metadata-gar.json) independently passed both-platform metadata discovery and six private signatures. Later documentation and test-registration changes are not a new provider validation result. Docker Hub account publication and private ECR remain outside the verified matrix.

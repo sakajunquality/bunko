@@ -1,6 +1,6 @@
 # Supply-chain metadata and policy
 
-Metadata is opt-in. `--sbom --provenance` publishes OCI subject artifacts alongside the runnable image and includes them in an OCI layout. They do not change the runnable image digest. The host Bun compressor version and the builder fingerprint does participate in image identity and application cache keys.
+Metadata is opt-in. `--sbom --provenance` publishes OCI subject artifacts alongside the runnable image and includes them in an OCI layout. They do not change the runnable image digest. The host Bun compressor version and the builder fingerprint do participate in image identity and application cache keys.
 
 ```sh
 bunko build . --repo registry.example/team/app --sbom --provenance

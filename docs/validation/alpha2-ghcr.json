@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "f875663",
+  "workflow": "https://github.com/sakajunquality/bunko-test/actions/runs/34176047278",
+  "status": "success",
+  "vendor": "ghcr",
+  "signatureCount": 6,
+  "metadataCount": 3,
+  "root": {
+    "digest": "sha256:6f0fa1c60f41e0a643452f5dbfbc6cfc59d476ebfab9c123887c8f166fab1eee",
+    "mediaType": "application/vnd.oci.image.index.v1+json",
+    "size": 582
+  },
+  "cacheVerified": true,
+  "directDockerPull": true,
+  "runtime": [
+    {
+      "config": "sha256:d763a3588c5bf949a0d4982b53012e0d0e0060510a5380e3d2f4384c80fa381f",
+      "dockerId": "sha256:d763a3588c5bf949a0d4982b53012e0d0e0060510a5380e3d2f4384c80fa381f",
+      "exitCode": 0,
+      "manifest": "sha256:7d05a3456dfb762320f0b1c1d9471d88b5960eeaf899cbd5d8ba33803b36c565",
+      "platform": "linux/amd64",
+      "readOnly": true,
+      "user": "65532:65532"
+    },
+    {
+      "config": "sha256:b7e24001d79527342981900c142e6495948c4c8ff686d065aa14417da03b6e31",
+      "dockerId": "sha256:b7e24001d79527342981900c142e6495948c4c8ff686d065aa14417da03b6e31",
+      "exitCode": 0,
+      "manifest": "sha256:f824b6a85e28c9afcf423301483e1fbdee075916e0c201f38163b3fb27671ba7",
+      "platform": "linux/arm64",
+      "readOnly": true,
+      "user": "65532:65532"
+    }
+  ],
+  "reports": {
+    "metadataSHA256": "31c1652dbbad72c85f8976f3a0e66a5ee88d43017477338ac658660e4ace2639",
+    "runtimeSHA256": "c0b4c56280c2ad085d68a3236648f0cde11609cf46d6c95539f64038daeb1dd5"
+  },
+  "scope": "Private alpha.2 source checkpoint. Subsequent release edits update documentation, test registration and workflow validation; this is not a signature on the CLI distribution."
+}

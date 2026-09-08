@@ -1,5 +1,7 @@
 # Diagnostics review and validation
 
+Historical review snapshot for [PR #14](https://github.com/sakajunquality/bunko/pull/14); test counts and runtime results describe that change, not the current total.
+
 Claude Code 2.1.263 reviewed diagnostics, CLI option routing, compatibility documentation, the SQLite example, CI and previous cache/layout publication additions using read-only tools.
 
 Fixed findings:

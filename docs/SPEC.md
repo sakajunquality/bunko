@@ -45,7 +45,7 @@ bunko version
 | `--no-index` | Use a single manifest as the image root. |
 | `--report FILE` | JSON results; reject existing files and paths within the exported layout. |
 
-Supported environment variables: `BUNKO_REPO`, `BUNKO_CACHE_DIR`, `BUNKO_CACHE_REPO`, `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, `BUNKO_DEFAULT_BASE`, `BUNKO_DEFAULT_PLATFORMS`, `SOURCE_DATE_EPOCH`, `XDG_CACHE_HOME`, and `KIND_CLUSTER_NAME`. Explicit CLI values take precedence. Unknown or unsupported options fail rather than being ignored.
+Supported environment variables: `BUNKO_REPO`, `BUNKO_CACHE_DIR`, `BUNKO_CACHE_REPO`, `BUNKO_JOBS`, `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, `BUNKO_DEFAULT_BASE`, `BUNKO_DEFAULT_PLATFORMS`, `SOURCE_DATE_EPOCH`, `XDG_CACHE_HOME`, and `KIND_CLUSTER_NAME`. Explicit CLI values take precedence. Unknown or unsupported options fail rather than being ignored.
 
 Stdout contains one `repo@digest` line on publication success, one content tag for local/kind success, and nothing for export/dry-run. Logs use stderr. Exit status is 0 on success and 1 on failure. Partial tag publication does not emit a success line.
 
@@ -112,7 +112,7 @@ SOURCE_DATE_EPOCH defaults to 0 and accepts nonnegative integer seconds through 
 
 ## 5. OCI composition, Registry publication, and export
 
-Resolve a base tag once per invocation. Support OCI and Docker schema 2 manifests/indexes with gzip/raw layers; verify digest and size. Schema 1, zstd, and foreign layers are unsupported. Base bodies remain lazy until needed; existence checks and same-Registry mounts can avoid transfers.
+Resolve a base tag once per invocation. Support OCI and Docker schema 2 manifests/indexes with raw/gzip/zstd layers; verify digest, size and bounded decompression. Schema 1 and foreign layers are unsupported. Base bodies remain lazy until needed; existence checks and same-Registry mounts can avoid transfers.
 
 Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary labels, then apply application overrides. Do not inherit reserved bunko or Git revision labels.
 
@@ -197,7 +197,7 @@ Inputs valid as JSON are treated as JSON; invalid .json files fail. One all-JSON
 
 Parse all inputs, deduplicate canonical targets, validate settings, prepare every image grouped by workspace, validate completed output, publish every image, write the report, then emit stdout. Share base metadata resolution across source contexts. Ambiguous workspace-root references must select a service directory. Image names must be unique across contexts. Bare publication requires one resolved target.
 
-Resolve requires Registry publication and rejects push=false, layout/tarball/local/kind/dry-run/--target. Inputs with no references need no Registry access. No Registry writes occur before all builds finish. Only successful publication of every target emits stdout. Publication has no transaction or rollback; already published images remain after a later failure.
+Resolve publishes by default, or loads local Docker/kind images with --local/--kind. It rejects standalone push=false, layout/tarball/dry-run/--target. Inputs with no references need no Registry access. No publication or loading begins before all builds finish and output is rendered. Only successful completion of every target emits stdout. Earlier published or loaded images can remain after a later failure.
 
 Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation. Reports never overwrite existing files.
 
@@ -213,11 +213,11 @@ The [correctness review follow-up](REVIEW_FIXES.md) records transfer deadlines, 
 
 [OPERATIONS.md](OPERATIONS.md) defines prepared dependency artifact validation, apply ordering, and local/remote pruning. Mutation requires explicit commands. Ordinary build/resolve behavior does not implicitly apply resources or delete caches.
 
-## performance performance contract
+## 13. Performance contract
 
 Target preparation accepts bounded `--jobs` (1–32, default 1). All targets prepare before publication; output/report target ordering is stable. Application cache hits reuse verified packed output and skip build-only installation/bundling. Keys include source, toolchain executable, host/target, base, dependency/alias and build inputs. `--no-app-cache` disables this cache; `--verify-deterministic` bypasses every layer cache. Syntax validation is content-keyed within an invocation, rereading bytes on every check. Local writers serialize with prune; conflicting valid outputs under a key are rejected. Registry hits are verified during preparation, with a 2 GiB compressed/decompressed limit. See PERFORMANCE.md.
 
-## diagnostics diagnostics
+## 14. Diagnostics
 
 `check-config [path]` validates manifests, workspace/target selection and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
 
@@ -225,9 +225,9 @@ Target preparation accepts bounded `--jobs` (1–32, default 1). All targets pre
 
 Repeated `--image-label`, `--image-annotation` and `--image-user` override matching package metadata. `bunko.annotations` is a string map applied to platform manifests and the runnable index. `--image-refs` atomically creates a new newline-delimited immutable registry reference list after successful publication; partial publication stays in the JSON report. Apply emits publication references independently of later Kubernetes success.
 
-`resolve`/`apply --selector` filter top-level documents by metadata.labels using equality, inequality, existence and nonempty set requirements. No matches produce no output or Kubernetes operation. Selector mode may normalize YAML formatting; ordinary resolution preserves source text. A real target `bunkodata/` directory is included as assets and sets BUNKO_DATA_PATH under the workdir, subject to existing source/symlink exclusions. See KO_GAPS.md for exact syntax, researched ko differences and limits.
+`resolve`/`apply --selector` filter top-level documents by metadata.labels using equality, inequality, existence and nonempty set requirements. No matches produce no output or Kubernetes operation. Selector mode may normalize YAML formatting; ordinary resolution preserves source text. A real target `bunkodata/` directory is included as assets and sets BUNKO_DATA_PATH under the workdir, subject to existing source/symlink exclusions. See [COMPARISON.md](COMPARISON.md) for researched differences and limits.
 
-## input and progress input and progress contract
+## Input selection and progress
 
 A root `.bunkoignore` accepts positive root-relative Bun globs, blank lines and `#` comments. Matching directories are pruned; use `**/name` for matches at arbitrary depths. Negation, absolute paths, backslashes and parent traversal are rejected. The ignore file itself always participates in source identity. Required manifests, imports and explicit assets must still be present; ignored conventional data is an error. This is not gitignore syntax.
 

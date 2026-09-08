@@ -1,5 +1,3 @@
-# v0.1.0-alpha.2
-
 This alpha candidate adds local development interoperability, clearer supply-chain metadata and more control over build inputs and caches.
 
 - Exclude optional context files with `.bunkoignore`; reuse application output using conservative target inputs and an actual bundle-input backstop. Inspect plain/JSON stage progress.
@@ -9,7 +7,7 @@ This alpha candidate adds local development interoperability, clearer supply-cha
 - Record actual builder and Bun executable fingerprints. Optionally verify prepared dependency signatures before import. Enable the explicit CI profile to require reproducibility, metadata and signing.
 - Read multiple trusted Registry caches while writing to one destination, or disable Registry cache writes. Persist accepted remote hits locally after build checks.
 - Report managed local cache usage and preview age/byte-budget retention. Delete only with `--execute`, retaining shared blobs and leaving unknown/unreferenced files untouched.
-- Replace internal development phase names with feature-based documentation, commands and test names.
+- Refresh feature guides, compatibility boundaries and validation commands.
 
 ## Migration and limits
 
@@ -21,4 +19,4 @@ Caches and their writers must be trusted. Digest verification does not prove tha
 
 The JavaScript distribution contains `bunko.js`, `SHA256SUMS`, `LICENSE` (MIT) and `THIRD_PARTY_NOTICES.md`. It requires Bun >=1.3.11 <1.4; CI covers Bun 1.3.11/1.3.12 on Linux/macOS. Target images support Linux amd64/arm64. The CLI bundle requires no external npm runtime dependencies; YAML and TypeScript notices are included.
 
-GHCR and Artifact Registry have dedicated private live evidence. Docker Hub account publication and private ECR remain unverified. See [compatibility](COMPATIBILITY.md), [metadata](METADATA.md), [cache retention](CACHE_RETENTION.md), and [comparison](COMPARISON.md) for exact scope. Release preparation does not change repository visibility or publish to npm.
+GHCR and Artifact Registry have dedicated private live evidence. Docker Hub account publication and private ECR remain unverified. See [compatibility](https://github.com/sakajunquality/bunko/blob/v0.1.0-alpha.2/docs/COMPATIBILITY.md), [metadata](https://github.com/sakajunquality/bunko/blob/v0.1.0-alpha.2/docs/METADATA.md), [cache retention](https://github.com/sakajunquality/bunko/blob/v0.1.0-alpha.2/docs/CACHE_RETENTION.md), and [comparison](https://github.com/sakajunquality/bunko/blob/v0.1.0-alpha.2/docs/COMPARISON.md) for exact scope. Release preparation does not change repository visibility or publish to npm.

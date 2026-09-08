@@ -51,3 +51,5 @@ Cache writers and local pruning use the same cooperating-process lock. Readers i
 Remote pruning selects all strictly named `bunko-cache-v1-*` tags whose manifest/config match the cache contract. Tag listing is paginated and restricted to the selected repository. Remote age filtering is not inferred from image timestamps. Execution rechecks each tag and requests tag-only deletion. If unsupported, the command fails and recommends provider retention policies; it never falls back to deleting a manifest digest or blob. Provider garbage collection determines reclaimed storage. Remote deletion is not transactional; earlier tags may have been removed if a later request fails.
 
 Use dedicated cache repositories and provider retention policies where tag-only deletion is unavailable. This feature does not modify retention policies or cloud IAM.
+
+`bun run test:prune-smoke` exercises preview and tag-only deletion against a disposable Distribution registry and verifies the runnable image remains available.

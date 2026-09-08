@@ -111,7 +111,7 @@ Repeat `-f` for multiple inputs. Directories are read in name order for YAML/YML
 
 Comments, anchors, aliases, mapping keys, and references embedded in descriptive text are preserved. Each canonical target builds once. All images and the completed output are validated before publication starts. Only complete success emits resolved documents to stdout; logs use stderr. One JSON input remains JSON, multiple JSON inputs form an array, and inputs containing YAML produce a YAML document stream. `--report` can record partial publication.
 
-Resolve requires Registry publication. It rejects `--push=false`, export/local/kind options, `--dry-run`, and `--target`.
+Resolve publishes by default, or loads Docker/kind images with `--local`/`--kind`. It rejects standalone `--push=false`, OCI layout/tarball export, `--dry-run`, and `--target`.
 
 ## Reproducibility and limitations
 
@@ -122,6 +122,22 @@ See [Operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, l
 See [Supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
 
 Unsupported: nested workspaces, catalogs, file/link/git dependencies, bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts without a prepared dependency artifact. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
+
+## Diagnostics
+
+Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md).
+
+## Portable ko workflows
+
+Use `--image-label`, `--image-annotation` and `--image-user` for per-invocation image metadata, and `--image-refs FILE` for a new file of published immutable references. Resolve/apply support `--selector` label queries. A `bunkodata/` directory is included as assets and exposed through `BUNKO_DATA_PATH`. See the [comparison](docs/COMPARISON.md) for deliberate differences.
+
+## Local manifests, metadata and cache control
+
+Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`. Use `apply --kind` with the matching kind context; ordinary `apply --local` is rejected because a Docker daemon does not identify a Kubernetes cluster. See [Local development](docs/LOCAL_DEVELOPMENT.md).
+
+Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted read repositories, `--cache-write=false` disables Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
+
+`metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.
 
 ## Development and validation
 
@@ -144,26 +160,10 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 - [Registry configuration and verification status](docs/REGISTRIES.md)
 - [Public repository readiness review](docs/PUBLIC_READINESS.md)
 - [Review follow-up and syntax-scan measurements](docs/REVIEW_FOLLOWUP.md)
-- [Detailed design and roadmap](docs/DESIGN.md)
+- [Architecture](docs/DESIGN.md)
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
 
 Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
-
-## Private preview operations
-
-Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md). Repository and distribution visibility remain private during development.
-
-## Portable ko workflows
-
-Use `--image-label`, `--image-annotation` and `--image-user` for per-invocation image metadata, and `--image-refs FILE` for a new file of published immutable references. Resolve/apply support `--selector` label queries. A `bunkodata/` directory is included as assets and exposed through `BUNKO_DATA_PATH`. See the [researched ko comparison](docs/KO_GAPS.md) for examples, exact semantics and deliberate differences.
-
-## Local manifests, metadata and cache control
-
-Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`. Use `apply --kind` with the matching kind context; ordinary `apply --local` is rejected because a Docker daemon does not identify a Kubernetes cluster. See [Local development](docs/LOCAL_DEVELOPMENT.md).
-
-Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted read repositories, `--cache-write=false` disables Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
-
-`metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.

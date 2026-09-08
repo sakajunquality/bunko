@@ -183,9 +183,9 @@ This is the pre-implementation checklist. Later sections record subsequent progr
 - [ ] Maintain individual ECR/GAR/GHCR/Docker Hub/Harbor matrices; do not count untested cases as successes.
 - [ ] Fix the buildx comparison configuration and measure upload/download bytes separately.
 
-The design replaces the original proposal's requirement to finish every item before initial prototype with gates for the features that depend on each result. Outstanding experiments are explicit implementation work.
+The design replaces the original proposal's requirement to finish every item before the initial prototype with gates for the features that depend on each result. Outstanding experiments are explicit implementation work.
 
-## 8. initial composition implementation validation
+## 8. Initial image composition validation
 
 Implemented the TypeScript/Bun CLI, snapshots, bundling, deterministic tar/gzip, a public Registry reader, and OCI composition/layout. The original proposal moved to [archive/SPEC-v0.1.md](archive/SPEC-v0.1.md); [SPEC.md](SPEC.md) became the implemented contract.
 
@@ -223,7 +223,7 @@ This was not yet implementation of product `--local` or `--tarball`. OCI import 
 - CLI metafile outputs omitted external sourcemaps, requiring output-tree enumeration.
 - Some nested sourcemaps resolved sources relative to outdir rather than the map directory; matching against metafile inputs allowed stable rewriting.
 
-At initial composition, Registry publication/mounts, private credentials, native/npm dependencies, arm64 containers, and other Registry interoperability remained unimplemented or unverified.
+During initial composition, Registry publication/mounts, private credentials, native/npm dependencies, arm64 containers, and other Registry interoperability remained unimplemented or unverified.
 
 ## 9. Initial publication, build and cache validation
 
@@ -291,7 +291,7 @@ Live GHCR/GAR/Docker Hub/ECR publication, real private npm authentication, and p
 
 CI runs typechecks, unit/integration tests, and bundled CLI checks on Linux/macOS, plus real Distribution smoke on Linux. Smoke builds both architectures but runs amd64 on Linux CI; the local record includes both architectures.
 
-## 10. workspace workspace implementation validation
+## 10. Workspace validation
 
 Added shared-lock validation, automatic/explicit workspace target selection, multiple-image build/publication, and production-runtime topology preservation.
 
@@ -316,11 +316,11 @@ An API response edit produced Registry deps cache hits and zero deps uploads for
 
 As in the earlier build/cache validation, verified host-side Registry pulls were loaded through Docker archives; this was not direct Docker CLI pull validation. Temporary resources were cleaned up. CI added workspace smoke, building both architectures and running both services on amd64; local testing ran all four combinations.
 
-### Optimizations deferred at workspace
+### Optimizations deferred during initial workspace support
 
 The initial workspace implementation retained the whole workspace production tree, including API-only native dependencies in the worker. Closure reduction, sharedDeps, focused cache keys, and narrower source digests were future work at that point. Section 11 records the first three; whole-workspace source digests remain the contract.
 
-## 11. dependency closure: closure and sharedDeps (2026-09-07)
+## 11. Dependency closure and sharedDeps (2026-09-07)
 
 `bun run test:closure-smoke` passed on Bun 1.3.11 / macOS arm64 / Docker Desktop. It published two targets for amd64/arm64 to real Distribution, verified edited-source Registry hits and zero extra deps/assets uploads, excluded the API-only native addon from the worker closure, and produced identical per-platform deps digests across targets with sharedDeps.
 
@@ -328,7 +328,7 @@ Eight target/platform combinations across separate and shared closures passed ve
 
 Ordinary tests cover duplicate versions/peer contexts, bundled-workspace exclusion, missing optional/required dependencies, escaping links, executable aliases, package data, checkout depth, cache hits after unrelated dev-lock changes, and misses after reachable workspace edits. Closure cache hits still perform Linux installation; no install avoidance or speedup is claimed. Live cloud Registry status remained as recorded in the earlier build/cache validation.
 
-## 12. manifest resolution: resolve (2026-09-07)
+## 12. Manifest resolution (2026-09-07)
 
 `bun run test:resolve-smoke` passed on macOS arm64 / Bun 1.3.11 / Docker Desktop. Real CLI resolve processed two YAML documents with anchors/aliases and matched output scalars to published references for two services on amd64/arm64. Aliases did not create extra targets; comments were retained. Edited-source Registry reuse and all eight separate/shared closure runtime checks passed, including native addons, distinct dependency versions, nonroot/read-only operation, and SIGTERM exit 0.
 

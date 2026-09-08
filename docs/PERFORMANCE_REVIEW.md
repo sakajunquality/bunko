@@ -1,5 +1,7 @@
 # Performance review and validation
 
+Historical review snapshot for [PR #13](https://github.com/sakajunquality/bunko/pull/13); test counts and runtime results describe that change, not the current total.
+
 Claude Code 2.1.263 reviewed the cache, concurrency, syntax, build and toolchain changes with read-only tools. Findings were evaluated against the actual contracts.
 
 Fixed findings:

@@ -1,5 +1,7 @@
 # Operations validation and review
 
+Historical review snapshot for [PR #12](https://github.com/sakajunquality/bunko/pull/12); test counts and runtime results describe that change, not the current total.
+
 Validated privately on 2026-09-08 with Bun 1.3.11, Distribution 3, and a disposable kind v0.33.0 cluster.
 
 - Prepared dependency artifacts produced deterministic images that ran on linux/amd64 and linux/arm64.
