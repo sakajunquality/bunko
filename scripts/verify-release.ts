@@ -11,7 +11,7 @@ export function verificationArguments(path: string, bundle: string, repository: 
 }
 
 export async function verifyRelease(directory: string, repository: string, sourceRef: string, sourceDigest?: string, token?: string): Promise<void> {
-  const gh = Bun.which("gh"); if (!gh) throw new Error("Release attestation verification requires the GitHub CLI (gh)");
+  const gh = Bun.which("gh", { PATH: process.env.PATH }); if (!gh) throw new Error("Release attestation verification requires the GitHub CLI (gh)");
   for (const name of [...assetNames, "SHA256SUMS"]) {
     const args = verificationArguments(join(directory, name), join(directory, "PROVENANCE.jsonl"), repository, sourceRef, sourceDigest);
     const child = Bun.spawn([gh, ...args], { env: { ...process.env, ...token ? { GH_TOKEN: token } : {} }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
