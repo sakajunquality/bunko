@@ -1,20 +1,19 @@
-# v0.1.0-rc.2
+# v0.1.0-rc.3
 
-This release candidate makes module-relative file risks visible and adds opt-in signed Bun runtime injection for custom glibc bases.
+This candidate adds opt-in build observability and verifies the Bun release runtime embedded by compile mode.
 
-- Report advisory `BUNKO_MODULE_LOCATION` diagnostics for loaded location-sensitive expressions, including entries and bundled dependencies. Diagnostics use relative paths, are bounded and deduplicated, and replay on application-cache hits. They do not rewrite paths or prove runtime correctness.
-- Add `runtime.inject: "release"` / `--runtime-inject release` for explicit glibc bases, bundle mode, Linux amd64/arm64, and official Bun 1.3.11–1.3.13. Verify the official signature and pinned release checksum before extracting a bounded executable. This optional feature requires `gpgv` on the build host.
-- Insert a runtime layer with licensing/source notices before dependencies, assets and application output. Cache verified downloads separately, check base destination/loader paths without host extraction, and include release/executable/checksum-document identities in reports, SBOM and provenance.
-- Extend `check-base --run` to execute the composed runtime image, including local OCI base input, as nonroot with a read-only filesystem and no network.
+- Export bounded OpenTelemetry traces and metrics using `--otel` and OTLP/HTTP JSON. No telemetry is sent without explicit opt-in. Export failures preserve the build result; exporter headers require HTTPS. See [telemetry](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.3/docs/TELEMETRY.md) for the supported configuration and data contract.
+- Reject compile builds that emit additional HTML, CSS or client assets rather than deleting files still referenced by the server. Use bundle mode for those applications. Literal dynamic imports included in a single server output remain supported.
+- Embed the signature-verified, pinned official Linux Bun release via `--compile-executable-path`. Compile now requires `gpgv` and an official Bun 1.3.11, 1.3.12 or 1.3.13 revision. Runtime input identities enter cache keys, reports, SBOM and provenance; licensing and source notices accompany the compiled application.
+- Honor `build.minify` in compile mode. External compile sourcemaps and bytecode remain unsupported.
+- Default the image's runtime transpiler cache to disabled when the base does not declare a setting. Explicit base and application overrides remain supported.
 
 ## Compatibility and validation
 
-Normal builds still use the existing Bun-containing base contract. Injection does not install libgcc/libstdc++, Node.js, shell tools or application dependencies. A minimal base can run Bun while failing to load a native addon. Source-preserving mode remains unimplemented. See [runtime injection](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/RUNTIME_INJECTION.md) and [application compatibility](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/APPLICATION_COMPATIBILITY.md).
+Existing compile users with other Bun patches or custom builds must select a supported official release. General bundle builds retain the Bun >=1.3.11 <1.4 contract. The CI matrix covers Linux/macOS and Bun 1.3.11–1.3.13. Compile runtime validation covers dynamic imports, deterministic output, authenticated full revision identity, both Linux architectures, nonroot and read-only execution.
 
-The generic acceptance fixture covers PostgreSQL migrations/tasks, native hashing, HTTP/static content, exact runtime files and graceful shutdown. Runtime-injection checks cover compatible/static bases, local OCI input, cache reuse and missing native libraries. Exact candidate evidence is recorded with the CLI checksum in the repository's validation documents. These fixtures do not certify React Router, Temporal, Slack or Snowflake application behavior; complete the [remote acceptance checklist](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/validation-request.html).
+Collector, runtime-injection and generic application fixtures provide repeatable acceptance checks. They do not certify external application behavior; remote workload acceptance and unavailable provider credentials remain separate. Follow the [remote acceptance checklist](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.3/docs/validation-request.html). Registry interoperability evidence from earlier releases is not automatically attributed to rc.3. Private ECR remains unverified.
 
-The cache packing format changed with module-location diagnostics, so older application-layer cache records are not reused. No application source or runtime paths are automatically rewritten. Existing `build.define`, explicit runtime environment roots and asset mappings remain available.
+The distribution contains the JavaScript CLI, SHA256SUMS, MIT license and third-party notices. npm publication is not included. Earlier tags and assets remain immutable. Rebuild compiled images when upgrading; the additional runtime inputs and notices change application cache keys and image digests.
 
-Bun >=1.3.11 <1.4 is required for general builds; injection is explicitly limited to 1.3.11, 1.3.12 and 1.3.13. CI covers those versions on Linux/macOS. The distribution contains the standalone JavaScript CLI, SHA256SUMS, MIT license and third-party notices. npm publication is not included.
-
-Registry interoperability evidence in [published release validation](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/PUBLISHED_RELEASE_VALIDATION.md) belongs to alpha.2 unless explicitly recorded otherwise. Private ECR remains unverified. Earlier release tags and assets are immutable.
+The transpiler cache default changes image configuration digests in every mode when the base does not already declare the setting. Existing explicit settings are preserved.

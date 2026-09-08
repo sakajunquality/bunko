@@ -25,6 +25,7 @@ export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOp
     env.set(item.slice(0, equals), item.slice(equals + 1));
   }
   env.set("NODE_ENV", "production");
+  if (!env.has("BUN_RUNTIME_TRANSPILER_CACHE_PATH")) env.set("BUN_RUNTIME_TRANSPILER_CACHE_PATH", "0");
   for (const [key, value] of Object.entries(options.env)) env.set(key, value);
   const created = new Date(options.epoch * 1000).toISOString().replace(".000Z", "Z");
   const baseLabels = Object.fromEntries(Object.entries(inherited.Labels ?? {}).filter(([key]) => (options.inheritBaseOciLabels !== false || !key.startsWith("org.opencontainers.image.")) && !key.startsWith("org.bunko.") && key !== "org.opencontainers.image.revision"));

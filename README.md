@@ -2,13 +2,13 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-rc.2 prerelease** supports standalone apps and Bun workspaces, bundling with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-rc.3 prerelease** supports standalone apps and Bun workspaces, bundling with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-See the [feature guide](docs/FEATURES.md), [rc.2 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is a release candidate; review the compatibility and trust boundaries before adopting it.
+See the [feature guide](docs/FEATURES.md), [rc.3 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is a release candidate; review the compatibility and trust boundaries before adopting it.
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-rc.2 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.2) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-rc.3 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.3) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS
@@ -18,6 +18,8 @@ bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
 ```
 
 See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Existing release assets remain immutable.
+
+Compile mode and runtime injection additionally require `gpgv` and an official Bun 1.3.11–1.3.13 revision.
 
 ## Quick start from source
 
@@ -197,4 +199,4 @@ See [security reporting](SECURITY.md) and the [roadmap](docs/ROADMAP.md) for sup
 
 Named external runtime files can be mapped with `bunko.assetMappings` and repeatable `--asset-context NAME=DIR` bindings. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md#named-local-asset-contexts) for exact destination and exclusion rules.
 
-Build observability is available through opt-in [OpenTelemetry traces and metrics](docs/TELEMETRY.md) with `--otel` (development branch; not included in rc.2).
+Build observability is available through opt-in [OpenTelemetry traces and metrics](docs/TELEMETRY.md) with `--otel`.
