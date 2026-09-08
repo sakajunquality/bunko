@@ -51,8 +51,25 @@ export function parseAssetContexts(values: string[] = []): Record<string, string
   return result;
 }
 
+export function assertAssetRuntime(mappings: AssetMapping[], runtimePath: string): void {
+  for (const mapping of mappings) {
+    const destination = mapping.to.toLowerCase(), runtime = runtimePath.toLowerCase();
+    if (runtime === destination || runtime.startsWith(`${destination}/`) || destination.startsWith(`${runtime}/`)) throw new Error("Asset mapping overlaps the configured Bun runtime");
+  }
+}
+
+/** Check selected filesystem entries without staging or reading file contents. */
+export async function inspectAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>) {
+  const result = await selectedAssetMappings(mappings, contexts);
+  return { entries: result.entries.length, contexts: [...new Set(mappings.map((mapping) => mapping.context))].sort() };
+}
+
 /** Freeze selected inputs only. Host paths never enter material or cache records. */
-export async function stageAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, stage: string, exclusions: string[] = []): Promise<{ entries: TarEntry[]; materials: AssetMaterial[] }> {
+export async function stageAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, stage: string, exclusions: string[] = []) {
+  return selectedAssetMappings(mappings, contexts, stage, exclusions);
+}
+
+async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, stage?: string, exclusions: string[] = []): Promise<{ entries: TarEntry[]; materials: AssetMaterial[] }> {
   const entries: TarEntry[] = [], materials: AssetMaterial[] = [];
   if (!mappings.length) return { entries, materials };
   mappings = assetMappings(mappings);
@@ -87,6 +104,10 @@ export async function stageAssetMappings(mappings: AssetMapping[], contexts: Rec
           selected.push({ type: "directory", path: destination });
           for (const name of (await readdir(input)).sort()) await walk(`${path}/${name}`, `${destination}/${name}`);
         } else if (info.isFile()) {
+          if (!stage) {
+            selected.push({ type: "file", path: destination, source: input, size: info.size, executable: Boolean(info.mode & 0o111) });
+            return;
+          }
           const copied = join(stage, String(index), destination);
           await mkdir(dirname(copied), { recursive: true });
           await copyFile(input, copied);
@@ -96,7 +117,7 @@ export async function stageAssetMappings(mappings: AssetMapping[], contexts: Rec
         } else throw new Error(`Unsupported asset input type: ${mapping.context}/${path}`);
       }
       await walk(mapping.from, mapping.to.slice(1));
-      materials.push({ ...mapping, digest: sha256(canonicalJSON(await assetInputs(selected))) });
+      if (stage) materials.push({ ...mapping, digest: sha256(canonicalJSON(await assetInputs(selected))) });
       entries.push(...selected);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code;

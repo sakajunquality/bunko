@@ -1,4 +1,4 @@
-import { normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
+import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
@@ -393,10 +393,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
-  for (const project of projects) for (const mapping of project.assetMappings) {
-    const destination = mapping.to.toLowerCase(), runtime = project.bunPath.toLowerCase();
-    if (runtime === destination || runtime.startsWith(`${destination}/`) || destination.startsWith(`${runtime}/`)) throw new Error("Asset mapping overlaps the configured Bun runtime");
-  }
+  for (const project of projects) assertAssetRuntime(project.assetMappings, project.bunPath);
   if (options.baseSBOMs && Object.keys(options.baseSBOMs).some((key) => !projects.some((p) => p.platforms.some((platform) => `${platform.os}/${platform.architecture}` === key)))) throw new Error("Base SBOM map contains an unselected platform");
   if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");
   if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => !projects.some((p) => p.directory === path))) throw new Error("Dependency map contains an unselected target");

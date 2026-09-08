@@ -1,6 +1,6 @@
 # Alpha distribution and setup Action
 
-The published prerelease version is **0.1.0-alpha.2**. See [published release validation](PUBLISHED_RELEASE_VALIDATION.md) for installation and registry evidence. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11 and 1.3.12. Native standalone executables and npm publication remain future work.
+The release candidate version is **0.1.0-rc.1**. See [published release validation](PUBLISHED_RELEASE_VALIDATION.md) for installation and registry evidence. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
 
 ## Prepare and inspect artifacts
 
@@ -33,9 +33,9 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.0-alpha.2
+  - uses: sakajunquality/bunko@v0.1.0-rc.1
     with:
-      version: v0.1.0-alpha.2
+      version: v0.1.0-rc.1
   - run: bunko version
 ```
 
@@ -43,7 +43,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-alpha.2; an explicit version, never latest |
+| version | v0.1.0-rc.1; an explicit version, never latest |
 | bun-version | 1.3.11; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |

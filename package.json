@@ -1,6 +1,6 @@
 {
   "name": "bunko",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-rc.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,8 @@
     "test:signing-smoke": "bun test/signing-smoke.ts",
     "test:prune-smoke": "bun test/prune-smoke.ts",
     "test:multiple-entrypoints": "bun test/multiple-entrypoints-smoke.ts",
-    "test:asset-contexts": "bun test/asset-contexts-smoke.ts"
+    "test:asset-contexts": "bun test/asset-contexts-smoke.ts",
+    "test:application-validation": "bun scripts/validation/run-fixture.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",

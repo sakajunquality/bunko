@@ -54,7 +54,7 @@ Usage:
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
-  bunko check-config [path] [--target <name/path>]
+  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>]
   bunko doctor [path] [--bun-path <file>]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
   bunko version
@@ -254,7 +254,7 @@ export async function main(argv: string[]): Promise<number> {
     const registry = { insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
-      const options = { path, targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      const options = { path, assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
     }
     if (command === "metadata") {
