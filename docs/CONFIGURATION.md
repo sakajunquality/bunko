@@ -72,7 +72,7 @@ External asset mappings can set `exclude` and `mode` independently:
 }
 ```
 
-Mapping exclusions are relative to the selected `from` directory; for a single file they match its basename. Explicit exclusions run before reading descendant file contents. Existing context, symlink, reserved-destination and collision rules remain in force. File modes participate in asset material/cache identity.
+Mapping exclusions are relative to the selected `from` directory; for a single file they match its basename. Explicit exclusions run before reading descendant file contents. Existing context, symlink, reserved-destination and collision rules remain in force. File modes participate in asset material/cache identity. A narrow [system font exception](FONTS.md) permits validated non-executable font data and notices below `/usr/share/fonts` and `/usr/local/share/fonts`; other reserved roots remain protected.
 
 ## Application CA certificates
 

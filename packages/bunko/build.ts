@@ -1,3 +1,4 @@
+import { systemFontPath } from "./font-assets.ts";
 import { runtimeCA, assertBaseDataPaths, type RuntimeCA } from "./runtime-ca.ts";
 import { assetPolicy } from "./asset-policy.ts";
 import { assertToolchain } from "./toolchain-policy.ts";
@@ -240,8 +241,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const configured = project.env.NODE_EXTRA_CA_CERTS;
           const inherited = base.config.config?.Env?.find((value) => value.startsWith("NODE_EXTRA_CA_CERTS="))?.slice("NODE_EXTRA_CA_CERTS=".length);
           if (configured !== undefined && configured !== ca.metadata.path || inherited && inherited !== ca.metadata.path) throw new Error("runtime.caCertificates conflicts with an existing NODE_EXTRA_CA_CERTS path");
-          assertBaseDataPaths(runtimes[index]?.tree ?? await baseFilesystem(store, base, temporary), [ca.entry]);
         }
+        const protectedData = [...context.mappedAssets.entries.filter((entry) => systemFontPath(entry.path)), ...ca ? [ca.entry] : []];
+        if (protectedData.length) assertBaseDataPaths(runtimes[index]?.tree ?? await baseFilesystem(store, base, temporary), protectedData);
         const inputRuntime = runtimes[index];
         const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {

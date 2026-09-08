@@ -49,4 +49,4 @@ The following ordered work is implemented. Focused documentation records fixture
 
 Source-preserving mode precedes rebase. Rebase requires a separate image compatibility and configuration ownership design. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
 
-Next, address [system font packaging (#37)](https://github.com/sakajunquality/bunko/issues/37). Integrate a narrow data-only font destination policy with asset collision/mode checks and document system fallback versus explicit font registration. General OS package-manager execution remains outside the request.
+[System font packaging (#37)](FONTS.md) is also implemented after rc.3, with a narrow data-only destination policy, asset collision/mode checks, and renderer-specific discovery guidance. Canvas CJK/color emoji and Resvg CJK passed on both Linux architectures. General OS package-manager execution remains outside the request.

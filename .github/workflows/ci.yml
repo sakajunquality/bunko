@@ -142,6 +142,9 @@ jobs:
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
           BUNKO_SMOKE_MODE: source
+      - run: bun run test:fonts
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
 
   runtime-injection:
     runs-on: ubuntu-latest
