@@ -1,6 +1,6 @@
 # CJK and emoji rendering
 
-This runnable example uses the source-built Bunko CLI after rc.3, a digest-pinned Bun slim base, Canvas 1.0.5 and Resvg 2.6.2. It verifies rendering and prints a JSON result; it is not an HTTP server. Run commands from the Bunko repository root.
+This runnable example uses the Bunko CLI from rc.4 or later, a digest-pinned Bun slim base, Canvas 1.0.5 and Resvg 2.6.2. It verifies rendering and prints a JSON result; it is not an HTTP server. Run commands from the Bunko repository root.
 
 ## Run the complete validation matrix
 

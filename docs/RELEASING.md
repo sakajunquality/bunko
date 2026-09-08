@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The release candidate version is **0.1.0-rc.3**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
+The release candidate version is **0.1.0-rc.4**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables and npm publication remain future work.
 
 ## Prepare and inspect artifacts
 
@@ -18,11 +18,11 @@ CI exercises the local Action on Linux and macOS using these exact prepared file
 
 ## Release workflow
 
-The **Release** workflow can be run manually on a branch to build and upload a candidate artifact without publishing a release. Pushing a `v*` tag triggers preparation and publication. Before publishing, the workflow requires the tag to equal `v` plus package.json's version and the tagged commit to be reachable from main. Prerelease versions create GitHub prereleases.
+The **Release** workflow can be run manually on main to build and upload a candidate artifact without publishing a release. Pushing a `v*` tag triggers preparation and publication. Before publishing, the workflow requires the tag to equal `v` plus package.json's version and the tagged commit to be reachable from main. Prerelease versions create GitHub prereleases.
 
-For a new version, merge reviewed changes and verify the recorded CI/runtime results before creating its matching version tag on the reviewed main commit. The existing `v0.1.0-alpha.2` tag and assets must not be replaced. A manually dispatched candidate build prepares downloadable artifacts without creating the version tag or release. No release is published merely by merging the PR. Creating the tag is the explicit release trigger. To additionally test network installation of an existing release during a manual dispatch, set the optional `published-version` input (for example, `v0.1.0-alpha.2`). This check uses the exact executable path returned by the setup action.
+For a new version, merge reviewed changes and verify the recorded CI/runtime results before creating its matching version tag on the reviewed main commit. Existing version tags and assets must not be replaced. A manually dispatched candidate build prepares downloadable artifacts without creating the version tag or release. No release is published merely by merging the PR. Creating the tag is the explicit release trigger. To additionally test network installation of an existing release during a manual dispatch, set the optional `published-version` input (for example, `v0.1.0-alpha.2`). This check uses the exact executable path returned by the setup action.
 
-Publication uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
+A separate consumer job verifies the signed provenance bundle against the exact workflow, source ref and commit before publication. Publication adds `PROVENANCE.jsonl` and uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
 
 Public release assets can be downloaded without repository credentials, subject to GitHub rate limits. Private forks and private release repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
 
@@ -33,9 +33,11 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.0-rc.3
+  - uses: sakajunquality/bunko@v0.1.0-rc.4
     with:
-      version: v0.1.0-rc.3
+      version: v0.1.0-rc.4
+      bun-version: 1.4.2
+      verify-attestation: 'true'
   - run: bunko version
 ```
 
@@ -43,7 +45,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-alpha.2; an explicit version, never latest |
+| version | v0.1.0-rc.3; an explicit version, never latest |
 | bun-version | 1.3.11; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -71,4 +73,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The setup default is rc.3 following publication and anonymous exact-candidate verification. Future default promotions must follow publication and verification of the selected immutable release.
+The setup default remains rc.3 until rc.4 publication and anonymous exact-candidate verification complete. Select rc.4 explicitly in the meantime. Future default promotions must follow publication and verification of the selected immutable release.

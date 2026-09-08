@@ -1,6 +1,6 @@
 # Source-preserving images
 
-Source builds after rc.3 support `bunko build --mode source`. Bunko packages the sanitized source snapshot without invoking the bundler and installs the complete Linux production dependency tree with the frozen lockfile and scripts disabled. The immutable rc.3 distribution does not include this mode.
+rc.4 and later support `bunko build --mode source`. Bunko packages the sanitized source snapshot without invoking the bundler and installs the complete Linux production dependency tree with the frozen lockfile and scripts disabled. The immutable rc.3 distribution does not include this mode.
 
 ```sh
 bunko build . --mode source --base oven/bun:1.3.11-slim \

@@ -6,13 +6,13 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-rc.3 prerelease** supports standalone apps and Bun workspaces, bundling with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-rc.4 prerelease** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-See the [feature guide](docs/FEATURES.md), [rc.3 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is a release candidate; review the compatibility and trust boundaries before adopting it.
+See the [feature guide](docs/FEATURES.md), [rc.4 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is a release candidate; review the compatibility and trust boundaries before adopting it.
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-rc.3 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.3) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.1.0-rc.4 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.4) into the same directory. Install Bun 1.4.2 (or another supported version), then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS
@@ -46,7 +46,7 @@ bun run dev build examples/hello --repo ghcr.io/OWNER
 
 Success prints one `ghcr.io/OWNER/hello@sha256:...` line. `--bare` treats `--repo` as the exact repository. Default tags are `latest` and the Git revision; override them with `--tag v1 --tag latest`. See [authentication setup](docs/REGISTRIES.md).
 
-Source builds after rc.3 also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), [runtime/workspace configuration](docs/CONFIGURATION.md), and [system font mappings](docs/FONTS.md). These additions are not present in the immutable rc.3 CLI or container.
+rc.4 and later also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), [runtime/workspace configuration](docs/CONFIGURATION.md), and [system font mappings](docs/FONTS.md). These additions are not present in the immutable rc.3 CLI or container.
 
 ## Custom bases without Bun
 
@@ -79,7 +79,7 @@ bun run dev build examples/workspace --push=false \
   --oci-layout .bunko-output/workspace --platform linux/amd64,linux/arm64
 ```
 
-Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. Source builds after rc.3 support explicit `bunko.defaults`; see [configuration](docs/CONFIGURATION.md).
+Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. rc.4 and later support explicit `bunko.defaults`; see [configuration](docs/CONFIGURATION.md).
 
 Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures. `--bare` and `--tarball` require a single target.
 
