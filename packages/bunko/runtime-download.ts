@@ -176,7 +176,7 @@ export function runtimeELF(bytes: Buffer, platform: Platform) {
   return { interpreter, needed, glibcSymbols };
 }
 
-export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
+export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; offline?: boolean; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
   if (!Bun.which("gpgv")) throw new Error("Verified runtime selection requires gpgv (install GnuPG); unsigned verification is not supported");
   const asset = runtimeAsset(toolchain, platform), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
   const ephemeral = options.cache === false ? await mkdtemp(join(tmpdir(), "bunko-runtime-cache-")) : undefined;
@@ -202,6 +202,7 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
           } finally { await handle.close(); }
           await verify(bytes); return bytes;
         } catch (error) {
+          if (options.offline) throw new Error("Offline runtime cache entry is missing or invalid; prepare the verified runtime while online");
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") options.log?.("Runtime download cache entry failed verification; fetching a verified replacement\n");
         }
         options.log?.(`Fetching signed runtime release asset ${name}\n`);
