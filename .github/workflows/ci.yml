@@ -141,6 +141,9 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun test test/runtime-injection.test.ts
       - run: bun run build
+      - run: bun run test:compile-smoke
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
       - run: bun run test:runtime-injection
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
