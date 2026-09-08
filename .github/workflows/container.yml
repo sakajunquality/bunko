@@ -1,8 +1,6 @@
 name: CLI container
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -14,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cli-container-${{ inputs.version || github.event.release.tag_name }}
+  group: cli-container-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -36,10 +34,9 @@ jobs:
       - name: Select an immutable published release
         id: release
         env:
-          SELECTED_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-          EVENT_NAME: ${{ github.event_name }}
+          SELECTED_VERSION: ${{ inputs.version }}
         run: |
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then test "$GITHUB_REF" = refs/heads/main; fi
+          test "$GITHUB_REF" = refs/heads/main
           bun -e 'import { releaseTag } from "./scripts/distribution.ts"; import {appendFileSync} from "node:fs"; const tag=releaseTag(process.env.SELECTED_VERSION!); appendFileSync(process.env.GITHUB_OUTPUT!, `tag=${tag}\nversion=${tag.slice(1)}\n`);'
       - name: Download and verify the CLI payload
         env:
@@ -51,6 +48,7 @@ jobs:
           cd dist/release
           sha256sum --check SHA256SUMS
           if [ "$RELEASE_TAG" = v0.1.0-rc.3 ]; then
+            echo 'c441e95a41bb063b5bc1716e33c3f27bfbe606e156a9c2e1e8baddaa23394464  SHA256SUMS' | sha256sum --check
             echo '09486aa233147f781fb2068335d6b02fc4e5359853f2445573a5dfa5f2deb3cd  bunko.js' | sha256sum --check
           else
             cd ../..

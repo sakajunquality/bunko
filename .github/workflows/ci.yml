@@ -181,3 +181,21 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run build
       - run: bun run test:telemetry
+
+  cli-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run release:prepare
+      - name: Build the candidate CLI container
+        run: docker build --platform linux/amd64 -f container/Dockerfile --build-arg "BUNKO_VERSION=$(bun -p 'require("./package.json").version')" -t bunko.local/cli-candidate:amd64 .
+      - run: bun scripts/validation/container-smoke.ts
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
