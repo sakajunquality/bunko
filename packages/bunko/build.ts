@@ -1,3 +1,4 @@
+import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
 import { baseInventory } from "./metadata.ts";
 import { builderIdentity } from "./identity.ts";
@@ -148,7 +149,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const tags = [...new Set(options.tags ?? ["latest", ...(git["org.opencontainers.image.revision"] ? [git["org.opencontainers.image.revision"].slice(0, 12) + (git["org.bunko.git.dirty"] === "true" ? "-dirty" : "")] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
-    const cache = new LayerCache(store, { persistence: context.cachePersistence, directory: cacheDirectory, repository: cacheRepo, registry, log });
+    const cache = new LayerCache(store, { persistence: context.cachePersistence, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, readRepositories: options.registryCache === false ? [] : [...options.cacheFrom ?? [], ...cacheRepo ? [cacheRepo] : []], registry, log });
     log(`Resolving base ${options.baseLayout ?? baseRef}\n`);
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
@@ -279,6 +280,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       log("Determinism verified: layers, config and platform manifests match\n");
     }
     for (const record of records) await cache.remember(record);
+    await cache.persistHits();
     const first = images[0]!;
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
@@ -363,6 +365,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
   options = supplyChainOptions(options);
+  validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");

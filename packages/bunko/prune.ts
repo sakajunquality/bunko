@@ -1,3 +1,4 @@
+import { cacheMetadataLimit } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
@@ -6,11 +7,12 @@ import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
 import { media } from "../oci/types.ts";
 import { withCacheLock } from "./cache-lock.ts";
 
-export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number }
+export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number }
 
-export async function pruneLocal(directory: string, execute = false, olderThanSeconds = 7 * 86400): Promise<PruneResult> {
+export async function pruneLocal(directory: string, execute = false, olderThanSeconds = 7 * 86400, keepBytes?: number): Promise<PruneResult> {
   if (!Number.isSafeInteger(olderThanSeconds) || olderThanSeconds < 0) throw new Error("Prune age must be non-negative integer seconds");
-  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0 };
+  if (keepBytes !== undefined && (!Number.isSafeInteger(keepBytes) || keepBytes < 0)) throw new Error("Cache budget must be non-negative integer bytes");
+  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0 };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
     for (const path of ["keys", "blobs", "blobs/sha256"]) {
@@ -20,9 +22,8 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     try { if ((await readdir(join(directory, "keys"))).some((name) => !["deps", "assets", "app"].includes(name))) throw new Error("Prune refuses unknown cache key namespaces"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     const cutoff = Date.now() - olderThanSeconds * 1000;
-    const kept = new Set<string>();
-    const candidates: { path: string; digest: string; bytes: Uint8Array }[] = [];
-    const safeRead = async (path: string) => { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink()) throw new Error("Prune refuses non-regular cache metadata"); return { info, bytes: await readFile(path) }; };
+    const records: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number }[] = [];
+    const safeRead = async (path: string) => { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size > cacheMetadataLimit) throw new Error("Prune refuses non-regular or oversized cache metadata"); return { info, bytes: await readFile(path) }; };
     for (const kind of ["deps", "assets", "app"]) {
       const dir = join(directory, "keys", kind);
       let names: string[];
@@ -34,17 +35,32 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Cache key");
         const layer = object(value.layer, "Cache layer"), blob = descriptor(layer.descriptor);
         if (value.schemaVersion !== 1 || value.key !== `sha256:${name.slice(0, 64)}` || value.kind !== kind || layer.kind !== kind || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
-        if (info.mtimeMs <= cutoff) { candidates.push({ path, digest: blob.digest, bytes }); result.keys.push(`${kind}/${name}`); }
-        else kept.add(blob.digest);
+        records.push({ path, key: `${kind}/${name}`, digest: blob.digest, bytes, mtime: info.mtimeMs });
       }
     }
-    // Only blobs referenced by selected, validated keys are eligible. Unknown
-    // files and unrelated CAS contents are never guessed to be garbage.
-    const blobs = new Set(candidates.map((c) => c.digest));
-    for (const digest of blobs) if (!kept.has(digest)) {
-      const path = join(directory, "blobs", "sha256", digest.slice(7));
-      try { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink()) throw new Error("Prune refuses non-regular blobs"); result.blobs.push(digest); result.bytes += info.size; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    // Account only for validated metadata and its referenced blobs. Unreferenced
+    // CAS files and unrelated content are outside this managed-byte budget.
+    const sizes = new Map<string, number>(), references = new Map<string, number>(), present = new Set<string>();
+    for (const record of records) {
+      result.managedBytes += record.bytes.byteLength;
+      references.set(record.digest, (references.get(record.digest) ?? 0) + 1);
+      if (sizes.has(record.digest)) continue;
+      try {
+        const info = await lstat(join(directory, "blobs", "sha256", record.digest.slice(7)));
+        if (!info.isFile() || info.isSymbolicLink()) throw new Error("Prune refuses non-regular blobs");
+        sizes.set(record.digest, info.size); present.add(record.digest); result.managedBytes += info.size;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; sizes.set(record.digest, 0); }
+    }
+    result.remainingBytes = result.managedBytes;
+    const candidates: typeof records = [];
+    for (const record of records.sort((a, b) => a.mtime - b.mtime || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
+      if (keepBytes === undefined ? record.mtime > cutoff : result.remainingBytes <= keepBytes) continue;
+      candidates.push(record); result.keys.push(record.key);
+      result.bytes += record.bytes.byteLength; result.remainingBytes -= record.bytes.byteLength;
+      const count = references.get(record.digest)! - 1; references.set(record.digest, count);
+      if (count === 0 && present.has(record.digest)) {
+        result.blobs.push(record.digest); result.bytes += sizes.get(record.digest)!; result.remainingBytes -= sizes.get(record.digest)!;
+      }
     }
     if (execute) {
       for (const candidate of candidates) if (sha256((await safeRead(candidate.path)).bytes) !== sha256(candidate.bytes)) throw new Error("Cache changed during prune");
