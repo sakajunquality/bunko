@@ -214,10 +214,10 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     for (const name of names) {
       const path = relativePath(entrypoints[name]!, "entrypoint");
       if (!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) throw new Error("Entrypoint must be a JavaScript or TypeScript file");
-      const file = await realpath(join(directory, path));
+      const file = await realpath(join(directory, path)).catch(() => { throw new Error(`Missing named entrypoint: ${name}`); });
       if (relative(directory, file).startsWith("..") || !(await stat(file)).isFile()) throw new Error("Entrypoint must be a file inside the project");
       const output = path.replace(/\.[^.]+$/, ".js").toLowerCase();
-      if (outputs.has(output)) throw new Error("Named entrypoints have colliding output paths");
+      if (outputs.has(output)) throw new Error("Named entrypoints have colliding output paths (case-insensitive)");
       outputs.add(output); entrypoints[name] = path;
     }
   }

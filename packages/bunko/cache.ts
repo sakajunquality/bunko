@@ -62,7 +62,7 @@ export class LayerCache {
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
     this.readers = [...new Set([...(options.readRepositories ?? []), ...options.repository ? [options.repository] : []].map((value) => repositoryName(new Publisher(value, options.registry).ref)))].map((value) => new Publisher(value, options.registry));
   }
-  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null }): CacheRecord {
+  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): CacheRecord {
     const value = object(input, "Cache config");
     const layer = object(value.layer, "Cache layer");
     if (value.schemaVersion !== 1 || value.key !== key || value.kind !== kind || value.packFormat !== packFormat || layer.kind !== kind
@@ -82,6 +82,7 @@ export class LayerCache {
     if (kind === "app") {
       const app = object(value.application, "Application cache"), destination = value.destination;
       if (typeof app.entry !== "string" || !Array.isArray(app.entries) || app.entries.length > 200_000) throw new Error("Invalid application cache metadata");
+      if (expected?.application && (app.entry !== expected.application.entry || !Buffer.from(canonicalJSON(app.entrypoints ?? null)).equals(Buffer.from(canonicalJSON(expected.application.entrypoints))))) throw new Error("Cached named entrypoints do not match project configuration");
       archivePath(app.entry);
       for (const raw of app.entries) {
         const entry = object(raw, "Cached output");
@@ -100,7 +101,7 @@ export class LayerCache {
     return value as unknown as CacheRecord;
   }
 
-  async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null }): Promise<CacheRecord | undefined> {
+  async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): Promise<CacheRecord | undefined> {
     if (bypass) { this.events.push({ key, kind, status: "bypass", reason: "disabled" }); return; }
     const memory = this.records.get(key);
     if (memory) { const source = this.origins.get(key); this.events.push({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }

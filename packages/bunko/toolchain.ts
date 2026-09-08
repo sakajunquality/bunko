@@ -75,7 +75,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   let entrypoints: Record<string, string> | undefined;
   if (project.entrypoints) {
     entrypoints = {};
-    for (const [name, source] of Object.entries(project.entrypoints).sort(([a], [b]) => a.localeCompare(b))) {
+    for (const [name, source] of Object.entries(project.entrypoints).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
       const matches = Object.entries(outputs).filter(([path, output]) => object(output, "Bun output").entryPoint === source && /\.[cm]?js$/.test(path));
       if (matches.length !== 1) throw new Error(`Cannot identify emitted entrypoint: ${name}`);
       entrypoints[name] = relative(outdir, resolve(outdir, matches[0]![0]));

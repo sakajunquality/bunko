@@ -69,3 +69,21 @@ test("secondary entries cannot be loaded as data", async () => {
   await writeFile(join(f.source, "src/server.ts"), 'import source from "./worker.ts" with { type: "text" }; console.log(source);');
   await expect(build({ path: f.source, baseLayout: f.base, output: join(f.root, "out"), localCache: false })).rejects.toThrow("An entrypoint cannot also be a data import");
 });
+
+
+test("cached entry maps must match configured names, paths, and the default", async () => {
+  const f = await fixture();
+  const options = { path: f.source, baseLayout: f.base, gitMetadata: false, cacheDir: join(f.root, "cache") };
+  const first = await build({ ...options, output: join(f.root, "first") });
+  const key = first.cache.find((item) => item.kind === "app")!.key;
+  const path = join(options.cacheDir, "keys/app", `${key.slice(7)}.json`);
+  const original = JSON.parse(await readFile(path, "utf8"));
+  const maps = [undefined, {}, { server: "src/worker.js", worker: "src/server.js" }, { server: "src/server.js", extra: "src/worker.js" }];
+  for (const [i, entrypoints] of maps.entries()) {
+    await writeFile(path, JSON.stringify({ ...original, application: { ...original.application, entrypoints } }));
+    const rebuilt = await build({ ...options, output: join(f.root, `rebuild-${i}`) });
+    expect(rebuilt.cache.some((item) => item.kind === "app" && item.status === "miss")).toBe(true);
+    expect(rebuilt.images[0]!.entrypoints).toEqual(first.images[0]!.entrypoints);
+    expect(rebuilt.root.digest).toBe(first.root.digest);
+  }
+});

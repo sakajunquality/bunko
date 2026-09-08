@@ -18,7 +18,7 @@ export interface WorkerOptions {
 
 export async function guardedBuild(options: WorkerOptions) {
   const context = await realpath(options.contextRoot);
-  const sources = options.entrypoints ? Object.entries(options.entrypoints).sort(([a], [b]) => a.localeCompare(b)).map(([, path]) => path) : [options.entrypoint];
+  const sources = options.entrypoints ? Object.entries(options.entrypoints).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, path]) => path) : [options.entrypoint];
   const entrypoints = await Promise.all(sources.map((path) => realpath(resolve(options.root, path))));
   const executableEntries = new Set(entrypoints);
   const seenConfigs = new Set<string>();
