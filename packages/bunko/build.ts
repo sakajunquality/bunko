@@ -395,7 +395,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
   for (const project of projects) for (const mapping of project.assetMappings) {
     const destination = mapping.to.toLowerCase(), runtime = project.bunPath.toLowerCase();
-    if (runtime === destination || runtime.startsWith(`${destination}/`)) throw new Error("Asset mapping overlaps the configured Bun runtime");
+    if (runtime === destination || runtime.startsWith(`${destination}/`) || destination.startsWith(`${runtime}/`)) throw new Error("Asset mapping overlaps the configured Bun runtime");
   }
   if (options.baseSBOMs && Object.keys(options.baseSBOMs).some((key) => !projects.some((p) => p.platforms.some((platform) => `${platform.os}/${platform.architecture}` === key)))) throw new Error("Base SBOM map contains an unselected platform");
   if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");

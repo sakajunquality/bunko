@@ -62,7 +62,7 @@ Generic fixtures cover catalog frozen installs, pre-execution macro rejection, c
 
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 
-Subsequent work includes explicit external asset contexts, and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
+Subsequent work includes workload validation and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
 
 
 ## Multiple entrypoints in one image
@@ -122,4 +122,3 @@ Only selected files are read and frozen before dependency installation or bundli
 Mappings cannot target system directories such as `/usr`, `/etc`, or `/proc`, or Bunko's dependency directories. Collisions between mappings, regular assets, dependencies, and application output fail, including case collisions and file/directory conflicts. Custom destinations follow normal OCI layering over the chosen base; mappings are not a general base-filesystem inspection feature.
 
 Reports and provenance record logical context names, selected relative paths, exact destinations, and content digests. Asset cache identity includes these mappings and the frozen contents; host input directory paths are omitted. These logical names and relative paths are public metadata when publishing provenance, so choose names appropriate for publication. Additional source files copied as assets do not become executable bundle inputs. This feature does not make missing runtime dependencies or shared libraries available.
-

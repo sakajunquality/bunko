@@ -93,9 +93,9 @@ test("mapped assets reject internal and application output collisions", async ()
 });
 
 
-test("asset mappings cannot replace a custom runtime", async () => {
+test.each(["/repo/config", "/repo/config/bun", "/repo/config/bun/settings"])("asset mappings cannot overlap a custom runtime: %s", async (to) => {
   const f = await fixture();
-  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { bunPath: "/repo/config/bun" }, assetMappings: [f.mapping] } }));
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { bunPath: "/repo/config/bun" }, assetMappings: [{ ...f.mapping, to }] } }));
   await expect(build({ path: f.source, assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false })).rejects.toThrow("overlaps the configured Bun runtime");
 });
 
@@ -148,4 +148,12 @@ test("resolve and apply CLI accept unused named contexts without reading them", 
     expect(result.exit).toBe(0);
     expect(result.stdout).toContain("ConfigMap");
   }
+});
+
+
+test("runtime prefix checks preserve unrelated destination names", async () => {
+  const f = await fixture();
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { bunPath: "/repo/config/bun" }, assetMappings: [{ ...f.mapping, to: "/repo/config/bun-data" }] } }));
+  const result = await build({ path: f.source, baseLayout: await baseLayout(join(f.root, "base")), assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false });
+  expect(result.assetMaterials![0]!.to).toBe("/repo/config/bun-data");
 });
