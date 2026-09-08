@@ -266,7 +266,7 @@ Builder identity is an input to application caching and runnable image labels. D
 
 ## Build telemetry
 
-`--otel` explicitly enables bounded OTLP/HTTP JSON metrics and traces for build, resolve and apply. Standard OTel variables alone never enable transmission. Stage boundaries are shared with progress events and local report timings; target identities are replaced with invocation-local numbers in exported traces. Supported configuration, signal definitions, privacy limits, export deadlines and Collector interoperability are defined in [TELEMETRY.md](TELEMETRY.md). This feature is on the development branch and is not included in rc.2.
+`--otel` explicitly enables bounded OTLP/HTTP JSON metrics and traces for build, resolve and apply. Standard OTel variables alone never enable transmission. Stage boundaries are shared with progress events and local report timings; target identities are replaced with invocation-local numbers in exported traces. Supported configuration, signal definitions, privacy limits, export deadlines and Collector interoperability are defined in [TELEMETRY.md](TELEMETRY.md). This feature is included starting with rc.3.
 
 ### Compile output boundary
 

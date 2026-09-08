@@ -16,7 +16,7 @@ const options: ImageOptions = { platform: { os: "linux", architecture: "amd64" }
 describe("image composition", () => {
   test("retains base environment and history, resets command, appends uncompressed DiffIDs", () => {
     const image = imageConfig(base, [app], options);
-    expect(image.config?.Env).toEqual(["CUSTOM=yes", "LOCALE=C", "NODE_ENV=production", "PATH=/bin"]);
+    expect(image.config?.Env).toEqual(["BUN_RUNTIME_TRANSPILER_CACHE_PATH=0", "CUSTOM=yes", "LOCALE=C", "NODE_ENV=production", "PATH=/bin"]);
     expect(image.config?.Cmd).toEqual([]);
     expect(image.config?.Entrypoint).toEqual(options.entrypoint);
     expect(image.config?.WorkingDir).toBe("/app");
@@ -28,6 +28,12 @@ describe("image composition", () => {
     expect(image.history?.[1]?.empty_layer).toBe(true);
     expect(image.history?.[2]?.created_by).toBe("bunko app");
     expect(base.config?.Cmd).toEqual(["old"]);
+  });
+  test("disables implicit runtime cache writes while retaining explicit base and application choices", () => {
+    expect(imageConfig(base, [], { ...options, env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "/tmp/app-cache" } }).config?.Env).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/app-cache");
+    const configured = { ...base, config: { Env: ["BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/base-cache"] } };
+    expect(imageConfig(configured, [], options).config?.Env).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/base-cache");
+    expect(imageConfig(configured, [], { ...options, env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "/tmp/app-cache" } }).config?.Env).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/app-cache");
   });
   test("preserves explicit root, defaults absent user to nonroot, allows an explicit override", () => {
     expect(imageConfig({ ...base, config: { User: "0" } }, [], options).config?.User).toBe("0");
