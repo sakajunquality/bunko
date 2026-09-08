@@ -16,8 +16,8 @@ The existing single-entry image contract remains unchanged. Named entries requir
 
 Source-preserving mode and automatic Bun injection into arbitrary bases are not implemented. Prepared bases must already include Bun and the required ABI/shared libraries. Allowing ignored scripts or unresolved dependency expressions does not establish native runtime compatibility.
 
-The generic acceptance fixture checks PostgreSQL migration and a database task worker, HTTP/static content, exact runtime file content, a native hash operation, non-root/read-only execution and graceful server shutdown. It does not establish React Router, Temporal, Slack or Snowflake workload compatibility. Remote application validation remains required before stable release; use [the acceptance guide](APPLICATION_VALIDATION.md).
+The generic acceptance fixture checks PostgreSQL migration and a database task worker, HTTP/static content, exact runtime file content, a native hash operation, non-root/read-only execution and graceful server shutdown. It does not establish React Router, Temporal, Slack or Snowflake workload compatibility. Remote application validation remains required before stable release; use [the acceptance guide](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.1/docs/APPLICATION_VALIDATION.md).
 
 Bun >=1.3.11 <1.4 is required. CI covers 1.3.11, 1.3.12 and 1.3.13 on Linux/macOS. The distribution includes the standalone JavaScript CLI, SHA256SUMS, MIT license and third-party notices; npm publication is not part of this release.
 
-GHCR, Artifact Registry, Docker Hub and authenticated upstream evidence in [published release validation](PUBLISHED_RELEASE_VALIDATION.md) belongs to alpha.2, not this RC. Private ECR remains unverified. Existing tags and release assets are immutable.
+GHCR, Artifact Registry, Docker Hub and authenticated upstream evidence in [published release validation](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.1/docs/PUBLISHED_RELEASE_VALIDATION.md) belongs to alpha.2, not this RC. Private ECR remains unverified. Existing tags and release assets are immutable.

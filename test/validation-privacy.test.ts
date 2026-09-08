@@ -66,3 +66,12 @@ test("privacy gate rejects an opaque uncompressed tar file", async () => {
   await writeFile(join(root,"archive.tar"),header);
   await expect(scanPrivateOutput(root,["private-organization"])).rejects.toThrow("UNSUPPORTED_COMPRESSED_OUTPUT");
 });
+
+test("privacy gate rejects concurrent modifications to previously scanned files", async () => {
+  const root = await fixture(), file = join(root,"a-clean");
+  await writeFile(file,"clean"); await writeFile(join(root,"z-large"),Buffer.alloc(16 * 1024 * 1024, 120));
+  let active = true;
+  const writer = (async () => { while (active) { await Bun.sleep(2); await writeFile(file,"clean"); } })();
+  try { await expect(scanPrivateOutput(root,["private-organization"])).rejects.toThrow("OUTPUT_CHANGED_DURING_SCAN"); }
+  finally { active = false; await writer; }
+});

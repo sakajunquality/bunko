@@ -73,7 +73,14 @@ try {
       if(!response.ok || !response.body.includes(expected!)) throw new Error("STATIC_ASSET_ASSERTION_FAILED");
     }
     checks[`${arch}.httpNativeAndFiles`]=true;
+    const client = `bunko-client-${id}-${arch}`; containers.add(client);
+    const draining = command(["docker","run","--name",client,...common,tag,"-e",`const r=await fetch(${JSON.stringify(`http://${server}:3000/api/drain`)},{signal:AbortSignal.timeout(10000)}); console.log(JSON.stringify({ok:r.ok,body:await r.text()}));`]).then(JSON.parse);
+    // Attach a rejection handler immediately while waiting for request admission.
+    void draining.catch(() => {});
+    await eventually(async () => { await command(["docker","exec",server,"/usr/local/bin/bun","-e",'if (!await Bun.file("/tmp/drain-started").exists()) process.exit(1)']); });
     await command(["docker","stop","--time","5",server]);
+    const drained = await draining;
+    if (!drained.ok || JSON.parse(drained.body).drained !== true) throw new Error("REQUEST_DRAIN_ASSERTION_FAILED");
     const state=JSON.parse(await command(["docker","inspect",server]))[0].State;
     if(state.ExitCode!==0 || state.OOMKilled) throw new Error("SHUTDOWN_ASSERTION_FAILED");
     checks[`${arch}.shutdown`]=true;

@@ -43,7 +43,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-rc.1; an explicit version, never latest |
+| version | v0.1.0-alpha.2; an explicit version, never latest |
 | bun-version | 1.3.11; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -70,3 +70,5 @@ bun ./bunko.js build /path/to/app --repo ghcr.io/OWNER
 The CLI file is portable between supported hosts. Use the supplied notices when redistributing it. Its bundled runtime has no external npm module requirement, but the applications being built still need their declared dependency installs and suitable Linux base images.
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
+
+The setup default remains the already published alpha.2 release during RC preparation. Select `version: v0.1.0-rc.1` explicitly after publication. Defaults are promoted only after the new assets are available; this prevents a download gap for unversioned development-branch consumers.
