@@ -13,7 +13,7 @@ import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { platform, type BuildOptions } from "./config.ts";
 import { selectToolchain } from "./toolchain.ts";
 
-export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout" | "platform" | "registry" | "bunPath" | "runtimeInject" | "runtimeCache"> & { run?: boolean; runtimePath?: string }) {
+export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout" | "platform" | "registry" | "bunPath" | "runtimeInject" | "runtimeCache" | "log"> & { run?: boolean; runtimePath?: string }) {
   if (options.base && options.baseLayout) throw new Error("Select --base or --base-layout");
   if (options.runtimeInject !== undefined && options.runtimeInject !== "release") throw new Error("runtime injection must be release");
   if (options.runtimeInject && !options.base && !options.baseLayout) throw new Error("Runtime injection requires an explicit base or base layout");
@@ -36,7 +36,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
       let composed: string | undefined;
       try {
         if (options.runtimeInject) {
-          const downloaded = await downloadRuntime(toolchain, selected, { cache: options.runtimeCache });
+          const downloaded = await downloadRuntime(toolchain, selected, { cache: options.runtimeCache, log: options.log ?? ((message) => process.stderr.write(message)) });
           runtime = { ...downloaded.metadata, path: options.runtimePath ?? "/usr/local/bin/bun" };
           const injected = await injectedLayer(store, runtime, downloaded.executable, await baseFilesystem(store, base, directory), 0);
           const image = await assembleImage(store, base, [injected.layer], { platform: selected, epoch: 0, entrypoint: [runtime.path], args: ["--revision"], workdir: "/", env: {}, labels: {}, user: "65532:65532" }, true);

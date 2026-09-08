@@ -1,9 +1,12 @@
+import { spdx, provenance } from "../packages/bunko/attest.ts";
+import type { BuildResult, PlatformResult } from "../packages/bunko/build.ts";
+import { validateCacheOptions } from "../packages/bunko/cache-options.ts";
 import { MockRegistry } from "./mock-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { archiveChecksum, downloadRuntime, extractRuntime, runtimeAsset, runtimeBytes, runtimeELF, verifiedChecksums, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
+import { archiveChecksum, pinnedArchiveChecksum, releaseRevision, assertSignatureStatus, downloadRuntime, extractRuntime, runtimeAsset, runtimeBytes, runtimeELF, verifiedChecksums, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
 import { baseFilesystem, baseNode, runtimeEntries } from "../packages/bunko/runtime-layer.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { project } from "./helpers.ts";
@@ -25,12 +28,14 @@ test("runtime injection rejects unsupported modes, libc, versions and destinatio
     await project(root, { bunko: config }); await expect(loadProject({ path: root })).rejects.toThrow();
   }
   expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
-  expect(() => runtimeAsset({ ...toolchain, version: "1.4.0" }, platform)).toThrow();
+  expect(() => runtimeAsset({ ...toolchain, version: "1.4.0" }, platform)).toThrow("supports official Bun");
+  expect(() => validateCacheOptions({localCache:false,runtimeCache:"cache"})).toThrow("requires local caching");
 });
 
 test.skipIf(!Bun.which("gpgv"))("official clear-signed checksums verify offline and reject tampering", async () => {
   const signed = await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc", import.meta.url));
   const checksums = await verifiedChecksums(signed);
+  expect(() => pinnedArchiveChecksum("1.3.12","bun-linux-aarch64",checksums)).toThrow("pinned release version");
   expect(archiveChecksum(checksums, "bun-linux-aarch64")).toBe("sha256:d13944da12a53ecc74bf6a720bd1d04c4555c038dfe422365356a7be47691fdf");
   await expect(verifiedChecksums(Buffer.from(signed.toString().replace("bun-linux-aarch64.zip", "bun-linux-unknown.zip")))).rejects.toThrow("signature verification");
   await expect(verifiedChecksums(Buffer.from(checksums))).rejects.toThrow();
@@ -86,16 +91,21 @@ test("ELF inspection checks architecture, bounds, loader, libraries and symbol v
 
 test("base metadata handles whiteouts and links without extracting host files", async () => {
   const root=await temp(), store=new BlobStore(join(root,"store"));
-  const first=(await packLayer(store,[{path:"lib/loader",type:"file",content:Buffer.from("loader"),executable:true},{path:"lib/old",type:"file",content:Buffer.from("old")},{path:"lib/link",type:"symlink",target:"loader"}],"assets",0))!;
+  const first=(await packLayer(store,[{path:"lib/loader",type:"file",content:Buffer.from("loader"),executable:true},{path:"other/gone",type:"file",content:Buffer.from("gone")},{path:"lib/old",type:"file",content:Buffer.from("old")},{path:"lib/link",type:"symlink",target:"loader"}],"assets",0))!;
   const archive=join(root,"overlay.tar");
-  const child=Bun.spawn(["python3","-c", "import tarfile,io,sys\nwith tarfile.open(sys.argv[1],'w') as t:\n for name,data in [('lib/.wh..wh..opq',b''),('lib/new',b'new')]:\n  i=tarfile.TarInfo(name); i.size=len(data); t.addfile(i,io.BytesIO(data))",archive],{stdout:"ignore",stderr:"ignore"});
+  const child=Bun.spawn(["python3","-c", "import tarfile,io,sys\nwith tarfile.open(sys.argv[1],'w') as t:\n for name,data in [('lib/.wh..wh..opq',b''),('lib/new',b'new'),('other/.wh.gone',b'')]:\n  i=tarfile.TarInfo(name); i.size=len(data); t.addfile(i,io.BytesIO(data))",archive],{stdout:"ignore",stderr:"ignore"});
   expect(await child.exited).toBe(0);
   const bytes=await readFile(archive),second={descriptor:await store.put(bytes,"application/vnd.oci.image.layer.v1.tar"),diffId:sha256(bytes)};
   const base={manifest:{layers:[first.descriptor,second.descriptor]},config:{rootfs:{diff_ids:[first.diffId,second.diffId]}}} as BaseImage;
   const tree=await baseFilesystem(store,base,root);
-  expect(tree.has("lib/old")).toBe(false); expect(tree.has("lib/new")).toBe(true);
+  expect(tree.has("other/gone")).toBe(false); expect(tree.has("lib/old")).toBe(false); expect(tree.has("lib/new")).toBe(true);
   tree.set("lib/loader",{type:"file",mode:0o755,size:10}); tree.set("lib/ld-linux-aarch64.so.1",{type:"symlink",link:"loader",mode:0o777,size:0});
   expect(baseNode(tree,"/lib/ld-linux-aarch64.so.1")!.type).toBe("file");
+  tree.set("lib/hard",{type:"link",link:"lib/loader",mode:0o755,size:0});
+  tree.set("lib64",{type:"symlink",link:"/lib",mode:0o777,size:0});
+  expect(baseNode(tree,"/lib64/hard")!.size).toBe(10);
+  tree.set("lib/a",{type:"symlink",link:"b",mode:0o777,size:0}); tree.set("lib/b",{type:"symlink",link:"a",mode:0o777,size:0});
+  expect(()=>baseNode(tree,"/lib/a")).toThrow("link cycle");
   const metadata={path:"/usr/local/bin/bun",interpreter:"/lib/ld-linux-aarch64.so.1"} as InjectedRuntime;
   expect(runtimeEntries(metadata,elf(),tree)[0]!.path).toBe("usr/local/bin/bun");
   tree.set("usr/local",{type:"symlink",link:"/outside",mode:0o777,size:0}); expect(()=>runtimeEntries(metadata,elf(),tree)).toThrow("parent");
@@ -124,8 +134,31 @@ test.skipIf(!Bun.which("gpgv"))("corrupt cached archives cannot bypass signed ch
   await mkdir(dir);
   await writeFile(join(dir,"SHASUMS256.txt.asc"),await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc",import.meta.url)));
   const archive=join(dir,"bun-linux-aarch64.zip"); await writeFile(archive,"corrupt cached bytes");
-  const requests:string[]=[];
-  await expect(downloadRuntime(toolchain,platform,{cache:root,fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
+  const requests:string[]=[], logs:string[]=[];
+  await expect(downloadRuntime(toolchain,platform,{cache:root,log:(line)=>logs.push(line),fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
+  expect(logs.join("")).toContain("cache entry failed verification");
   expect(requests.length).toBe(1); expect(requests[0]!.endsWith("/bun-linux-aarch64.zip")).toBe(true);
   expect(await readFile(archive,"utf8")).toBe("corrupt cached bytes");
+});
+
+
+test("revision matching skips partial strings and signature errors fail closed", () => {
+  const revision="af24e281ebacd6ac77c0f14b4206599cf4ae1c9f";
+  expect(releaseRevision(Buffer.from(`\0af24e281e-partial\0${revision}\0`),toolchain)).toBe(revision);
+  expect(()=>releaseRevision(Buffer.from(`\0${revision}\0`),{...toolchain,revision:"bad123456"})).toThrow("toolchain revision");
+  const valid="[GNUPG:] VALIDSIG F3DCC08A8572C0749B3E18888EAB4D40A7B22B59 2026-01-01 1 0 4 0 22 10 01 F3DCC08A8572C0749B3E18888EAB4D40A7B22B59\n";
+  assertSignatureStatus(valid,0);
+  for(const status of ["EXPKEYSIG","REVKEYSIG","EXPSIG","BADSIG","ERRSIG","NO_PUBKEY"]) expect(()=>assertSignatureStatus(valid+`[GNUPG:] ${status} detail\n`,0)).toThrow("signature verification");
+});
+
+test("SBOM separates release archive and executable hashes; provenance includes signature inputs", () => {
+  const archiveDigest=sha256("archive"),executableDigest=sha256("executable"),checksumDocumentDigest=sha256("signed checksums");
+  const runtime={source:"github-release",version:"1.3.11",expectedRevision:"af24e281e",releaseRevision:"af24e281ebacd6ac77c0f14b4206599cf4ae1c9f",revisionVerified:false,archiveDigest,executableDigest,checksumDocumentDigest,path:"/usr/local/bin/bun",url:"https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-linux-aarch64.zip",policy:"bun-release-gpg-pinned-v1",signer:"F3DCC08A8572C0749B3E18888EAB4D40A7B22B59"} as InjectedRuntime;
+  const image={runtime,platform,manifest:{digest:sha256("image")},baseDigest:sha256("base"),inventory:[],native:[]} as unknown as PlatformResult;
+  const document=spdx("fixture",image,0,{version:runtime.version,revision:runtime.expectedRevision,embedded:false});
+  const pkg=document.packages.find(p=>p.SPDXID==="SPDXRef-Bun-Runtime") as {checksums:{checksumValue:string}[]};
+  expect(pkg.checksums[0]!.checksumValue).toBe(archiveDigest.slice(7));
+  expect(document.files![0]!.checksums[0]!.checksumValue).toBe(executableDigest.slice(7));
+  const record=provenance({target:"fixture",root:image.manifest,sourceDigest:sha256("source"),toolchain:{version:runtime.version,revision:runtime.expectedRevision},images:[image]} as BuildResult);
+  expect(JSON.stringify(record)).toContain(checksumDocumentDigest.slice(7)); expect(JSON.stringify(record)).toContain(runtime.signer);
 });

@@ -1,3 +1,5 @@
+import { runtimePins } from "./runtime-pins.ts";
+import { canonicalOutput } from "../oci/layout.ts";
 import { constants } from "node:fs";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { fromBufferPromise } from "yauzl";
@@ -12,10 +14,10 @@ import { runtimeKey, runtimeSigner } from "./runtime-key.ts";
 import { withCacheLock } from "./cache-lock.ts";
 
 const archiveLimit = 128 * 1024 ** 2, executableLimit = 256 * 1024 ** 2, manifestLimit = 1024 ** 2;
-export const runtimePolicy = "bun-release-gpg-v1";
+export const runtimePolicy = "bun-release-gpg-pinned-v1";
 export interface InjectedRuntime {
   source: "github-release"; version: string; expectedRevision: string; releaseRevision: string; revisionVerified: false;
-  noticeDigest: Digest; archiveDigest: Digest; executableDigest: Digest; url: string; signer: string; policy: string;
+  checksumDocumentDigest: Digest; noticeDigest: Digest; archiveDigest: Digest; executableDigest: Digest; url: string; signer: string; policy: string;
   asset: string; libc: "glibc"; cpu: string; path: string;
   interpreter: string; needed: string[]; glibcSymbols: string[];
 }
@@ -23,6 +25,11 @@ export function runtimeAsset(toolchain: Toolchain, platform: Platform) {
   if (!/^1\.3\.(11|12|13)$/.test(toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error("Runtime injection supports official Bun 1.3.11, 1.3.12 and 1.3.13 releases");
   if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported injected runtime platform");
   return `bun-linux-${platform.architecture === "amd64" ? "x64-baseline" : "aarch64"}`;
+}
+
+export function assertSignatureStatus(status: string, code: number): void {
+const valid = status.split("\n").filter((line) => line.startsWith("[GNUPG:] VALIDSIG "));
+if (/\[GNUPG:\] (?:EXPKEYSIG|REVKEYSIG|EXPSIG|BADSIG|ERRSIG|NO_PUBKEY)\b/.test(status) || code || valid.length !== 1 || ![valid[0]!.split(" ")[2], valid[0]!.trim().split(" ").at(-1)].includes(runtimeSigner)) throw new Error("Bun release signature verification failed");
 }
 
 /** Verify only against the embedded key; gpgv cannot use an ambient trust store. */
@@ -39,8 +46,7 @@ export async function verifiedChecksums(signed: Uint8Array): Promise<string> {
     const timer = setTimeout(() => child.kill(), 30_000);
     try {
       const [status, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-      const valid = status.split("\n").filter((line) => line.startsWith("[GNUPG:] VALIDSIG "));
-      if (code || valid.length !== 1 || ![valid[0]!.split(" ")[2], valid[0]!.trim().split(" ").at(-1)].includes(runtimeSigner)) throw new Error("Bun release signature verification failed");
+      assertSignatureStatus(status, code);
       const text = Buffer.from(signed).toString("utf8").replaceAll("\r\n", "\n");
       const match = /^-----BEGIN PGP SIGNED MESSAGE-----\nHash: [A-Z0-9, ]+\n\n([\s\S]*?)\n-----BEGIN PGP SIGNATURE-----\n/.exec(text);
       if (!match) throw new Error("Expected a clear-signed Bun checksum document");
@@ -58,6 +64,24 @@ export function archiveChecksum(text: string, asset: string): Digest {
   const hash = names.get(`${asset}.zip`);
   if (!hash) throw new Error("Selected runtime asset is absent from signed checksums");
   return `sha256:${hash}`;
+}
+
+export async function runtimeCachePath(value?: string): Promise<string> {
+  return canonicalOutput(value ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "runtime", "v1"));
+}
+export function pinnedArchiveChecksum(version: string, asset: string, text: string): Digest {
+  const digest = archiveChecksum(text, asset);
+  if (runtimePins[version]?.[asset] !== digest) throw new Error("Signed runtime checksum disagrees with the pinned release version");
+  return digest;
+}
+export function releaseRevision(bytes: Buffer, toolchain: Toolchain): string {
+  const marker = Buffer.from(`\0${toolchain.revision}`);
+  for (let cursor = 0; cursor < bytes.length;) {
+    const at = bytes.indexOf(marker, cursor); if (at < 0) break; cursor = at + 1;
+    const revision = bytes.subarray(at + 1, at + 41).toString("ascii");
+    if (/^[a-f0-9]{40}$/.test(revision) && bytes[at + 41] === 0) return revision;
+  }
+  throw new Error("Official runtime does not contain the selected toolchain revision; custom builds cannot be injected");
 }
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
@@ -152,11 +176,11 @@ export function runtimeELF(bytes: Buffer, platform: Platform) {
   return { interpreter, needed, glibcSymbols };
 }
 
-export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; fetcher?: Fetcher } = {}) {
+export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
   if (!Bun.which("gpgv")) throw new Error("Runtime injection requires gpgv (install GnuPG); unsigned verification is not supported");
   const asset = runtimeAsset(toolchain, platform), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
   const ephemeral = options.cache === false ? await mkdtemp(join(tmpdir(), "bunko-runtime-cache-")) : undefined;
-  const cache = ephemeral ?? (options.cache || join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "runtime", "v1"));
+  const cache = ephemeral ?? await runtimeCachePath(typeof options.cache === "string" ? options.cache : undefined);
   try {
     return await withCacheLock(join(cache, `${toolchain.version}-${asset}`), async () => {
       const directory = join(cache, `${toolchain.version}-${asset}`);
@@ -177,23 +201,24 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
             bytes = Buffer.concat(chunks);
           } finally { await handle.close(); }
           await verify(bytes); return bytes;
-        } catch { /* An invalid cached object is replaced only after verification succeeds. */ }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") options.log?.("Runtime download cache entry failed verification; fetching a verified replacement\n");
+        }
+        options.log?.(`Fetching signed runtime release asset ${name}\n`);
         const bytes = await runtimeBytes(`${base}/${name}`, limit, options.fetcher); await verify(bytes);
         const staging = `${path}.${randomUUID()}.tmp`;
         try { await writeFile(staging, bytes, { mode: 0o600, flag: "wx" }); await rename(staging, path); }
         finally { await rm(staging, { force: true }); }
         return bytes;
       }
-      let digest!: Digest;
-      await cached("SHASUMS256.txt.asc", manifestLimit, async (bytes) => { digest = archiveChecksum(await verifiedChecksums(bytes), asset); });
+      let digest!: Digest, checksumDocumentDigest!: Digest;
+      await cached("SHASUMS256.txt.asc", manifestLimit, async (bytes) => { digest = pinnedArchiveChecksum(toolchain.version, asset, await verifiedChecksums(bytes)); checksumDocumentDigest = sha256(bytes); });
       const archive = await cached(`${asset}.zip`, archiveLimit, async (bytes) => { if (sha256(bytes) !== digest) throw new Error("Runtime archive checksum mismatch"); });
       const executable = await extractRuntime(archive, asset), elf = runtimeELF(executable, platform);
       // An authenticated official archive must contain the selected toolchain identity.
       // Actual --revision execution is deliberately left to check-base --run.
-      const revisionAt = executable.indexOf(Buffer.from(`\0${toolchain.revision}`));
-      const releaseRevision = revisionAt < 0 ? "" : executable.subarray(revisionAt + 1, revisionAt + 41).toString("ascii");
-      if (!/^[a-f0-9]{40}$/.test(releaseRevision) || executable[revisionAt + 41] !== 0 || !executable.includes(Buffer.from(`/releases/download/bun-v${toolchain.version}/`))) throw new Error("Official runtime does not contain the selected toolchain revision; custom builds cannot be injected");
-      return { executable, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision, revisionVerified: false, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc: "glibc", cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
+      const revision = releaseRevision(executable, toolchain);
+      return { executable, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc: "glibc", cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
     }, () => true, 35 * 60_000);
   } finally { if (ephemeral) await rm(ephemeral, { recursive: true, force: true }); }
 }
