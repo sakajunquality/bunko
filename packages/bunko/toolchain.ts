@@ -3,7 +3,7 @@ import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { isBuiltin } from "node:module";
 import { canonicalJSON, object } from "../oci/digest.ts";
@@ -28,6 +28,20 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   const match = /^(1\.3\.(\d+))\+([a-f0-9]+)$/.exec(stdout.trim());
   if (!match || Number(match[2]) < 11) throw new Error(`Supported toolchain: Bun >=1.3.11 <1.4 (received ${stdout.trim()})`);
   return { path: executable, version: match[1]!, revision: match[3]! };
+}
+
+/** Supported Linux Bun compilers preserve the runtime bytes as the executable prefix. */
+export async function verifyCompiledRuntime(path: string, runtime: Uint8Array): Promise<void> {
+  const handle = await open(path, "r");
+  try {
+    const chunk = Buffer.alloc(64 * 1024);
+    for (let offset = 0; offset < runtime.length;) {
+      const length = Math.min(chunk.length, runtime.length - offset);
+      const { bytesRead } = await handle.read(chunk, 0, length, offset);
+      if (!bytesRead || !chunk.subarray(0, bytesRead).equals(runtime.subarray(offset, offset + bytesRead))) throw new Error("Compiled application does not embed the authenticated Bun runtime");
+      offset += bytesRead;
+    }
+  } finally { await handle.close(); }
 }
 
 export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache, compileRuntime?: Awaited<ReturnType<typeof downloadRuntime>>): Promise<{ locations: LocationDiagnostics; outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
@@ -144,10 +158,13 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     await writeFile(runtimePath, compileRuntime.executable, { mode: 0o600 });
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
-    const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
-      { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
-    const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
-    if (code) throw new Error(`Bun compile failed (exit ${code})`);
+    try {
+      const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
+        { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
+      const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
+      if (code) throw new Error(`Bun compile failed (exit ${code})`);
+    } finally { await rm(runtimePath, { force: true }); }
+    await verifyCompiledRuntime(join(outdir, executable), compileRuntime.executable);
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
