@@ -18,6 +18,16 @@ Compiler configuration checks follow loaded application inputs. Bun may consult 
 
 The worker carries its own parser to run under the selected Bun version, including in a standalone distributed CLI. This trades distribution size for isolated execution; it avoids scanning every installed module before a build. Validation reports count loaded executable files and bytes. Cross-worker syntax reuse is not currently reported.
 
+## Module-relative runtime files
+
+Bundling does not preserve each source module's runtime location. In particular, an imported module that computes `resolve(import.meta.dir, "..")` can look above the image workdir after it is inlined into an entry or shared chunk. Assets remain at their configured destinations. A successful build or check-config result does not prove those runtime reads succeed.
+
+Use an explicit application root for filesystem assets, for example `process.env.APP_ROOT || resolve(import.meta.dir, "..")` with `bunko.env.APP_ROOT` set to `/app` (or your configured workdir). `process.cwd()` is another option when the deployment preserves the intended working directory. `assetMappings` can provide a stable absolute destination. Existing `build.define` supports explicit constants, but globally replacing module metadata cannot reconstruct every original source directory.
+
+Builds report advisory `BUNKO_MODULE_LOCATION` diagnostics for loaded references to `import.meta.dir`, `dirname`, `path`, `filename`, `url`, and unshadowed `__dirname`/`__filename`. Entries and bundled dependencies are included because code splitting can relocate shared expressions too. A reference may be harmless, removed by tree shaking, or intentionally guarded; this warning does not prove a missing file. Externalized packages and unloaded files are not scanned by this analysis. Indirect uses, dynamic property names and other location APIs are outside its scope.
+
+Each image report includes `locations.total` and up to 100 deterministic `locations.warnings`, deduplicated by source file and expression. Warnings include context-relative paths and positions, not source excerpts or absolute host paths. Application-cache hits replay the same diagnostics. The diagnostic scan does not execute code or modify paths. `check-config` and `doctor` continue to mark source analysis and module-relative file behavior as unchecked. Test exact file contents inside the final image.
+
 ## bunfig.toml
 
 Supported settings:

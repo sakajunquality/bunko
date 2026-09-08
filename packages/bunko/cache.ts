@@ -1,3 +1,4 @@
+import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import packageMetadata from "../../package.json";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -17,7 +18,7 @@ import type { InventoryEntry, NativeBinary } from "./deps.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
-export const packFormat = `tar-gzip-v2/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
+export const packFormat = `tar-gzip-v3/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
 export const cacheMetadataLimit = 8 * 1024 ** 2;
 async function readMetadata(path: string): Promise<unknown> {
@@ -33,7 +34,7 @@ export interface CacheRecord {
   schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app"; packFormat: string;
   destination: string; platform: Platform | null; layer: Layer;
   inventory: InventoryEntry[]; native: NativeBinary[];
-  application?: { entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
+  application?: { locations: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
 }
 export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
@@ -83,6 +84,7 @@ export class LayerCache {
       const app = object(value.application, "Application cache"), destination = value.destination;
       if (typeof app.entry !== "string" || !Array.isArray(app.entries) || app.entries.length > 200_000) throw new Error("Invalid application cache metadata");
       if (expected?.application && (app.entry !== expected.application.entry || !Buffer.from(canonicalJSON(app.entrypoints ?? null)).equals(Buffer.from(canonicalJSON(expected.application.entrypoints))))) throw new Error("Cached named entrypoints do not match project configuration");
+      validateLocations(app.locations);
       archivePath(app.entry);
       for (const raw of app.entries) {
         const entry = object(raw, "Cached output");
