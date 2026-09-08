@@ -27,9 +27,14 @@ jobs:
       - run: bun run build
       - run: bun dist/bunko.js version
       - run: bun run test:bundled-smoke
-      - run: bun run release:prepare
+      - name: Prepare candidate
+        id: candidate
+        run: |
+          bun run release:prepare
+          bun -e 'import p from "./package.json"; import { appendFileSync } from "node:fs"; appendFileSync(process.env.GITHUB_OUTPUT!, "version=v" + p.version + "\n");'
       - uses: ./
         with:
+          version: ${{ steps.candidate.outputs.version }}
           distribution-directory: dist/release
           bun-version: ${{ matrix.bun }}
       - run: bunko version
