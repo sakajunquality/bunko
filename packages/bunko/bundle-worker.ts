@@ -1,6 +1,6 @@
 import { moduleLocations, diagnosticLimit, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { rejectApplicationImports, rejectMacroSyntax } from "./syntax.ts";
 import { validateInputTsconfig } from "./tsconfig.ts";
 
@@ -51,7 +51,7 @@ export async function guardedBuild(options: WorkerOptions) {
           const code = contents.toString("utf8");
           if (!warned.has(path)) {
             warned.add(path);
-            const warnings = moduleLocations(code, local);
+            const warnings = moduleLocations(code, local.split(sep).join("/"));
             locations.total += warnings.length;
             locations.warnings.push(...warnings);
             locations.warnings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line || a.column - b.column);
