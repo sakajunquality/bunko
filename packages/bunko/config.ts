@@ -21,6 +21,9 @@ export interface BuildOptions {
   appCache?: boolean;
   targets?: string[];
   sbom?: boolean;
+  baseSBOMs?: Record<string, string>;
+  depsVerifyKey?: string;
+  supplyChainPolicy?: "ci";
   provenance?: boolean;
   signKey?: string;
   cosignPath?: string;

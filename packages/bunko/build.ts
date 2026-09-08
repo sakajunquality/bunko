@@ -1,3 +1,6 @@
+import { supplyChainOptions } from "./policy.ts";
+import { baseInventory } from "./metadata.ts";
+import { builderIdentity } from "./identity.ts";
 import { canonicalDependencyMap } from "./dependency-map.ts";
 import { requiredInputs } from "./ignore.ts";
 import { targetInputs } from "./inputs.ts";
@@ -29,9 +32,10 @@ import { mapJobs } from "./concurrency.ts";
 import { SyntaxCache } from "./syntax-cache.ts";
 import { importDependencies } from "./external-deps.ts";
 import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
-import { spdx, provenance, sbomType, provenanceType, signImages } from "./attest.ts";
+import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
   bundledInventory?: InventoryEntry[];
   dependencyArtifact?: Digest;
   platform: Platform; manifest: Descriptor; config: Descriptor; layers: Layer[];
@@ -39,6 +43,7 @@ export interface PlatformResult {
 }
 export interface BuildResult {
   schemaVersion: 2;
+  builder?: Awaited<ReturnType<typeof builderIdentity>>;
   mode?: "bundle" | "compile";
   syntaxValidation?: { parsed: number; reused: number; bytes: number };
   supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
@@ -55,7 +60,7 @@ export interface BuildResult {
   sourceDigest: Digest;
   baseDigest: Digest;
   baseRuntimeVerified: false;
-  toolchain: { version: string; revision: string };
+  toolchain: { version: string; revision: string; digest?: string };
   layers: Layer[];
   images: PlatformResult[];
   cache: CacheEvent[];
@@ -92,6 +97,7 @@ interface BuildContext {
   syntax: SyntaxCache;
   toolchainDigest: Digest;
   inputDigest: Digest;
+  builder: Awaited<ReturnType<typeof builderIdentity>>;
   inputPaths?: Set<string>;
   cachePersistence: { disabled?: boolean };
   project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
@@ -157,6 +163,10 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       if (source instanceof RegistrySource) for (const layer of base.manifest.layers) store.origins.set(layer.digest, source.ref);
       bases.push(base);
     }
+    const baseInventories = await Promise.all(bases.map(async (base, i) => {
+      const ref = options.baseSBOMs?.[`linux/${project.platforms[i]!.architecture}`];
+      return ref ? await baseInventory(ref, [base.descriptor.digest], registry) : undefined;
+    }));
     const prefix = project.workdir.slice(1);
     const assets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix);
     const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, entries: await assetInputs(assets) });
@@ -181,6 +191,10 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let dependencyArtifactDigest: Digest | undefined;
         const dependencyArtifact = (options.externalDepsByTarget?.[project.directory] ?? options.externalDeps)?.[`${platform.os}/${platform.architecture}`];
         if (dependencyArtifact) {
+          if (options.depsVerifyKey) {
+            if (dependencyArtifact.startsWith("layout:")) throw new Error("Dependency signature policy requires a registry artifact");
+            await verifyImage(dependencyArtifact, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
+          }
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
@@ -213,7 +227,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
-        const appKey = cacheKey({ kind: "app", format: "application-v2", packFormat, epoch: timestamp,
+        const appKey = cacheKey({ kind: "app", format: "application-v2", builder: context.builder.digest, packFormat, epoch: timestamp,
           sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
@@ -249,11 +263,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
           annotations: project.annotations, args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
-          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.mode": project.mode,
+          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        result.push({ platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
+        const baseMetadata = baseInventories[index];
+        result.push({ baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
       }
       return result;
     }
@@ -270,11 +286,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const result: BuildResult = {
       schemaVersion: 2, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
-      sourceDigest, baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision },
+      sourceDigest, baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
-    if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp)));
+    if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp, { version: toolchain.version, revision: toolchain.revision, embedded: project.mode === "compile" })));
     if (options.provenance) attestations.push(await artifact(store, root, provenanceType, provenance(result, plan.lock ? sha256(canonicalJSON(plan.lock)) : undefined)));
     if (attestations.length || options.signKey) result.supplyChain = { status: "prepared" };
     if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
@@ -347,6 +363,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  options = supplyChainOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
@@ -355,8 +372,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
   if (options.signKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
-  if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
-  if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
+  if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
+  if ((options.signKey || options.depsVerifyKey) && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing or dependency verification requires cosign on PATH or --cosign-path");
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;
@@ -366,11 +383,13 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
+  if (options.baseSBOMs && Object.keys(options.baseSBOMs).some((key) => !projects.some((p) => p.platforms.some((platform) => `${platform.os}/${platform.architecture}` === key)))) throw new Error("Base SBOM map contains an unselected platform");
   if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");
   if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => !projects.some((p) => p.directory === path))) throw new Error("Dependency map contains an unselected target");
   for (const project of projects) {
     const artifacts = options.externalDepsByTarget?.[project.directory] ?? options.externalDeps;
     if (!artifacts) continue;
+    if (options.depsVerifyKey && Object.values(artifacts).some((ref) => ref.startsWith("layout:"))) throw new Error("Dependency signature policy requires a registry artifact");
     if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle target with explicit externals and no sharedDeps");
     const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
     if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
@@ -393,7 +412,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
-  const exclusions = [...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
+  const exclusions = [signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -422,7 +442,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       if (JSON.stringify(captured.packages.map((pkg) => pkg.path)) !== JSON.stringify(discovered.workspace.packages.map((pkg) => pkg.path))) throw new Error("Workspace membership changed while creating the snapshot; retry the build");
     }
     const plan = await dependencyPlan(projects[0]!, source), toolchain = await selectToolchain(options.bunPath);
-    const toolchainDigest = await hashFile(toolchain.path);
+    const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
@@ -440,7 +460,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { syntax, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

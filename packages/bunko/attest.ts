@@ -1,3 +1,4 @@
+import { packageLicense } from "./inventory.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,13 +11,13 @@ import { VERSION } from "./config.ts";
 export const sbomType = "application/spdx+json";
 export const provenanceType = "application/vnd.in-toto+json";
 
-export function spdx(name: string, image: PlatformResult, timestamp: number) {
+export function spdx(name: string, image: PlatformResult, timestamp: number, runtime?: { version: string; revision: string; embedded: boolean }) {
   const inventory = new Map<string, InventoryEntry>();
   for (const item of [...image.inventory, ...image.bundledInventory ?? []]) inventory.set(`${item.name}@${item.version}`, item);
   const packages = [...inventory.values()].sort((a, b) => `${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`)).map((item) => ({
     SPDXID: `SPDXRef-Package-${sha256(Buffer.from(`${item.name}@${item.version}`)).slice(7)}`,
     name: item.name, versionInfo: item.version, downloadLocation: "NOASSERTION", filesAnalyzed: false,
-    licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION",
+    licenseConcluded: "NOASSERTION", licenseDeclared: packageLicense(item.license) ?? "NOASSERTION", copyrightText: "NOASSERTION",
     externalRefs: [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl",
       referenceLocator: `pkg:npm/${item.name.split("/").map(encodeURIComponent).join("/")}@${encodeURIComponent(item.version)}` }],
   }));
@@ -25,9 +26,12 @@ export function spdx(name: string, image: PlatformResult, timestamp: number) {
   return { spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", name: `${name}-${image.platform.architecture}`,
     documentNamespace: `urn:bunko:spdx:${image.manifest.digest}`,
     creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(timestamp * 1000).toISOString().replace(".000Z", "Z") },
-    comment: "Application package inventory from bundled inputs and runtime dependencies. Base OS packages and runtime-loaded undeclared packages are not inventoried. Licenses are not inferred.",
-    packages: [root, ...packages], relationships: [
+    comment: "Application package inventory from bundled inputs and runtime dependencies. Base OS packages are represented only by an explicitly linked external document, when supplied. Undeclared runtime-loaded packages are not inventoried. Unknown license declarations are not inferred.",
+    ...(image.baseInventory ? { externalDocumentRefs: [{ externalDocumentId: "DocumentRef-Base", spdxDocument: image.baseInventory.namespace, checksum: { algorithm: "SHA256", checksumValue: image.baseInventory.digest.slice(7) } }] } : {}),
+    packages: [root, ...packages, ...(runtime ? [{ SPDXID: "SPDXRef-Bun-Runtime", name: "bun", versionInfo: runtime.version, downloadLocation: "NOASSERTION", filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION", comment: `${runtime.embedded ? "Embedded" : "Expected base"} Bun runtime revision ${runtime.revision}; custom base runtime identity is not independently verified`, externalRefs: [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: `pkg:generic/bun@${runtime.version}` }] }] : [])], relationships: [
       { spdxElementId: "SPDXRef-DOCUMENT", relationshipType: "DESCRIBES", relatedSpdxElement: root.SPDXID },
+      ...(runtime ? [{ spdxElementId: root.SPDXID, relationshipType: runtime.embedded ? "CONTAINS" : "DEPENDS_ON", relatedSpdxElement: "SPDXRef-Bun-Runtime" }] : []),
+      ...(image.baseInventory?.described.map((id) => ({ spdxElementId: root.SPDXID, relationshipType: "CONTAINS", relatedSpdxElement: `DocumentRef-Base:${id}` })) ?? []),
       ...packages.map((p) => ({ spdxElementId: root.SPDXID, relationshipType: "CONTAINS", relatedSpdxElement: p.SPDXID })),
     ] };
 }
@@ -38,13 +42,14 @@ export function provenance(result: BuildResult, lockDigest?: string) {
     predicateType: "https://slsa.dev/provenance/v1", predicate: {
       buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/build/v1",
         externalParameters: { platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle" },
-        internalParameters: {}, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
+        internalParameters: { builder: result.builder }, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
           ...(lockDigest ? [dependency("urn:bunko:lock", lockDigest)] : []),
           ...result.images.map((image) => dependency(`urn:bunko:base:${image.platform.architecture}`, image.baseDigest)),
+          ...result.images.flatMap((image) => image.baseInventory ? [dependency(`oci://${image.baseInventory.reference}`, image.baseInventory.artifactDigest)] : []),
           ...result.images.flatMap((image) => image.dependencyArtifact ? [dependency(`urn:bunko:dependencies:${image.platform.architecture}`, image.dependencyArtifact)] : []),
-          { uri: `https://github.com/oven-sh/bun/tree/${result.toolchain.revision}`, annotations: { version: result.toolchain.version } },
+          { uri: `https://github.com/oven-sh/bun/tree/${result.toolchain.revision}`, ...(result.toolchain.digest ? { digest: { sha256: result.toolchain.digest.slice(7) } } : {}), annotations: { version: result.toolchain.version } },
         ] },
-      runDetails: { builder: { id: `https://github.com/sakajunquality/bunko/tree/v${VERSION}` }, metadata: {} },
+      runDetails: { builder: { id: `https://github.com/sakajunquality/bunko`, ...(result.builder ? { builderDependencies: [{ uri: `urn:bunko:builder:${result.builder.kind}`, digest: { sha256: result.builder.digest.slice(7) } }] } : {}) }, metadata: {} },
     } };
 }
 

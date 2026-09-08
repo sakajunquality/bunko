@@ -1,3 +1,4 @@
+import { packageLicense } from "./inventory.ts";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { object } from "../oci/digest.ts";
@@ -109,7 +110,7 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     return result;
   }
   for (const [path, instance] of [...instances].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-    inventory.push({ path, name: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? "") });
+    inventory.push({ path, name: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), license: packageLicense(instance.manifest.license) });
     await walk(path);
     entries.push(...aliases(instance.edges, `${destination(path)}/node_modules`));
   }

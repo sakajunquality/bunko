@@ -36,7 +36,8 @@
     "bench:builders": "bun test/buildkit-benchmark.ts",
     "test:local-resolve": "bun test/local-resolve-smoke.ts",
     "test:prepared-deps": "bun test/buildkit-deps-smoke.ts",
-    "test:zstd-smoke": "bun test/zstd-smoke.ts"
+    "test:zstd-smoke": "bun test/zstd-smoke.ts",
+    "test:metadata": "bun test/metadata-smoke.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",

@@ -1,0 +1,342 @@
+{
+  "attestations": [
+    {
+      "manifest": {
+        "artifactType": "application/spdx+json",
+        "digest": "sha256:c449e3fcf23c70948d550bbd90a0ccee4cf3b6bb60b1f72079a54050a4c0d02a",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 574
+      },
+      "subject": {
+        "digest": "sha256:60376c0a90e569ebbb8c6afb1d002dae4f06dd5f7e4bceeeb2c7cc6395266888",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 3116
+      }
+    },
+    {
+      "manifest": {
+        "artifactType": "application/spdx+json",
+        "digest": "sha256:3ea4ec74567cb93841b618206d651a119886019656b2ad6dbfb22ef0eb2fd31f",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 574
+      },
+      "subject": {
+        "digest": "sha256:6913f80fce8c7697a9eeb458c009724c8f429c5288a2b28a9ccba259ee3a4b64",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 3116
+      }
+    },
+    {
+      "manifest": {
+        "artifactType": "application/vnd.in-toto+json",
+        "digest": "sha256:957b2bd2d41ac560776009a6bd455c4d79d9101bc7fc4faf945af6a1e2644682",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 584
+      },
+      "subject": {
+        "digest": "sha256:6243c3bb3db032119b6c17f7c74965ac8af96686a8f5d4b1f95295610b09f09f",
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "size": 582
+      }
+    }
+  ],
+  "deterministic": true,
+  "metadata": [
+    {
+      "file": "3ea4ec74567cb93841b618206d651a119886019656b2ad6dbfb22ef0eb2fd31f.spdx.json",
+      "manifest": {
+        "artifactType": "application/spdx+json",
+        "digest": "sha256:3ea4ec74567cb93841b618206d651a119886019656b2ad6dbfb22ef0eb2fd31f",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 574
+      },
+      "payload": {
+        "digest": "sha256:b56f313466d27a4af20af1478b2deac6aa94c3428b0480a42765b37b70e8dfea",
+        "mediaType": "application/spdx+json",
+        "size": 1601
+      },
+      "subject": {
+        "digest": "sha256:6913f80fce8c7697a9eeb458c009724c8f429c5288a2b28a9ccba259ee3a4b64",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 3116
+      }
+    },
+    {
+      "file": "957b2bd2d41ac560776009a6bd455c4d79d9101bc7fc4faf945af6a1e2644682.provenance.json",
+      "manifest": {
+        "artifactType": "application/vnd.in-toto+json",
+        "digest": "sha256:957b2bd2d41ac560776009a6bd455c4d79d9101bc7fc4faf945af6a1e2644682",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 584
+      },
+      "payload": {
+        "digest": "sha256:27595be59e72421058f18c3150da23db834814afc905b337b0b020560fd86edd",
+        "mediaType": "application/vnd.in-toto+json",
+        "size": 1411
+      },
+      "subject": {
+        "digest": "sha256:6243c3bb3db032119b6c17f7c74965ac8af96686a8f5d4b1f95295610b09f09f",
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "size": 582
+      }
+    },
+    {
+      "file": "c449e3fcf23c70948d550bbd90a0ccee4cf3b6bb60b1f72079a54050a4c0d02a.spdx.json",
+      "manifest": {
+        "artifactType": "application/spdx+json",
+        "digest": "sha256:c449e3fcf23c70948d550bbd90a0ccee4cf3b6bb60b1f72079a54050a4c0d02a",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 574
+      },
+      "payload": {
+        "digest": "sha256:a5c782d916ca18b7f6afc55cccd6dca69fa5e67070479af2dc3383e397176305",
+        "mediaType": "application/spdx+json",
+        "size": 1601
+      },
+      "subject": {
+        "digest": "sha256:60376c0a90e569ebbb8c6afb1d002dae4f06dd5f7e4bceeeb2c7cc6395266888",
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "size": 3116
+      }
+    }
+  ],
+  "privateSignatures": true,
+  "publication": {
+    "pendingTags": [],
+    "published": true,
+    "reference": "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:6243c3bb3db032119b6c17f7c74965ac8af96686a8f5d4b1f95295610b09f09f",
+    "tags": [
+      "supply-chain-eb6be3d7-6324-40f9-a81d-f976900facb7"
+    ],
+    "transfers": [
+      {
+        "action": "reused",
+        "digest": "sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc",
+        "kind": "base",
+        "size": 85841,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0",
+        "kind": "base",
+        "size": 12675,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:b4e6f1bfce0a1fba2b5421041552f4a897aada9cd5680926580f9e2c6247a7ae",
+        "kind": "base",
+        "size": 288209,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:b4242723c53fe4e094eb78569a2c15b6aafb8eb42aa9c3c2666130654a316ae2",
+        "kind": "base",
+        "size": 254104,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28",
+        "kind": "base",
+        "size": 32093,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a",
+        "kind": "base",
+        "size": 67,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212",
+        "kind": "base",
+        "size": 188,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4",
+        "kind": "base",
+        "size": 123,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296",
+        "kind": "base",
+        "size": 162,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112",
+        "kind": "base",
+        "size": 80,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a",
+        "kind": "base",
+        "size": 351,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795",
+        "kind": "base",
+        "size": 311,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca",
+        "kind": "base",
+        "size": 136993,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:4ec36cb7292a44a45129867ef6d6ae1715956938fbca32c926ec0f600d884101",
+        "kind": "base",
+        "size": 5075464,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:122a6d8574b749451f05e625821f1b585e8f79431f533d086307ba7748c9b136",
+        "kind": "base",
+        "size": 39091812,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:3e7a6518f2924357e35c998a239addec27d481ef408c47b1824052c997a81104",
+        "kind": "base",
+        "size": 205,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:c59919dd4acb982a839d4ce6742361bbc3aec9622171dd0720cb863e8cd17372",
+        "kind": "assets",
+        "size": 155,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:1d7e0af75f9d6abb6b95eec3e2dc367282f8e1c1b2b1272ada48754b513cafcd",
+        "kind": "app",
+        "size": 171,
+        "uploaded": 0
+      },
+      {
+        "action": "uploaded",
+        "digest": "sha256:2925a02f40a17c3999a0a0d88491c2d4c9c4781d08ae8899e1d7b62d6b8779f6",
+        "kind": "config",
+        "size": 5868,
+        "uploaded": 5868
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:0e7df641b9650fff27219d95215561d9505c24acf5bb919c101091aaf45c9b6b",
+        "kind": "base",
+        "size": 85813,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:f3e519d19e1f1f55031eb74473e730dea946f61217ec7d49b5f3e951bb2ca4cb",
+        "kind": "base",
+        "size": 5140955,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:9c189ee1d694541e609659e672b230ea5a7f9862868d68cef3066f3816a3697e",
+        "kind": "base",
+        "size": 39601757,
+        "uploaded": 0
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:937f8333adbee2517ddef22413b99ac73e19291a597e61b086682a33ece1a73f",
+        "kind": "base",
+        "size": 203,
+        "uploaded": 0
+      },
+      {
+        "action": "uploaded",
+        "digest": "sha256:6eba769973ed4f4ebbc7b7f4d17b8f924f7e1f3a224620028f5d2d732db1df15",
+        "kind": "config",
+        "size": 5883,
+        "uploaded": 5883
+      },
+      {
+        "action": "uploaded",
+        "digest": "sha256:a5c782d916ca18b7f6afc55cccd6dca69fa5e67070479af2dc3383e397176305",
+        "kind": "attestation",
+        "size": 1601,
+        "uploaded": 1601
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "kind": "attestation",
+        "size": 2,
+        "uploaded": 0
+      },
+      {
+        "action": "uploaded",
+        "digest": "sha256:b56f313466d27a4af20af1478b2deac6aa94c3428b0480a42765b37b70e8dfea",
+        "kind": "attestation",
+        "size": 1601,
+        "uploaded": 1601
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "kind": "attestation",
+        "size": 2,
+        "uploaded": 0
+      },
+      {
+        "action": "uploaded",
+        "digest": "sha256:27595be59e72421058f18c3150da23db834814afc905b337b0b020560fd86edd",
+        "kind": "attestation",
+        "size": 1411,
+        "uploaded": 1411
+      },
+      {
+        "action": "reused",
+        "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "kind": "attestation",
+        "size": 2,
+        "uploaded": 0
+      }
+    ]
+  },
+  "repository": "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance",
+  "root": {
+    "digest": "sha256:6243c3bb3db032119b6c17f7c74965ac8af96686a8f5d4b1f95295610b09f09f",
+    "mediaType": "application/vnd.oci.image.index.v1+json",
+    "size": 582
+  },
+  "schemaVersion": 1,
+  "status": "success",
+  "vendor": "gar",
+  "verified": [
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:6243c3bb3db032119b6c17f7c74965ac8af96686a8f5d4b1f95295610b09f09f",
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:60376c0a90e569ebbb8c6afb1d002dae4f06dd5f7e4bceeeb2c7cc6395266888",
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:6913f80fce8c7697a9eeb458c009724c8f429c5288a2b28a9ccba259ee3a4b64",
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:c449e3fcf23c70948d550bbd90a0ccee4cf3b6bb60b1f72079a54050a4c0d02a",
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:3ea4ec74567cb93841b618206d651a119886019656b2ad6dbfb22ef0eb2fd31f",
+    "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:957b2bd2d41ac560776009a6bd455c4d79d9101bc7fc4faf945af6a1e2644682"
+  ],
+  "note": "Private GAR validation checkpoint before review refinements; report retains exact verified descriptors."
+}

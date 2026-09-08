@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { exportMetadata } from "./metadata.ts";
 import { dependencyMap } from "./dependency-map.ts";
 import { registryTLS } from "../oci/tls.ts";
 /*! bunko — MIT License
@@ -53,6 +54,7 @@ Usage:
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko check-config [path] [--target <name/path>]
   bunko doctor [path] [--bun-path <file>]
+  bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
   bunko version
 
 Options:
@@ -114,6 +116,9 @@ Options:
   --provenance             Attach SLSA provenance to the image root
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
   --cosign-path <file>     cosign executable (default: PATH)
+  --base-sbom <linux/ARCH=ref>    Link an OCI SPDX artifact matching the base digest
+  --deps-verify-key <key>   Require trusted signatures on dependency artifacts
+  --supply-chain-policy ci Require reproducible input, metadata and signing
   --deps-map <file>         Per-target, per-platform prepared dependency artifacts
   --artifact-target <path>  Bind pack-deps output to a workspace member
   --registry-config <file>  Host-scoped CA/client certificate configuration
@@ -184,6 +189,10 @@ export async function main(argv: string[]): Promise<number> {
       "older-than": { type: "string" },
       lockfile: { type: "string" },
       workdir: { type: "string" },
+      "base-sbom": { type: "string", multiple: true },
+      "metadata-dir": { type: "string" },
+      "deps-verify-key": { type: "string" },
+      "supply-chain-policy": { type: "string" },
       "deps-map": { type: "string" },
       "artifact-target": { type: "string" },
       "registry-config": { type: "string" },
@@ -238,6 +247,10 @@ export async function main(argv: string[]): Promise<number> {
       const options = { path, targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
     }
+    if (command === "metadata") {
+      if (positionals.length !== 2 || !values["metadata-dir"]) throw new Error("metadata requires an image@digest or layout:DIR and --metadata-dir");
+      process.stdout.write(JSON.stringify(await exportMetadata(path, values["metadata-dir"], registry)) + "\n"); return 0;
+    }
     if (command === "push-layout") {
       if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");
       const result = await pushLayout(path, values.repo, values.tag, registry, values.report);
@@ -288,6 +301,12 @@ export async function main(argv: string[]): Promise<number> {
       if (equal < 1 || !reference || !["linux/amd64", "linux/arm64"].includes(key) || externalDeps[key]) throw new Error("Use one --deps-artifact linux/ARCH=layout:DIR or linux/ARCH=REPO@sha256:DIGEST per platform");
       externalDeps[key] = reference;
     }
+    const baseSBOMs: Record<string, string> = {};
+    for (const value of values["base-sbom"] ?? []) {
+      const equal = value.indexOf("="), key = value.slice(0, equal), reference = value.slice(equal + 1);
+      if (equal < 1 || !["linux/amd64", "linux/arm64"].includes(key) || !/@sha256:[a-f0-9]{64}$/.test(reference) || baseSBOMs[key]) throw new Error("Use --base-sbom linux/ARCH=REPO@sha256:DIGEST once per platform");
+      baseSBOMs[key] = reference;
+    }
     const keyValues = (items: string[] | undefined) => Object.fromEntries((items ?? []).map((item) => {
       const equal = item.indexOf("=");
       if (equal < 1) throw new Error("Image labels/annotations require KEY=VALUE");
@@ -295,6 +314,7 @@ export async function main(argv: string[]): Promise<number> {
     }));
     if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
+      baseSBOMs: Object.keys(baseSBOMs).length ? baseSBOMs : undefined, depsVerifyKey: values["deps-verify-key"], supplyChainPolicy: values["supply-chain-policy"] as "ci" | undefined,
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
       jobs: jobsText === undefined ? undefined : Number(jobsText),
