@@ -1,6 +1,6 @@
 # Injecting Bun into a custom base
 
-This feature is available from source after v0.1.0-rc.1; the immutable rc.1 release does not include it. Injection is opt-in. Normal builds still use an existing Bun-containing base.
+This feature is included in v0.1.0-rc.2; the immutable rc.1 release does not include it. Injection is opt-in. Normal builds still use an existing Bun-containing base.
 
 ```json
 {

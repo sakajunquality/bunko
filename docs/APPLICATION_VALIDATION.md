@@ -1,6 +1,6 @@
 # Application acceptance before stable release
 
-Use v0.1.0-rc.1 with Bun 1.3.11–1.3.13. Keep the source revision, CLI checksum, Bun revision and digest-pinned base constant. A successful `check-config` is a configuration result, not a functional compatibility result.
+Use v0.1.0-rc.2 with Bun 1.3.11–1.3.13. Keep the source revision, CLI checksum, Bun revision and digest-pinned base constant. A successful `check-config` is a configuration result, not a functional compatibility result.
 
 ## Public functional fixture
 
@@ -14,7 +14,7 @@ BUNKO_SMOKE_PLATFORMS=linux/amd64 bun run test:application-validation
 
 Docker must be running. The independently authored fixture in `examples/application-validation` uses Hono, PostgreSQL and `@node-rs/xxhash`. The runner builds the distributed CLI's image, verifies named migration/worker commands and persisted database rows, exercises HTTP/static files and exact mapped/local file contents, checks a known native hash, and verifies server SIGTERM exit. Containers use non-root, read-only roots; a disposable database lives on an internal Docker network with a generated password and tmpfs data. HTTP assertions run inside the server container; an independent client container verifies that an in-flight request completes during SIGTERM. No host port is published. Only fixed check names and booleans are printed. Owned containers, images, network and temporary files are removed on completion; an externally killed runner may require manual cleanup of its `bunko-acceptance-*` resources.
 
-The [local candidate result](validation/rc1-candidate.json) records the exact CLI checksum and tested scope. The fixture defaults to amd64 and arm64. Cross-architecture execution requires Docker emulation or a matching native runner. It is a static web fixture and a database task worker, not a React Router/Temporal/Snowflake compatibility test. Service credentials and application source are not used in public CI.
+The [local candidate result](validation/rc2-candidate.json) records the exact CLI checksum and tested scope. The fixture defaults to amd64 and arm64. Cross-architecture execution requires Docker emulation or a matching native runner. It is a static web fixture and a database task worker, not a React Router/Temporal/Snowflake compatibility test. Service credentials and application source are not used in public CI.
 
 ## Prepare a private workload locally
 
@@ -45,4 +45,4 @@ This is not a general secret scanner or redactor. It does not decode arbitrary n
 
 ## Remote handoff and acceptance
 
-Use [the standalone validation request](validation-request.html) on the application machine. Complete the whole matrix or mark individual checks `not-run` with an anonymous reason. Frontend build, actual Temporal workflow execution, Slack test delivery and Snowflake native behavior are workload checks still required beyond the generic fixture. Source-preserving mode and automatic runtime injection remain separate feature work.
+Use [the standalone validation request](validation-request.html) on the application machine. Complete the whole matrix or mark individual checks `not-run` with an anonymous reason. Frontend build, actual Temporal workflow execution, Slack test delivery and Snowflake native behavior are workload checks still required beyond the generic fixture. Source-preserving mode remains future work. Optional signed runtime injection is available; follow the [runtime guide](RUNTIME_INJECTION.md) and verify native library requirements separately.

@@ -1,6 +1,6 @@
 # Application compatibility
 
-These capabilities are included in v0.1.0-rc.1. The immutable v0.1.0-alpha.2 assets do not include them.
+Workspace catalogs, named entries, asset mappings and native-addon pruning were introduced in v0.1.0-rc.1. Module-location diagnostics and signed runtime injection are included in v0.1.0-rc.2. Earlier release assets remain immutable.
 
 ## Workspaces and catalogs
 
@@ -76,7 +76,7 @@ Generic fixtures cover catalog frozen installs, pre-execution macro rejection, c
 
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 
-Subsequent work includes workload validation and evaluation of source-preserving mode. Opt-in [runtime injection](RUNTIME_INJECTION.md) is available from source after rc.1, with signed release verification and composed-image checks. It does not preserve source locations or install addon libraries. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
+Subsequent work includes workload validation and evaluation of source-preserving mode. Opt-in [runtime injection](RUNTIME_INJECTION.md) is included in rc.2, with signed release verification and composed-image checks. It does not preserve source locations or install addon libraries. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
 
 
 ## Multiple entrypoints in one image

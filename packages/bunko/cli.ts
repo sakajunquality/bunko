@@ -41,7 +41,7 @@ import { checkBase } from "./check-base.ts";
 import { verifyImage } from "./attest.ts";
 import { resolveDocuments } from "./resolve.ts";
 
-const help = `bunko ${VERSION} — Bun to OCI images (alpha preview)
+const help = `bunko ${VERSION} — Bun to OCI images (preview)
 
 Usage:
   bunko build [path] --repo <registry/prefix> [options]
