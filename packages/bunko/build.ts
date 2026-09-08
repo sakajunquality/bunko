@@ -38,6 +38,7 @@ import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } f
 
 export interface PlatformResult {
   baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
+  entrypoints?: Record<string, string>;
   bundledInventory?: InventoryEntry[];
   dependencyArtifact?: Digest;
   platform: Platform; manifest: Descriptor; config: Descriptor; layers: Layer[];
@@ -45,6 +46,7 @@ export interface PlatformResult {
 }
 export interface BuildResult {
   schemaVersion: 2;
+  defaultEntrypoint?: string;
   builder?: Awaited<ReturnType<typeof builderIdentity>>;
   mode?: "bundle" | "compile";
   syntaxValidation?: { parsed: number; reused: number; bytes: number };
@@ -229,17 +231,17 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
         const appKey = cacheKey({ kind: "app", format: "application-v2", builder: context.builder.digest, packFormat, epoch: timestamp,
-          sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, mode: project.mode, build: project.build,
+          sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
         const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform });
-        let application: { entry: string; inventory: InventoryEntry[] };
+        let application: { entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[] };
         let app: Awaited<ReturnType<typeof fileEntries>>;
         let applicationMetadata: CacheRecord["application"];
         let cacheable = true;
         if (appHit) {
           applicationMetadata = appHit.application!;
-          application = { entry: applicationMetadata.entry, inventory: appHit.inventory };
+          application = { entry: applicationMetadata.entry, entrypoints: applicationMetadata.entrypoints, inventory: appHit.inventory };
           app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
@@ -252,7 +254,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
           application = built;
           app = await fileEntries(built.outdir, prefix);
-          applicationMetadata = { entry: built.entry, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
+          applicationMetadata = { entry: built.entry, entrypoints: built.entrypoints, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
         }
         // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
@@ -262,15 +264,15 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
-          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
-          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
+          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath] : [project.bunPath, `${project.workdir}/${application.entry}`],
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
-        result.push({ baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
       }
       return result;
     }
@@ -286,7 +288,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
-      schemaVersion: 2, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
+      schemaVersion: 2, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
       sourceDigest, baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),

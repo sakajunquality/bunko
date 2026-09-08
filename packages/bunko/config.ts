@@ -70,6 +70,8 @@ export interface Project {
   targetPath: string;
   name: string;
   entrypoint: string;
+  entrypoints?: Record<string, string>;
+  defaultEntrypoint?: string;
   platform: Platform;
   platforms: Platform[];
   external: string[];
@@ -165,7 +167,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
+  knownKeys(config, ["entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
   if (mode !== "bundle" && mode !== "compile") throw new Error("mode must be bundle or compile");
@@ -198,7 +200,28 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const annotations = { ...stringMap(config.annotations, "annotations"), ...stringMap(options.imageAnnotations, "image annotations") };
   if (Object.keys(annotations).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || key === "org.opencontainers.image.ref.name")) throw new Error("Invalid or reserved image annotation key");
   if (Object.keys(labels).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || ["org.opencontainers.image.created", "org.opencontainers.image.revision"].includes(key))) throw new Error("Cannot override bunko's reserved labels");
-  let entrypoint = optionalString(config.entrypoint, "entrypoint");
+  const entrypoints = config.entrypoints === undefined ? undefined : stringMap(config.entrypoints, "entrypoints");
+  let defaultEntrypoint = optionalString(config.defaultEntrypoint, "defaultEntrypoint");
+  if (defaultEntrypoint && !entrypoints) throw new Error("defaultEntrypoint requires entrypoints");
+  if (entrypoints) {
+    const names = Object.keys(entrypoints).sort();
+    if (!names.length || names.some((name) => !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) || new Set(names.map((name) => name.toLowerCase())).size !== names.length) throw new Error("entrypoints requires unique names containing letters, numbers, underscores or hyphens");
+    if (config.entrypoint !== undefined) throw new Error("Use entrypoint or named entrypoints, not both");
+    if (mode === "compile") throw new Error("Named entrypoints currently require bundle mode");
+    defaultEntrypoint ??= names.length === 1 ? names[0] : undefined;
+    if (!defaultEntrypoint || !Object.hasOwn(entrypoints, defaultEntrypoint)) throw new Error("Select a defaultEntrypoint from entrypoints");
+    const outputs = new Set<string>();
+    for (const name of names) {
+      const path = relativePath(entrypoints[name]!, "entrypoint");
+      if (!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) throw new Error("Entrypoint must be a JavaScript or TypeScript file");
+      const file = await realpath(join(directory, path));
+      if (relative(directory, file).startsWith("..") || !(await stat(file)).isFile()) throw new Error("Entrypoint must be a file inside the project");
+      const output = path.replace(/\.[^.]+$/, ".js").toLowerCase();
+      if (outputs.has(output)) throw new Error("Named entrypoints have colliding output paths");
+      outputs.add(output); entrypoints[name] = path;
+    }
+  }
+  let entrypoint = entrypoints ? entrypoints[defaultEntrypoint!] : optionalString(config.entrypoint, "entrypoint");
   if (!entrypoint && manifest.bin !== undefined) {
     if (typeof manifest.bin === "string") entrypoint = optionalString(manifest.bin, "bin");
     else {
@@ -243,7 +266,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return {
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
-    mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
+    mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),

@@ -7,6 +7,7 @@ export interface WorkerOptions {
   root: string;
   contextRoot: string;
   entrypoint: string;
+  entrypoints?: Record<string, string>;
   outdir: string;
   external: string[];
   allowUnresolved?: string[];
@@ -17,7 +18,9 @@ export interface WorkerOptions {
 
 export async function guardedBuild(options: WorkerOptions) {
   const context = await realpath(options.contextRoot);
-  const entrypoint = await realpath(resolve(options.root, options.entrypoint));
+  const sources = options.entrypoints ? Object.entries(options.entrypoints).sort(([a], [b]) => a.localeCompare(b)).map(([, path]) => path) : [options.entrypoint];
+  const entrypoints = await Promise.all(sources.map((path) => realpath(resolve(options.root, path))));
+  const executableEntries = new Set(entrypoints);
   const seenConfigs = new Set<string>();
   const dataLoaders = new Map<string, "json" | "text" | "file" | "toml">();
   const dataImports = new Map<string, Map<string, string>>();
@@ -28,7 +31,7 @@ export async function guardedBuild(options: WorkerOptions) {
   }
   const validation = { parsed: 0, reused: 0, bytes: 0 };
   const result = await Bun.build({
-    throw: false, entrypoints: [entrypoint], root: options.root,
+    throw: false, entrypoints, splitting: options.entrypoints !== undefined, root: options.root,
     outdir: options.outdir, target: "bun", format: "esm", packages: "bundle", metafile: true,
     naming: "[dir]/[name].[ext]", env: "disable", allowUnresolved: options.allowUnresolved ?? [],
     external: options.external.flatMap((name) => [name, `${name}/*`]),
@@ -50,7 +53,7 @@ export async function guardedBuild(options: WorkerOptions) {
             if (!item.specifier.startsWith("./") && !item.specifier.startsWith("../")) throw new Error("Data import attributes require explicit relative file paths");
             const target = await realpath(resolve(dirname(path), item.specifier));
             contained(target);
-            if (target === entrypoint) throw new Error("An entrypoint cannot also be a data import");
+            if (executableEntries.has(target)) throw new Error("An entrypoint cannot also be a data import");
             const previous = dataLoaders.get(target);
             if (previous && previous !== item.loader) throw new Error("Conflicting data loaders for the same file");
             dataLoaders.set(target, item.loader);

@@ -27,7 +27,7 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[]; inputs: string[] }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const home = join(root, OUTPUT_DIRECTORY, "home");
@@ -36,7 +36,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   const worker = join(root, OUTPUT_DIRECTORY, "worker.js");
   const settings = join(root, OUTPUT_DIRECTORY, "worker.json");
   await writeFile(worker, await workerCode(), { mode: 0o600 });
-  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved }), { mode: 0o600 });
+  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved }), { mode: 0o600 });
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   const child = Bun.spawn(args, {
@@ -72,6 +72,15 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     return output.entryPoint === project.entrypoint && /\.[cm]?js$/.test(path);
   });
   if (candidates.length !== 1) throw new Error("Cannot identify the server entrypoint in Bun's metafile");
+  let entrypoints: Record<string, string> | undefined;
+  if (project.entrypoints) {
+    entrypoints = {};
+    for (const [name, source] of Object.entries(project.entrypoints).sort(([a], [b]) => a.localeCompare(b))) {
+      const matches = Object.entries(outputs).filter(([path, output]) => object(output, "Bun output").entryPoint === source && /\.[cm]?js$/.test(path));
+      if (matches.length !== 1) throw new Error(`Cannot identify emitted entrypoint: ${name}`);
+      entrypoints[name] = relative(outdir, resolve(outdir, matches[0]![0]));
+    }
+  }
   for (const [path, value] of Object.entries(outputs)) {
     const full = resolve(outdir, path);
     if (relative(outdir, full).startsWith("..")) throw new Error("Bun output escaped the output directory");
@@ -134,5 +143,5 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
     return { outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: executable };
   }
-  return { outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
+  return { outdir, entrypoints, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
 }

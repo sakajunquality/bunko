@@ -33,7 +33,7 @@ export interface CacheRecord {
   schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app"; packFormat: string;
   destination: string; platform: Platform | null; layer: Layer;
   inventory: InventoryEntry[]; native: NativeBinary[];
-  application?: { entry: string; entries: { path: string; type: "file" | "directory" }[] };
+  application?: { entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
 }
 export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
@@ -87,6 +87,13 @@ export class LayerCache {
         const entry = object(raw, "Cached output");
         if (typeof entry.path !== "string" || !["file", "directory"].includes(String(entry.type)) || !entry.path.startsWith(`${destination.slice(1)}/`)) throw new Error("Invalid cached output path/type");
         archivePath(entry.path);
+      }
+      if (app.entrypoints !== undefined) {
+        for (const [name, path] of Object.entries(object(app.entrypoints, "Cached named entrypoints"))) {
+          if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name) || typeof path !== "string") throw new Error("Invalid cached named entrypoint");
+          archivePath(path);
+          if (!app.entries.some((raw) => { const entry = object(raw, "Cached entry"); return entry.type === "file" && entry.path === `${destination.slice(1)}/${path}`; })) throw new Error("Cached named entrypoint is missing");
+        }
       }
       if (!app.entries.some((raw) => { const entry = object(raw, "Cached entry"); return entry.type === "file" && entry.path === `${destination.slice(1)}/${app.entry}`; })) throw new Error("Cached application entrypoint is missing");
     }
