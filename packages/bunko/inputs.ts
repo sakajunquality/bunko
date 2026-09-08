@@ -10,6 +10,7 @@ import { hashFile } from "./files.ts";
 /** Keep all root inputs and whole reachable members. Unknown resolution uses
  * the full snapshot; this is not a replacement for Bun's module resolver. */
 export async function targetInputs(root: string, project: Project, fallback: Digest): Promise<{ digest: Digest; paths?: Set<string> }> {
+  if (project.mode === "source") return { digest: fallback };
   if (!project.workspace || !project.targetPath) return { digest: fallback };
   const members = project.workspace.packages.filter((p) => p.path);
   if (project.workspace.packages.some((p) => p.text.includes("../"))) return { digest: fallback };

@@ -1,3 +1,4 @@
+import { sourceApplication } from "./source-application.ts";
 import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
@@ -58,7 +59,7 @@ export interface BuildResult {
   schemaVersion: 2;
   defaultEntrypoint?: string;
   builder?: Awaited<ReturnType<typeof builderIdentity>>;
-  mode?: "bundle" | "compile";
+  mode?: "bundle" | "compile" | "source";
   timings?: { phase: string; platform?: string; status: string; durationMs: number }[];
   syntaxValidation?: { parsed: number; reused: number; bytes: number };
   supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
@@ -211,7 +212,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
     }
     const prefix = project.workdir.slice(1);
-    const assets = [...await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix), ...context.mappedAssets.entries];
+    const selectedAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix);
+    const assets = [...(project.mode === "source" ? [] : selectedAssets), ...context.mappedAssets.entries];
     assertNoLayerCollision([assets]);
     const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(context.mappedAssets.materials.length ? { materials: context.mappedAssets.materials } : {}), entries: await assetInputs(assets) });
     const records: CacheRecord[] = [];
@@ -250,7 +252,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           dependencyArtifactDigest = content.artifactDigest;
           noteOmittedAddons(content.omitted);
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
-          for (const name of project.external) if (!inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
+          for (const name of project.external) if (!(project.mode === "source" && Object.hasOwn(JSON.parse(project.manifestText).optionalDependencies ?? {}, name)) && !inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
           depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
         } else if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
           const content = await context.closure(context.closureProjects, platform, iteration);
@@ -264,7 +266,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           depsEntries = content.entries;
           depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
           if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
-        } else if (project.external.length) {
+        } else if (project.external.length || project.mode === "source" && plan.lock) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
           if (hit) { depsLayer = hit.layer; inventory = hit.inventory; native = hit.native; }
@@ -285,7 +287,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           compileRuntime: compileRuntimes[index]?.metadata, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
-        const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, path.replace(/\.[^.]+$/, ".js")])) : undefined;
+        const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, project.mode === "source" ? join(project.targetPath, path) : path.replace(/\.[^.]+$/, ".js")])) : undefined;
         const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform, ...(namedOutputs ? { application: { entry: namedOutputs[project.defaultEntrypoint!]!, entrypoints: namedOutputs } } : {}) });
         let application: { locations?: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[] };
         let app: Awaited<ReturnType<typeof fileEntries>>;
@@ -298,9 +300,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
           log(`Preparing build dependencies (${platform.architecture})\n`);
-          if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache, options.offline);
-          log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-          const built = sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
+          if (!sharedBundle && project.mode !== "source") await installDependencies(root, plan, toolchain, undefined, options.installCache, options.offline);
+          log(`${project.mode === "source" ? "Packaging source for" : "Bundling"} ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
+          const built = project.mode === "source" ? await sourceApplication(project, root) : sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           if (project.mode === "bundle") sharedBundle = built;
           cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
@@ -321,8 +323,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
-          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath] : [project.bunPath, `${project.workdir}/${application.entry}`],
-          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
+          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: project.env, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
@@ -459,7 +461,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const artifacts = options.externalDepsByTarget?.[project.directory] ?? options.externalDeps;
     if (!artifacts) continue;
     if (options.depsVerifyKey && Object.values(artifacts).some((ref) => !/@sha256:[a-f0-9]{64}$/.test(ref) || ref.startsWith("layout:"))) throw new Error("Dependency signature policy requires a digest-pinned registry artifact");
-    if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle target with explicit externals and no sharedDeps");
+    if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle or source target with runtime dependencies and no sharedDeps");
     const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
     if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
   }

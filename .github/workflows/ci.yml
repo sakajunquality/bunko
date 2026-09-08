@@ -138,6 +138,10 @@ jobs:
       - run: bun run test:application-validation
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:application-validation
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
+          BUNKO_SMOKE_MODE: source
 
   runtime-injection:
     runs-on: ubuntu-latest

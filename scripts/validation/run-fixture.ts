@@ -8,6 +8,8 @@ import { exportDockerArchive } from "../../packages/oci/archive.ts";
 import type { BuildResult } from "../../packages/bunko/build.ts";
 import { scanPrivateOutput } from "./privacy.ts";
 
+const mode = process.env.BUNKO_SMOKE_MODE ?? "bundle";
+if (!["bundle", "source"].includes(mode)) throw new Error("Unsupported application validation mode");
 const inject = process.env.BUNKO_SMOKE_INJECT === "1";
 const base = inject ? "gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f" : "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
 const database = "postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73";
@@ -38,7 +40,7 @@ try {
   await cp(resolve("examples/application-validation"),source,{recursive:true,filter:path=>!path.split("/").includes("node_modules")});
   await mkdir(inputs); await writeFile(join(inputs,"settings.json"),JSON.stringify({message:"configured-content"}));
   const layout=join(root,"layout"), report=join(root,"raw-report.json");
-  await command([process.execPath,resolve("dist/bunko.js"),"build",source,"--base",base,...inject ? ["--runtime-inject","release"] : [],"--platform",process.env.BUNKO_SMOKE_PLATFORMS??"linux/amd64,linux/arm64","--asset-context",`generated=${inputs}`,"--oci-layout",layout,"--report",report,"--push=false","--no-cache","--git-metadata=false"],300000);
+  await command([process.execPath,resolve("dist/bunko.js"),"build",source,"--mode",mode,"--base",base,...inject ? ["--runtime-inject","release"] : [],"--platform",process.env.BUNKO_SMOKE_PLATFORMS??"linux/amd64,linux/arm64","--asset-context",`generated=${inputs}`,"--oci-layout",layout,"--report",report,"--push=false","--no-cache","--git-metadata=false"],300000);
   const built=JSON.parse(await readFile(report,"utf8")) as BuildResult;
   await scanPrivateOutput(layout,["private-organization-sentinel"]);
   checks.artifactGate=true;
@@ -91,7 +93,7 @@ try {
     checks[`${arch}.shutdown`]=true;
     await command(["docker","exec",db,"psql","-U","postgres","-d","acceptance","-c","DROP TABLE acceptance"]);
   }
-  console.log(JSON.stringify({schemaVersion:1,status:"passed",checks}));
+  console.log(JSON.stringify({schemaVersion:1,status:"passed",mode,checks}));
 } catch(error) {
   console.log(JSON.stringify({schemaVersion:1,status:"failed",checks}));
   console.error(error instanceof Error && /^[A-Z_]+$/.test(error.message)?error.message:"ACCEPTANCE_FAILED"); process.exitCode=1;
