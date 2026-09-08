@@ -10,7 +10,7 @@ try {
   const source = join(directory, "source");
   await mkdir(source);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "compiled", module: "index.ts" }));
-  await writeFile(join(source, "index.ts"), 'const value = await import("./message.ts"); console.log(JSON.stringify({message:value.message,arch:process.arch}));');
+  await writeFile(join(source, "index.ts"), 'const value = await import("./message.ts"); console.log(JSON.stringify({message:value.message,arch:process.arch,revision:Bun.revision}));');
   await writeFile(join(source, "message.ts"), 'export const message = "compiled works";');
   for (const architecture of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",").map((p) => p.split("/")[1]!)) {
     const reference = `bunko.local/compile-${process.pid}:${architecture}`;
@@ -18,6 +18,7 @@ try {
     const result = await build({ path: source, mode: "compile", platform: `linux/${architecture}`, tarball, push: false,
       localCache: false, gitMetadata: false, verifyDeterministic: true, log: (text) => process.stderr.write(text) });
     const config = result.images[0]!;
+    if (!config.compileRuntime || config.compileRuntime.policy !== "bun-release-gpg-pinned-v1" || config.compileRuntime.expectedRevision !== result.toolchain.revision) throw new Error("Missing verified compile runtime provenance");
     if (result.mode !== "compile" || !result.verifiedDeterministic || config.native.length) throw new Error("Invalid compile report");
     const loaded = await command(["docker", "load", "--input", tarball]);
     const image = /Loaded image: (.+)/.exec(loaded)?.[1];
@@ -25,6 +26,7 @@ try {
     try {
       await command(["docker", "tag", image, reference]);
       const output = JSON.parse(await command(["docker", "run", "--rm", "--platform", `linux/${architecture}`, "--network=none", "--read-only", "--cap-drop=ALL", "--user=65532:65532", reference]));
+      if (output.revision !== config.compileRuntime.releaseRevision) throw new Error("Compiled runtime revision differs from the authenticated release");
       if (output.message !== "compiled works" || output.arch !== (architecture === "amd64" ? "x64" : "arm64")) throw new Error("Compiled runtime mismatch");
     } finally {
       await command(["docker", "image", "rm", reference]);

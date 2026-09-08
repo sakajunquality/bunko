@@ -1,3 +1,5 @@
+import { releaseRevision, type downloadRuntime } from "./runtime-download.ts";
+import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
@@ -28,7 +30,7 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ locations: LocationDiagnostics; outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache, compileRuntime?: Awaited<ReturnType<typeof downloadRuntime>>): Promise<{ locations: LocationDiagnostics; outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const home = join(root, OUTPUT_DIRECTORY, "home");
@@ -137,15 +139,26 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     // Recompiling emitted JavaScript cannot embed Bun's serialized HTML manifest.
     // Additional outputs must not be silently discarded from the runtime image.
     if (Object.keys(outputs).length !== 1) throw new Error("Compile mode requires a single JavaScript output; use bundle mode for HTML, CSS or other emitted assets");
+    if (!compileRuntime || compileRuntime.metadata.version !== toolchain.version || compileRuntime.metadata.expectedRevision !== toolchain.revision || compileRuntime.metadata.cpu !== (project.platform.architecture === "amd64" ? "x64-baseline" : "aarch64")) throw new Error("Compile mode requires a verified matching Bun release runtime");
+    const runtimePath = join(root, OUTPUT_DIRECTORY, "compile-runtime");
+    await writeFile(runtimePath, compileRuntime.executable, { mode: 0o600 });
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
-    const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
-      { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
-    const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
-    if (code) throw new Error(`Bun compile failed (exit ${code})`);
+    try {
+      const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
+        { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
+      const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
+      if (code) throw new Error(`Bun compile failed (exit ${code})`);
+    } finally { await rm(runtimePath, { force: true }); }
+    // Bun 1.3.12+ rewrites ELF sections, so the runtime is not a byte-identical prefix.
+    if (releaseRevision(await readFile(join(outdir, executable)), toolchain) !== compileRuntime.metadata.releaseRevision) throw new Error("Compiled application runtime revision differs from the authenticated release");
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
+    const notices = join(outdir, ".bunko-runtime");
+    await mkdir(notices, { recursive: true });
+    await writeFile(join(notices, "LICENSE.md"), runtimeNotices[toolchain.version]!);
+    await writeFile(join(notices, "SOURCE.json"), canonicalJSON({ version: compileRuntime.metadata.version, revision: compileRuntime.metadata.releaseRevision, source: `https://github.com/oven-sh/bun/tree/${compileRuntime.metadata.releaseRevision}`, archive: compileRuntime.metadata.url, archiveDigest: compileRuntime.metadata.archiveDigest }));
     return { locations, outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: executable };
   }
   return { locations, outdir, entrypoints, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
