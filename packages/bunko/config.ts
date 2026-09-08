@@ -13,6 +13,7 @@ import type { Workspace } from "./workspace.ts";
 export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
+  offline?: boolean;
   path: string;
   assetContexts?: Record<string, string>;
   define?: Record<string, string>;

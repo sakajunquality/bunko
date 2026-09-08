@@ -1,3 +1,4 @@
+import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
@@ -192,11 +193,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       for (const layer of base.manifest.layers) if (!basePlatforms.has(layer.digest)) basePlatforms.set(layer.digest, platform);
     }
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
-    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, log }), platform));
+    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
-        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, log }), platform);
+        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform);
         runtime.metadata.path = project.bunPath;
         const tree = await baseFilesystem(store, bases[index]!, temporary);
         runtimes.push({ ...runtime, tree });
@@ -271,7 +272,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             log(`Installing Linux production dependencies (${platform.architecture})\n`);
             const runtime = join(temporary, `runtime-${iteration}-${platform.architecture}`);
             await cp(snapshotRoot, runtime, { recursive: true });
-            await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache), undefined, `${platform.os}/${platform.architecture}`);
+            await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             noteOmittedAddons(content.omitted);
@@ -297,7 +298,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
           log(`Preparing build dependencies (${platform.architecture})\n`);
-          if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache);
+          if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache, options.offline);
           log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
           const built = sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           if (project.mode === "bundle") sharedBundle = built;
@@ -428,6 +429,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  options = offlineOptions(options);
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
@@ -484,7 +486,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
-  const exclusions = [...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -525,7 +527,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         const runtime = join(temporary, `closure-${closures.size}`);
         options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
         await cp(source, runtime, { recursive: true });
-        await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache), undefined, `${platform.os}/${platform.architecture}`);
+        await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         return dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
       })());
       return closures.get(key)!;

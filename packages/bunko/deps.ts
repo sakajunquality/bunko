@@ -207,8 +207,9 @@ export async function dependencyPlan(project: Project, root: string, validateCre
   return { npmCertificate: certificate ?? await npmCertificate(workspace?.directory ?? project.directory, validateCredentials), installPolicy, manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
 }
 
-export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string): Promise<void> {
+export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string, offline = false): Promise<void> {
   if (!plan.lock) return;
+  if (offline) throw new Error("Offline dependency installation is unavailable; prepare matching application/dependency caches while online");
   const config = join(root, OUTPUT_DIRECTORY, "install.toml");
   await mkdir(dirname(config), { recursive: true });
   await writeFile(config, installConfig(plan.installPolicy ?? {}));

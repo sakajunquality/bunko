@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { prepareBase } from "./prepare-base.ts";
 import { registryMirrors } from "../oci/mirrors.ts";
 import { parseDefines } from "./defines.ts";
 import { Telemetry, telemetryConfig } from "./telemetry.ts";
@@ -55,6 +56,7 @@ Usage:
   bunko cache-info [--cache-dir <directory>]
   bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
+  bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>]
@@ -64,6 +66,7 @@ Usage:
 
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
+  --offline               Build using local bases and prepared caches only
   --define <KEY=VALUE>     Override a build constant; repeatable, explicit values only
   --asset-context <NAME=DIR>  Named local asset input; repeatable
   --context <dir>         Base directory for bunko:// references (default: cwd)
@@ -224,6 +227,7 @@ export async function main(argv: string[]): Promise<number> {
       target: { type: "string", multiple: true },
       bare: { type: "boolean" },
       tag: { type: "string", multiple: true },
+      offline: { type: "boolean" },
       define: { type: "string", multiple: true },
       tarball: { type: "string" },
       local: { type: "boolean" },
@@ -257,6 +261,7 @@ export async function main(argv: string[]): Promise<number> {
       allowPositionals: true, strict: true, allowNegative: true, tokens: true, options,
     });
     const { values, positionals } = parsed;
+    const supplied = (name: string) => parsed.tokens.some((token) => token.kind === "option" && token.name.replace(/^no-/, "") === name);
     jsonProgress = values.progress === "json";
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
@@ -301,6 +306,10 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(JSON.stringify(result) + "\n"); return 0;
     }
     if (values.lockfile || values.workdir) throw new Error("--lockfile/--workdir require pack-deps");
+    if (command === "prepare-base") {
+      if (positionals.length !== 1 || !values["oci-layout"]) throw new Error("prepare-base requires --oci-layout and a base input");
+      process.stdout.write(JSON.stringify(await prepareBase({ base: values.base, baseLayout: values["base-layout"], output: values["oci-layout"], platform: values.platform, registry })) + "\n"); return 0;
+    }
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
       const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
@@ -342,6 +351,7 @@ export async function main(argv: string[]): Promise<number> {
     }));
     if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
+      offline: values.offline,
       baseSBOMs: Object.keys(baseSBOMs).length ? baseSBOMs : undefined, depsVerifyKey: values["deps-verify-key"], supplyChainPolicy: values["supply-chain-policy"] as "ci" | undefined,
       define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]),
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
@@ -351,11 +361,11 @@ export async function main(argv: string[]): Promise<number> {
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
       mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
-      push: values.push, repo: values.repo, bare: values.bare, tags: values.tag,
+      push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
-      localCache: values.cache && values["local-cache"], registryCache: values.cache && values["registry-cache"],
+      localCache: values.cache && values["local-cache"], registryCache: values.cache && (values.offline && !supplied("registry-cache") ? false : values["registry-cache"]),
       installCache: values["install-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,
       baseLayout: values["base-layout"], platform: values.platform,
@@ -366,6 +376,7 @@ export async function main(argv: string[]): Promise<number> {
       log: (message) => process.stderr.write(values.progress === "json" ? JSON.stringify({ schemaVersion: 1, type: "log", message }) + "\n" : message),
     };
     const telemetry = telemetryConfig(values.otel);
+    if (values.offline && telemetry) throw new Error("Offline builds cannot export telemetry");
     const execute = async () => {
     if (command === "apply") {
       const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector,
