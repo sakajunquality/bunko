@@ -122,3 +122,29 @@ jobs:
       - run: bun run test:application-validation
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
+
+  runtime-injection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        bun: [1.3.11, 1.3.12, 1.3.13]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ matrix.bun }}
+      - run: command -v gpgv
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun test test/runtime-injection.test.ts
+      - run: bun run build
+      - run: bun run test:runtime-injection
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:application-validation
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
+          BUNKO_SMOKE_INJECT: '1'

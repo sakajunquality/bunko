@@ -19,12 +19,12 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       try { const info = await lstat(join(directory, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Prune refuses symlinked or non-directory cache paths"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    try { if ((await readdir(join(directory, "keys"))).some((name) => !["deps", "assets", "app"].includes(name))) throw new Error("Prune refuses unknown cache key namespaces"); }
+    try { if ((await readdir(join(directory, "keys"))).some((name) => !["deps", "assets", "app", "runtime"].includes(name))) throw new Error("Prune refuses unknown cache key namespaces"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     const cutoff = Date.now() - olderThanSeconds * 1000;
     const records: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number }[] = [];
     const safeRead = async (path: string) => { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size > cacheMetadataLimit) throw new Error("Prune refuses non-regular or oversized cache metadata"); return { info, bytes: await readFile(path) }; };
-    for (const kind of ["deps", "assets", "app"]) {
+    for (const kind of ["deps", "assets", "app", "runtime"]) {
       const dir = join(directory, "keys", kind);
       let names: string[];
       try { if ((await lstat(dir)).isSymbolicLink()) throw new Error("Prune refuses symlinked cache directories"); names = await readdir(dir); }
@@ -85,7 +85,7 @@ export async function pruneRegistry(repository: string, execute = false, registr
     const response = await publisher.client.request(url, {}, [scope]);
     const value = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Tag list");
     if (value.tags != null && (!Array.isArray(value.tags) || !value.tags.every((v) => typeof v === "string"))) throw new Error("Invalid tag list");
-    for (const tag of value.tags as string[] ?? []) if (/^bunko-cache-v1-(?:deps|assets|app)-[a-f0-9]{64}$/.test(tag)) tags.add(tag);
+    for (const tag of value.tags as string[] ?? []) if (/^bunko-cache-v1-(?:deps|assets|app|runtime)-[a-f0-9]{64}$/.test(tag)) tags.add(tag);
     const link = response.headers.get("Link"); if (!link) break;
     const next = /<([^>]+)>;\s*rel="?next"?/.exec(link)?.[1];
     if (!next) throw new Error("Invalid tag pagination Link");
@@ -97,7 +97,7 @@ export async function pruneRegistry(repository: string, execute = false, registr
   for (const tag of [...tags].sort()) {
     const response = await publisher.client.request(`/v2/${publisher.ref.repository}/manifests/${tag}`, {}, [scope]);
     const bytes = await responseBytes(response), manifest = object(JSON.parse(Buffer.from(bytes).toString()), "Cache manifest");
-    const [, kind, key] = /^bunko-cache-v1-(deps|assets|app)-([a-f0-9]{64})$/.exec(tag)!;
+    const [, kind, key] = /^bunko-cache-v1-(deps|assets|app|runtime)-([a-f0-9]{64})$/.exec(tag)!;
     if (manifest.mediaType !== media.manifest || manifest.artifactType !== "application/vnd.bunko.cache.v1" || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new Error("Prune refuses a cache-named tag with unrelated content");
     const config = descriptor(manifest.config);
     if (config.mediaType !== "application/vnd.bunko.cache.config.v1+json") throw new Error("Invalid cache configuration type");
