@@ -46,6 +46,8 @@ bun run dev build examples/hello --repo ghcr.io/OWNER
 
 Success prints one `ghcr.io/OWNER/hello@sha256:...` line. `--bare` treats `--repo` as the exact repository. Default tags are `latest` and the Git revision; override them with `--tag v1 --tag latest`. See [authentication setup](docs/REGISTRIES.md).
 
+Source builds after rc.3 also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), and [runtime/workspace configuration](docs/CONFIGURATION.md). These additions are not present in the immutable rc.3 CLI or container.
+
 ## Custom bases without Bun
 
 Opt into [signed runtime injection](docs/RUNTIME_INJECTION.md) for an explicit glibc base. This requires GnuPG's `gpgv` on the build host and does not install native-addon shared libraries:
@@ -77,7 +79,7 @@ bun run dev build examples/workspace --push=false \
   --oci-layout .bunko-output/workspace --platform linux/amd64,linux/arm64
 ```
 
-Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited.
+Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. Source builds after rc.3 support explicit `bunko.defaults`; see [configuration](docs/CONFIGURATION.md).
 
 Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures. `--bare` and `--tarball` require a single target.
 
@@ -152,7 +154,7 @@ See [Operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, l
 
 See [Supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
 
-Unsupported: nested workspaces, file/link/git dependencies, bytecode, source symlinks, unsupported `bunfig.toml` settings, macros, computed application imports, runtime packages requiring install scripts without an explicit ignored-script allowance or prepared dependency artifact. Executable build inputs are checked before Bun parses them; copied assets and unreachable modules do not undergo executable syntax validation. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md) for data imports and explicit dependency policies. Unknown or unsupported settings fail explicitly.
+Unsupported: nested workspaces, file/link/git dependencies, bytecode, source symlinks, unsupported `bunfig.toml` settings, macros in bundle/compile mode, computed application imports in bundle/compile mode, runtime packages requiring install scripts without an explicit ignored-script allowance or prepared dependency artifact. Executable build inputs are checked before Bun parses them; copied assets and unreachable modules do not undergo executable syntax validation. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md) for data imports and explicit dependency policies. Unknown or unsupported settings fail explicitly.
 
 ## Diagnostics
 

@@ -1,3 +1,5 @@
+import { runtimeCA, assertBaseDataPaths, type RuntimeCA } from "./runtime-ca.ts";
+import { assetPolicy } from "./asset-policy.ts";
 import { assertToolchain } from "./toolchain-policy.ts";
 import { sourceApplication } from "./source-application.ts";
 import { offlineOptions } from "./offline.ts";
@@ -46,6 +48,7 @@ import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  runtimeCA?: RuntimeCA;
   runtime?: InjectedRuntime;
   compileRuntime?: Omit<InjectedRuntime, "path">;
   locations?: LocationDiagnostics;
@@ -75,6 +78,7 @@ export interface BuildResult {
   manifest: Descriptor;
   config: Descriptor;
   sourceDigest: Digest;
+  runtimeCA?: RuntimeCA;
   assetMaterials?: AssetMaterial[];
   baseDigest: Digest;
   baseRuntimeVerified: false;
@@ -119,7 +123,7 @@ interface BuildContext {
   builder: Awaited<ReturnType<typeof builderIdentity>>;
   inputPaths?: Set<string>;
   cachePersistence: { disabled?: boolean };
-  project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
+  project: Project; runtimeCertificate?: Awaited<ReturnType<typeof runtimeCA>>; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
   closureProjects: Project[];
   closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
@@ -213,8 +217,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
     }
     const prefix = project.workdir.slice(1);
-    const selectedAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix);
-    const assets = [...(project.mode === "source" ? [] : selectedAssets), ...context.mappedAssets.entries];
+    const originalAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix, project.assetExcludes.length > 0);
+    const selectedAssets = assetPolicy(originalAssets, prefix, project.assetExcludes, project.assetMode);
+    const assets = [...(project.mode === "source" ? [] : selectedAssets), ...context.mappedAssets.entries, ...context.runtimeCertificate ? [context.runtimeCertificate.entry] : []];
     assertNoLayerCollision([assets]);
     const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(context.mappedAssets.materials.length ? { materials: context.mappedAssets.materials } : {}), entries: await assetInputs(assets) });
     const records: CacheRecord[] = [];
@@ -230,6 +235,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       for (const [index, platform] of project.platforms.entries()) {
         await stage("assemble", async () => {
         const base = bases[index]!;
+        const ca = context.runtimeCertificate;
+        if (ca) {
+          const configured = project.env.NODE_EXTRA_CA_CERTS;
+          const inherited = base.config.config?.Env?.find((value) => value.startsWith("NODE_EXTRA_CA_CERTS="))?.slice("NODE_EXTRA_CA_CERTS=".length);
+          if (configured !== undefined && configured !== ca.metadata.path || inherited && inherited !== ca.metadata.path) throw new Error("runtime.caCertificates conflicts with an existing NODE_EXTRA_CA_CERTS path");
+          assertBaseDataPaths(runtimes[index]?.tree ?? await baseFilesystem(store, base, temporary), [ca.entry]);
+        }
         const inputRuntime = runtimes[index];
         const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {
@@ -309,6 +321,16 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
           application = built;
           app = await fileEntries(built.outdir, prefix);
+          if (project.mode === "source") {
+            const sourcePath = (path: string) => join(prefix, project.targetPath, path.slice(prefix.length + 1));
+            const original = new Set(originalAssets.map((entry) => sourcePath(entry.path)));
+            const selected = new Map(selectedAssets.map((entry) => [sourcePath(entry.path), entry]));
+            app = app.filter((entry) => !original.has(entry.path) || selected.has(entry.path)).map((entry) => {
+              const asset = selected.get(entry.path);
+              return entry.type === "file" && asset?.type === "file" ? { ...entry, mode: asset.mode, executable: asset.executable } : entry;
+            });
+            for (const entry of Object.values(built.entrypoints ?? { default: built.entry })) if (!app.some((file) => file.type === "file" && file.path === `${prefix}/${entry}`)) throw new Error("Asset exclusion removed an application entrypoint");
+          }
           applicationMetadata = { locations: built.locations, entry: built.entry, entrypoints: built.entrypoints, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
         }
         if (iteration === 1 && index === 0 && application.locations) {
@@ -325,7 +347,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
-          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: project.env, ports: project.ports,
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
@@ -333,7 +355,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
-        result.push({ compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;
@@ -352,7 +374,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const result: BuildResult = {
       schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
-      sourceDigest, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
+      sourceDigest, runtimeCA: context.runtimeCertificate?.metadata, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
@@ -487,9 +509,11 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
+  const runtimeCertificates = new Map(await Promise.all(projects.map(async (project) => [project.directory, await runtimeCA(project)] as const)));
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
-  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
+  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -509,7 +533,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
-    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), await requiredInputs(discovered.directory, projects, exclusions)));
+    const assetExclusions: string[] = [];
+    const required = await requiredInputs(discovered.directory, projects, exclusions, assetExclusions);
+    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }
@@ -539,7 +565,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

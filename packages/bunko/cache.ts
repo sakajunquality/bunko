@@ -43,7 +43,7 @@ export function cacheTag(kind: string, key: Digest) { assertDigest(key); return 
 
 export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
   return mapFiles(entries, async (entry) => entry.type === "file" ? {
-    type: entry.type, path: entry.path, executable: Boolean(entry.executable), digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content),
+    type: entry.type, path: entry.path, executable: Boolean(entry.executable), ...(entry.mode !== undefined ? { mode: entry.mode } : {}), digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content),
   } : entry);
 }
 

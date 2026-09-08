@@ -1,5 +1,6 @@
+import { assetExcluder, assetMode } from "./asset-policy.ts";
 import { chmod, copyFile, lstat, mkdir, readdir, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { canonicalJSON, object, sha256 } from "../oci/digest.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
@@ -8,7 +9,7 @@ import { assetInputs } from "./cache.ts";
 import { assertNoLayerCollision } from "./files.ts";
 import { sourceIgnore, sourceOmissions } from "./ignore.ts";
 
-export interface AssetMapping { context: string; from: string; to: string }
+export interface AssetMapping { context: string; from: string; to: string; exclude?: string[]; mode?: string }
 export interface AssetMaterial extends AssetMapping { digest: Digest }
 const contextName = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const protectedRoots = new Set(["bin", "boot", "dev", "etc", "home", "lib", "lib32", "lib64", "media", "mnt", "proc", "root", "run", "sbin", "sys", "usr", "var"]);
@@ -23,12 +24,15 @@ export function assetMappings(value: unknown): AssetMapping[] {
   if (!Array.isArray(value)) throw new Error("assetMappings must be an array");
   return value.map((item) => {
     const row = object(item, "Asset mapping");
-    if (Object.keys(row).some((key) => !["context", "from", "to"].includes(key)) || typeof row.context !== "string" || !contextName.test(row.context) || typeof row.from !== "string" || typeof row.to !== "string") throw new Error("Asset mappings require context, from, and to strings");
+    if (Object.keys(row).some((key) => !["context", "from", "to", "exclude", "mode"].includes(key)) || typeof row.context !== "string" || !contextName.test(row.context) || typeof row.from !== "string" || typeof row.to !== "string") throw new Error("Asset mappings require context, from, and to strings");
     archivePath(row.from);
     if (/[?*\[\]{}]/.test(row.from)) throw new Error("Asset mapping from must be an exact relative file or directory");
     if (!row.to.startsWith("/")) throw new Error("Asset mapping to must be an absolute image path");
     validateDestination(row.to.slice(1));
-    return { context: row.context, from: row.from, to: row.to };
+    if (row.exclude !== undefined && (!Array.isArray(row.exclude) || !row.exclude.every((item) => typeof item === "string"))) throw new Error("Asset mapping exclude must be an array of relative patterns");
+    const exclude = (row.exclude as string[] | undefined)?.map((pattern) => archivePath(pattern.replace(/^\.\//, "")));
+    assetMode(row.mode);
+    return { context: row.context, from: row.from, to: row.to, ...(exclude ? { exclude } : {}), ...(row.mode !== undefined ? { mode: row.mode as string } : {}) };
   });
 }
 
@@ -85,6 +89,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
       if (!matchers.has(root)) matchers.set(root, await sourceIgnore(root));
       const ignored = matchers.get(root)!;
       const selected: TarEntry[] = [];
+      const excludeAsset = assetExcluder(mapping.exclude ?? []), mode = assetMode(mapping.mode);
       const forbidden = (path: string) => path.split("/").some((part) => sourceOmissions.has(part) || part.startsWith(".env")) || path.split("/").some((_, i, parts) => ignored(parts.slice(0, i + 1).join("/"))) || excluded.some((item) => join(root, path) === item || join(root, path).startsWith(`${item}/`));
       // Check every ancestor with lstat; never traverse an intermediate symlink.
       for (const [i] of mapping.from.split("/").entries()) {
@@ -94,6 +99,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
         if (info.isSymbolicLink()) throw new Error(`Asset symlinks are not supported: ${mapping.context}/${path}`);
       }
       async function walk(path: string, destination: string) {
+        if (path !== mapping.from && excludeAsset(path.slice(mapping.from.length + 1))) return;
         if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}`);
         validateDestination(destination);
         const input = join(root, path), info = await lstat(input);
@@ -104,16 +110,17 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
           selected.push({ type: "directory", path: destination });
           for (const name of (await readdir(input)).sort()) await walk(`${path}/${name}`, `${destination}/${name}`);
         } else if (info.isFile()) {
+          if (path === mapping.from && excludeAsset(basename(path))) return;
           if (stage === undefined) {
-            selected.push({ type: "file", path: destination, content: new Uint8Array(0), executable: Boolean(info.mode & 0o111) });
+            selected.push({ type: "file", path: destination, content: new Uint8Array(0), ...(mode !== undefined ? { mode } : {}), executable: Boolean((mode ?? info.mode) & 0o111) });
             return;
           }
           const copied = join(stage, String(index), destination);
           await mkdir(dirname(copied), { recursive: true });
           await copyFile(input, copied);
-          await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
+          await chmod(copied, mode ?? (info.mode & 0o111 ? 0o755 : 0o644));
           const captured = await lstat(copied);
-          selected.push({ type: "file", path: destination, source: copied, size: captured.size, executable: Boolean(info.mode & 0o111) });
+          selected.push({ type: "file", path: destination, source: copied, size: captured.size, ...(mode !== undefined ? { mode } : {}), executable: Boolean((mode ?? info.mode) & 0o111) });
         } else throw new Error(`Unsupported asset input type: ${mapping.context}/${path}`);
       }
       await walk(mapping.from, mapping.to.slice(1));
