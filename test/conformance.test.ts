@@ -1,7 +1,31 @@
 import { command } from "./command.ts";
 import { expect, test } from "bun:test";
-import { conformanceOptions, validateRepository } from "./registry-conformance.ts";
+import { cliBuild, conformanceOptions, validateRepository } from "./registry-conformance.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PublicationError } from "../packages/oci/publish.ts";
 import { pullImage } from "./docker-pull.ts";
+
+test("released CLI failures retain partial publication without copying stderr into reports", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bunko-cli-report-"));
+  const output = join(directory, "report.json");
+  try {
+    const publication = { published: false, pendingTags: ["test"], completedTags: [] };
+    const script = `await Bun.write(process.argv[1], JSON.stringify({status:"failed",publication:${JSON.stringify(publication)}})); process.exit(2);`;
+    try {
+      await cliBuild([process.execPath, "-e", script, output], output);
+      throw new Error("Expected the CLI to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PublicationError);
+      expect((error as PublicationError).result).toEqual(publication);
+      expect((error as Error).message).toBe("Released CLI build failed (exit 2)");
+    }
+    await rm(output);
+    await expect(cliBuild([process.execPath, "-e", "process.exit(1)"], output)).rejects.toThrow("Released CLI build failed (exit 1)");
+    await expect(cliBuild([process.execPath, "-e", "process.exit(0)"], output)).rejects.toThrow("successful build report");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test.each([
   ["ghcr", "ghcr.io/owner/bunko-conformance"],

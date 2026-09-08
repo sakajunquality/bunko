@@ -22,6 +22,19 @@ export interface ConformanceOptions {
   insecure?: string[]; archivePull?: boolean;
 }
 
+export async function cliBuild(args: string[], output: string): Promise<BuildResult> {
+  const child = Bun.spawn(args, { env: process.env, stdout: "ignore", stderr: "inherit" });
+  const code = await child.exited;
+  const result = await Bun.file(output).json().catch(() => undefined);
+  if (code !== 0) {
+    const message = `Released CLI build failed (exit ${code})`;
+    if (result?.publication) throw new PublicationError(message, result.publication);
+    throw new Error(message);
+  }
+  if (!result || result.status === "failed") throw new Error("Released CLI did not produce a successful build report");
+  return result;
+}
+
 export function validateRepository(vendor: Vendor, value: string): string {
   if (!value.includes("/") || !/[.:]/.test(value.split("/")[0]!)) throw new Error("Use a fully qualified, dedicated image repository");
   const ref = repository(value);
@@ -76,13 +89,15 @@ export function verifyWarm(first: BuildResult, second: BuildResult, requireCache
 export async function registryConformance(options: ConformanceOptions) {
   options.repo = validateRepository(options.vendor, options.repo);
   await assertFileAvailable(options.report, "Report");
+  const cliDigest = process.env.BUNKO_TEST_CLI ? sha256(await Bun.file(resolve(process.env.BUNKO_TEST_CLI)).bytes()) : undefined;
   const temporary = await mkdtemp(join(tmpdir(), "bunko-conformance-"));
   const runId = randomUUID(), containers = new Set<string>(), localImages = new Set<string>();
   const base = process.env.BUNKO_TEST_BASE ?? "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
   const tags = [`bunko-smoke-${runId}-first`, `bunko-smoke-${runId}-warm`];
   const results: BuildResult[] = [], runtime: unknown[] = [];
   const report = { schemaVersion: 1, vendor: options.vendor, repository: options.repo, cacheRepository: options.cacheRepo ?? options.repo,
-    runId, base, tags, status: "running", cacheVerified: false, directDockerPull: !options.archivePull,
+    runId, base, tags, invocation: cliDigest ? { kind: "cli", digest: cliDigest } : { kind: "source" },
+    status: "running", cacheVerified: false, directDockerPull: !options.archivePull,
     tokenExpiryTest: "not-run", partialPublication: undefined as PublicationError["result"] | undefined, results, runtime, error: undefined as string | undefined };
   try {
     const source = join(temporary, "source"), installCache = options.installCache ?? join(temporary, "npm-cache");
@@ -102,8 +117,9 @@ export async function registryConformance(options: ConformanceOptions) {
       if (options.cacheRepo) args.push("--cache-repo", options.cacheRepo);
       if (deterministic) args.push("--verify-deterministic");
       for (const host of options.insecure ?? []) args.push("--insecure-registry", host);
-      await command(args);
-      return Bun.file(output).json();
+      const result = await cliBuild(args, output);
+      if (result.builder.kind !== "bundle" || result.builder.digest !== cliDigest) throw new Error("Released CLI builder fingerprint mismatch");
+      return result;
     };
     results.push(await runBuild(tags[0]!, true));
     const expected = `bunko conformance ${runId} warm`;

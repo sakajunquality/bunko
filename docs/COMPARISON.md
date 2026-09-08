@@ -26,7 +26,7 @@ ko is the workflow reference for building images directly from language source a
 
 [Build comparison](BUILD_COMPARISON.md) records repeated cold/warm/edit scenarios using a frozen CLI checkpoint. It reports client CPU/RSS and Bunko payload counters with their limitations; it is not a total worker-resource or wire-traffic comparison. [Local interoperability](INTEROPERABILITY_REVIEW.md), [metadata](METADATA_REVIEW.md), [cache distribution](validation/cache-distribution.json), and [live registry validation](LIVE_REGISTRY_VALIDATION.md) provide feature-specific evidence.
 
-GHCR and Artifact Registry have dedicated private live validation. Docker Hub account publication and private ECR are still unverified without dedicated account destinations/credentials. Implemented protocol authentication does not close those account-specific gaps.
+GHCR, Artifact Registry and Docker Hub have [published CLI live validation](PUBLISHED_RELEASE_VALIDATION.md). An authenticated GAR upstream base also passed bundle and compile runtime checks. Private ECR remains unverified; implemented protocol authentication does not close that account-specific gap.
 
 ## Deferred work
 
