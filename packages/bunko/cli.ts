@@ -66,6 +66,7 @@ Usage:
 
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
+  --runtime-arg <value>    Bun option before the entrypoint; repeatable
   --offline               Build using local bases and prepared caches only
   --define <KEY=VALUE>     Override a build constant; repeatable, explicit values only
   --asset-context <NAME=DIR>  Named local asset input; repeatable
@@ -227,6 +228,7 @@ export async function main(argv: string[]): Promise<number> {
       target: { type: "string", multiple: true },
       bare: { type: "boolean" },
       tag: { type: "string", multiple: true },
+      "runtime-arg": { type: "string", multiple: true },
       offline: { type: "boolean" },
       define: { type: "string", multiple: true },
       tarball: { type: "string" },
@@ -271,7 +273,7 @@ export async function main(argv: string[]): Promise<number> {
     const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: registryMirrors(values["registry-mirror"]), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
-      const options = { path, define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
     }
     if (command === "metadata") {
@@ -351,7 +353,7 @@ export async function main(argv: string[]): Promise<number> {
     }));
     if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
-      offline: values.offline,
+      offline: values.offline, runtimeArgs: values["runtime-arg"],
       baseSBOMs: Object.keys(baseSBOMs).length ? baseSBOMs : undefined, depsVerifyKey: values["deps-verify-key"], supplyChainPolicy: values["supply-chain-policy"] as "ci" | undefined,
       define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]),
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
