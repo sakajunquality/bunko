@@ -1,6 +1,6 @@
 # Application compatibility
 
-These capabilities are available in source builds after v0.1.0-alpha.2. They are not part of the existing immutable release assets.
+These capabilities are included in v0.1.0-rc.1. The immutable v0.1.0-alpha.2 assets do not include them.
 
 ## Workspaces and catalogs
 
@@ -117,10 +117,14 @@ Use `assetMappings` for runtime files outside the project. Bind each logical con
 bunko build ./server --asset-context repo=/path/to/staged-inputs --oci-layout ./image
 ```
 
-`from` is an exact relative file or directory, without globs or parent traversal. A directory copies its contents recursively into the exact absolute image directory specified by `to`; a file maps to that exact filename. Existing `assets` patterns remain relative to the application's workdir. `--asset-context` is repeatable and works with build, resolve, and apply; it is independent of resolve's `--context`. Relative context paths, including programmatic `assetContexts` values, resolve from the invocation working directory.
+`from` is an exact relative file or directory, without globs or parent traversal. A directory copies its contents recursively into the exact absolute image directory specified by `to`; a file maps to that exact filename. Existing `assets` patterns remain relative to the application's workdir. `--asset-context` is repeatable and works with build, resolve, apply, check-config, and doctor; it is independent of resolve's `--context`. Relative context paths, including programmatic `assetContexts` values, resolve from the invocation working directory.
 
 Only selected files are read and frozen before dependency installation or bundling. Unselected sibling directories are not scanned. Context-root `.bunkoignore` rules and the normal credential, dependency, output, and cache exclusions apply; an excluded file anywhere in a selected tree fails the build. Symlinks and special files are rejected, including symlinks in selected parent paths. Empty directories are preserved. Files normalize to mode 0755 when any executable bit is set and 0644 otherwise; directories use 0755. This matches ordinary assets and makes packaged files readable by the configured runtime user. Live input trees should remain unchanged during staging.
 
 Mappings cannot target system directories such as `/usr`, `/etc`, or `/proc`, or Bunko's dependency directories. Collisions between mappings, regular assets, dependencies, and application output fail, including case collisions and file/directory conflicts. Custom destinations follow normal OCI layering over the chosen base; mappings are not a general base-filesystem inspection feature.
 
 Reports and provenance record logical context names, selected relative paths, exact destinations, and content digests. Asset cache identity includes these mappings and the frozen contents; host input directory paths are omitted. These logical names and relative paths are public metadata when publishing provenance, so choose names appropriate for publication. Additional source files copied as assets do not become executable bundle inputs. This feature does not make missing runtime dependencies or shared libraries available.
+
+## Before workload validation
+
+Follow [application validation](APPLICATION_VALIDATION.md) for a disposable functional fixture, private output handling, and the remote acceptance checklist. `check-config` and `doctor` require bindings for selected asset mappings and inspect selected filesystem entries without copying or hashing their contents. They report named entries, the default command, logical mappings, and selected entry counts. They reject missing inputs, normal source omissions, context-root `.bunkoignore` exclusions, symlinks, mapping collisions, and overlap with the configured runtime. Build-specific output/cache/staging-directory exclusions are checked only during a build. Regular project assets, bundle/dependency collisions, file content, and actual runtime behavior still require a build and runtime checks.

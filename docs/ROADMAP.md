@@ -2,14 +2,15 @@
 
 This is a delivery plan, not a promise of release dates or complete ko/BuildKit compatibility. Each implementation change receives review, and release claims identify the exact tested artifact. The [comparison](COMPARISON.md) explains the current scope.
 
-## Public launch and the next alpha
+## Release candidate and workload acceptance
 
-- Finish release-first installation instructions, reader-accessible evidence, security reporting, and public contribution settings. At the visibility transition, enable GitHub private vulnerability reporting and verify the reporting form, outside-contributor workflow approval, main/tag protection, secret scanning, and push protection.
-- Preserve published alpha.2 assets. Its help text predates the public launch; updated wording belongs in the next release.
-- Verify a fresh installation without preexisting repository credentials and the setup Action from a separate consumer repository.
-- Prepare alpha.3 only after its exact artifact passes checksums, both-platform runtime tests, and the existing registry matrix.
+- Publish v0.1.0-rc.1 after reviewed changes and CI pass; preserve the immutable alpha.2 assets.
+- Verify checksums and installation of the exact published RC from a clean consumer environment.
+- Complete the [remote application acceptance matrix](validation-request.html) on the application machine. Generic fixture passes do not certify Temporal, Snowflake, bot or framework-specific behavior.
+- Re-run the registry matrix with the exact RC artifact before carrying forward alpha.2 interoperability claims. Record unavailable credentials or services as not-run.
+- Promote to a stable release only after applicable workload checks and migration/rollback instructions have an explicit disposition.
 
-Completion means a new reader can install the documented release and inspect the primary evidence, with reporting and repository protections verified.
+Completion means a reader can install the candidate and distinguish verified behavior from remaining workload/provider checks. Runtime injection and source-preserving mode require separate design and ABI validation.
 
 ## Real workload and registry stability
 
@@ -28,10 +29,10 @@ Completion means failures have reproducible fixtures and provider claims match t
 
 Completion means a consumer can identify the artifact's origin, and automation cannot silently replace published versions or skip required checks.
 
-## Performance and beta readiness
+## Performance and stable-release readiness
 
 - Measure cold, warm, source-edit, and large-workspace builds using frozen toolchains. Record variance and distinguish client resource measurements from total worker or wire costs.
 - Optimize bounded file processing, install/bundle overlap, transfer concurrency, or cache behavior only where profiles show a material bottleneck.
-- Stabilize CLI, configuration, report formats, cache migration, and recovery instructions before beta. Exercise installation, upgrade, and rollback from a fresh consumer environment.
+- Stabilize CLI, configuration, report formats, cache migration, and recovery instructions before a stable release. Exercise installation, upgrade, and rollback from a fresh consumer environment.
 
 General Dockerfile/LLB execution, arbitrary RUN steps, remote workers, and broad platform expansion remain outside this plan. Rebase work first requires explicit Bun/libc/native compatibility gates.

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkConfig, doctor } from "../packages/bunko/diagnostics.ts";
 import { validateCommandOptions } from "../packages/bunko/command-options.ts";
@@ -59,4 +59,28 @@ test("push-layout reports an image root published before an attachment failure",
   } }, report)).rejects.toThrow("image root was published");
   const data = await Bun.file(report).json();
   expect(data.status).toBe("failed"); expect(data.publication.published).toBe(true); expect(data.publication.reference).toContain(result.root.digest);
+});
+
+
+test("diagnostics check named entries and external bindings without staging or exposing host paths", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "app")), inputs = join(root, "inputs");
+  await mkdir(inputs); await writeFile(join(inputs, "config.json"), "{}");
+  await writeFile(join(source, "src/worker.ts"), "console.log(1)");
+  const mapping = {context:"data",from:"config.json",to:"/repo/config.json"};
+  await writeFile(join(source, "package.json"), JSON.stringify({name:"fixture",bunko:{entrypoints:{server:"src/server.ts",worker:"src/worker.ts"},defaultEntrypoint:"server",assetMappings:[mapping]}}));
+  await expect(checkConfig({path:source})).rejects.toThrow("Missing asset context: data");
+  const before = await readdir(root), result = await checkConfig({path:source,assetContexts:{data:inputs}});
+  expect(result.targets[0]!.entrypoints).toEqual({server:"src/server.ts",worker:"src/worker.ts"});
+  expect(result.targets[0]!.assetMappings).toEqual([mapping]);
+  expect(result.targets[0]!.assetInputs).toEqual({entries:1,contexts:["data"]});
+  expect(JSON.stringify(result)).not.toContain(inputs);
+  expect(await readdir(root)).toEqual(before);
+  for (const command of ["check-config", "doctor"]) {
+    const child = Bun.spawn([process.execPath,resolve("packages/bunko/cli.ts"),command,source,"--asset-context",`data=${inputs}`],{stdout:"pipe",stderr:"pipe"});
+    const [out,error,exit] = await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
+    expect(exit).toBe(0); expect(error).toBe(""); expect(JSON.parse(out).targets[0].defaultEntrypoint).toBe("server");
+  }
+  await rm(join(inputs,"config.json")); await symlink("/nonexistent",join(inputs,"config.json"));
+  await expect(checkConfig({path:source,assetContexts:{data:inputs}})).rejects.toThrow("symlinks");
 });
