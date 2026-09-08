@@ -1,5 +1,8 @@
 # Ko workflow review and final validation
 
+For subsequent tests of the published alpha.2 CLI, including Docker Hub account publication and an authenticated upstream base, see [published release validation](PUBLISHED_RELEASE_VALIDATION.md). The results below describe their original checkpoints.
+
+
 Claude Code 2.1.263 reviewed the researched gap plan and implementation with read-only tools. The following findings were fixed:
 
 - Selector output no longer adds a YAML 1.2 directive, which kubectl's YAML reader rejected. A disposable kind cluster subsequently passed server dry-run and real apply **with a selector**, not just a JavaScript parser round trip.

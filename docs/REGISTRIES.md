@@ -8,13 +8,13 @@ Bunko implements OCI Distribution push/pull and Docker-compatible credentials. C
 | --- | --- | --- | --- |
 | GitHub Container Registry | `ghcr.io/OWNER` | Docker login, PAT, or workflow token | Live workflow-token push, separate cache reuse, direct Docker pull, and amd64/arm64 runtime verified. [Report](LIVE_REGISTRY_VALIDATION.md). |
 | Google Artifact Registry | `asia-northeast1-docker.pkg.dev/PROJECT/REPOSITORY` | gcloud/gcr helper or access token | Live helper-authenticated push, separate cache reuse, direct Docker pull, and amd64/arm64 runtime verified. [Report](LIVE_REGISTRY_VALIDATION.md). |
-| Docker Hub | `docker.io/USERNAME` | Docker login or credential store | Real public-base pull and automated host-alias/Bearer tests; account push not verified. |
+| Docker Hub | `docker.io/USERNAME` | Docker login or credential store | Published alpha.2: account push, cache reuse, direct Docker pull and amd64/arm64 runtime checks passed. See [release validation](PUBLISHED_RELEASE_VALIDATION.md). |
 | Amazon ECR private | `ACCOUNT.dkr.ecr.REGION.amazonaws.com/PREFIX` | ecr-login helper or AWS password | Automated helper/Basic-challenge/credential-refresh tests; real service push not verified. |
 | OCI Distribution | `localhost:5000/demo` | Basic, Bearer, or anonymous | Real push/pull, cache reuse, and container execution with Distribution 3. |
 
 bunko appends `bunko.imageName` or the project name to the prefix. For an exact repository, use `--bare`, for example `--repo docker.io/USERNAME/app --bare`. Create GAR projects/repositories and exact ECR image repositories beforehand. ECR Public, Harbor-specific extensions, referrers, and signing require separate validation.
 
-Cloud publication tests require a user-selected repository and permissions. GHCR and GAR have linked live results above; Docker Hub account push and ECR remain unverified. Passing mock tests does not establish interoperability with a cloud service.
+Cloud publication tests require a user-selected repository and permissions. GHCR, GAR and Docker Hub have linked live results; private ECR remains unverified. Passing mock tests does not establish interoperability with a cloud service.
 
 ## Credential selection
 

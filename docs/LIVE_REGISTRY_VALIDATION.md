@@ -1,5 +1,8 @@
 # Live registry validation
 
+For subsequent tests of the published alpha.2 CLI, including Docker Hub account publication and an authenticated upstream base, see [published release validation](PUBLISHED_RELEASE_VALIDATION.md). The results below describe their original checkpoints.
+
+
 2026-09-08 (Asia/Tokyo). These tests use dedicated repositories explicitly selected by the repository owner. Authentication and registry permissions are existing configuration; the tests do not change IAM or repository visibility.
 
 ## GitHub Container Registry

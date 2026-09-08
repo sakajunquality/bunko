@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      published-version:
+        description: Optional existing release version to verify through the setup action
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -38,6 +43,18 @@ jobs:
         with:
           distribution-directory: dist/release
       - run: bunko version
+      - name: Verify installation from the published release
+        id: published
+        if: github.event_name == 'workflow_dispatch' && inputs.published-version != ''
+        uses: ./
+        with:
+          version: ${{ inputs.published-version }}
+      - name: Verify installed release version
+        if: github.event_name == 'workflow_dispatch' && inputs.published-version != ''
+        env:
+          EXPECTED_VERSION: ${{ inputs.published-version }}
+          PUBLISHED_BUNKO: ${{ steps.published.outputs.bunko-path }}
+        run: test "$("$PUBLISHED_BUNKO" version)" = "${EXPECTED_VERSION#v}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bunko-release
