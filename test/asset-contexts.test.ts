@@ -1,3 +1,5 @@
+import { MockRegistry } from "./mock-registry.ts";
+import { resolveDocuments } from "../packages/bunko/resolve.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,7 +7,7 @@ import { assetMappings, normalizeAssetContexts, parseAssetContexts, stageAssetMa
 import { build } from "../packages/bunko/build.ts";
 import { provenance } from "../packages/bunko/attest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
-import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
+import { baseLayout, cli, inspectTar, project, temporary } from "./helpers.ts";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -127,4 +129,23 @@ test("case and file/directory mapping conflicts fail", async () => {
   const file = { context: "repo", from: "config/settings.json", to: "/repo/item" };
   await expect(stageAssetMappings([file, { ...file, to: "/repo/ITEM" }], { repo: f.context }, join(f.root, "case"))).rejects.toThrow("Case-colliding");
   await expect(stageAssetMappings([file, { ...file, to: "/repo/item/child" }], { repo: f.context }, join(f.root, "parent"))).rejects.toThrow("collision");
+});
+
+
+test("resolve forwards mapped inputs into its published image", async () => {
+  const f = await fixture(), registry = new MockRegistry();
+  const result = await resolveDocuments({ context: f.root, files: ["-"], stdin: async () => "image: bunko://app\n", assetContexts: { repo: f.context }, baseLayout: await baseLayout(join(f.root, "base")), repo: "registry.test/team", gitMetadata: false, localCache: false, registryCache: false, registry: { fetcher: registry.fetch, credentials: async () => undefined } });
+  expect(result.output).toContain("registry.test/team/hello@sha256:");
+  expect(result.targets[0]!.assetMaterials![0]!.to).toBe("/repo/config");
+});
+
+test("resolve and apply CLI accept unused named contexts without reading them", async () => {
+  const f = await fixture(), manifest = join(f.root, "input.yaml"), kubectl = join(f.root, "kubectl");
+  await writeFile(manifest, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: fixture\n");
+  await writeFile(kubectl, `#!${process.execPath}\nconsole.log(await Bun.stdin.text());`, { mode: 0o755 });
+  for (const command of ["resolve", "apply"]) {
+    const result = await cli([command, "-f", manifest, "--asset-context", `unused=${join(f.root, "absent")}`, ...(command === "apply" ? ["--kubectl-path", kubectl, "--kube-dry-run", "client"] : [])]);
+    expect(result.exit).toBe(0);
+    expect(result.stdout).toContain("ConfigMap");
+  }
 });
