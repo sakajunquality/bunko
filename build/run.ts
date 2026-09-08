@@ -32,7 +32,7 @@ export function imageResults(report: unknown): ActionImage[] {
   const targets = Array.isArray(record.targets) ? record.targets : [record];
   if (!targets.length) throw new Error("Build Action report has no targets");
   return targets.map((item) => {
-    if (!item || typeof item !== "object" || typeof item.target !== "string" || !/^sha256:[a-f0-9]{64}$/.test(item.root?.digest)) throw new Error("Invalid build Action target result");
+    if (!item || typeof item !== "object" || typeof item.target !== "string" || !item.target || typeof item.root?.digest !== "string" || item.root.digest.length !== 71 || !/^sha256:[a-f0-9]{64}$/.test(item.root?.digest)) throw new Error("Invalid build Action target result");
     const reference = item.publication?.published ? item.publication.reference : undefined;
     if (reference !== undefined && (typeof reference !== "string" || /\s/.test(reference) || !reference.endsWith(`@${item.root.digest}`))) throw new Error("Invalid published image reference");
     return { target: item.target, digest: item.root.digest, ...reference ? { reference } : {} };
@@ -53,7 +53,7 @@ export async function runBuildAction(inputs: Inputs): Promise<void> {
     // Arguments are passed directly without shell interpolation or command echoing.
     const child = Bun.spawn([executable, ...invocation.args], { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
     const code = await child.exited;
-    if (code) throw new Error(`Bunko build failed (exit ${code}); inspect the report when present`);
+    if (code !== 0 || child.signalCode) throw new Error(`Bunko build failed (exit ${code}); inspect the report when present`);
     if ((await stat(invocation.report)).size > 32 * 1024 * 1024) throw new Error("Build Action report exceeds size limit");
     const images = imageResults(await Bun.file(invocation.report).json());
     const serialized = JSON.stringify(images);
