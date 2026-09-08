@@ -31,11 +31,14 @@ test("SBOM and provenance describe exact subjects without changing runnable iden
     const payload = JSON.parse(Buffer.from(await store.read(manifest.layers[0])).toString());
     if (manifest.artifactType === sbomType) {
       expect(payload.spdxVersion).toBe("SPDX-2.3");
-      expect(payload.packages.map((p: { name: string }) => p.name)).toEqual(["hello", "fixture-msg"]);
+      expect(payload.packages.map((p: { name: string }) => p.name)).toEqual(["hello", "fixture-msg", "bun"]);
+      expect(payload.packages.at(-1).comment).toContain("Expected base");
       expect(item.subject.digest).toBe(result.manifest.digest);
     } else {
       expect(manifest.artifactType).toBe(provenanceType);
       expect(payload.subject[0].digest.sha256).toBe(result.root.digest.slice(7));
+      expect(payload.predicate.runDetails.builder.builderDependencies[0].digest.sha256).toBe(result.builder!.digest.slice(7));
+      expect(result.toolchain.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
       expect(payload.predicate.buildDefinition.resolvedDependencies.some((d: { uri: string }) => d.uri === "urn:bunko:lock")).toBe(true);
     }
     expect(JSON.stringify(payload)).not.toContain(root);

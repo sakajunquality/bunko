@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "cosign": "3.1.3",
+  "registry": "Distribution 3",
+  "signatureRejections": 2,
+  "exportedArtifacts": 2,
+  "builderKind": "source",
+  "builderDigest": "sha256:ca7f55e9060c2dd04495745d482d92ad3b8ffcd3d5a4281588a3d76496fe5898",
+  "transparencyLogUpload": false,
+  "scope": "Synthetic prepared dependency and base metadata fixtures; no runtime or OS scanner claim",
+  "externalConsumers": {
+    "spdx": "SPDX 2.3 official JSON schema, jsonschema 4.26.0",
+    "inToto": "in-toto-attestation 0.9.3 Statement validation and SLSA v1 protobuf parsing",
+    "result": "pass"
+  }
+}

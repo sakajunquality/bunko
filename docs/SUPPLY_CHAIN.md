@@ -43,3 +43,7 @@ Base checks validate OCI platform/config metadata without Docker. `--run` additi
 Validation commands: `bun run test:m3-smoke` runs compiled images and checks bases; `BUNKO_COSIGN_PATH=/path/to/cosign bun test/m3-signing-smoke.ts` creates disposable local keys and a Distribution 3 registry, signs and verifies images and attachments, then removes test resources.
 
 References: [OCI manifests](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md), [SLSA provenance](https://slsa.dev/spec/v1.1/provenance), [Bun executables](https://bun.sh/docs/bundler/executables), [cosign signing](https://docs.sigstore.dev/cosign/signing/signing_with_containers/).
+
+## Metadata extraction and policy
+
+See [Metadata and policy](METADATA.md) for exact-payload export, base SPDX linkage, prepared dependency signature verification, runtime/license coverage, and the opt-in CI profile. The builder artifact/source fingerprint now participates in image identity; using a different CLI bundle or source tree changes image digests even when the version string is identical. Reproducibility comparisons must hold that fingerprint constant.

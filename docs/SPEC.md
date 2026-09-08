@@ -240,3 +240,9 @@ Workspace application cache keys retain whole reachable member trees, every pack
 Resolve supports local Docker and kind loading in addition to Registry publication. Kind apply explicitly selects the matching kind context. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md). Per-target dependency maps support standalone and target-bound workspace artifacts; see the [preparation recipe](../examples/prepared-dependencies/README.md).
 
 Zstd-compressed OCI base layers are supported without recompression during composition. Zstd descriptors are limited to 2 GiB compressed; decoding defaults to 2 GiB output and a 128 MiB maximum decoder window. Docker export verifies decompressed DiffIDs. Generated application layers remain gzip. Custom CA and mutual TLS settings are host-scoped; see [REGISTRIES.md](REGISTRIES.md).
+
+## Metadata extraction and producer policy
+
+`metadata IMAGE@DIGEST|layout:DIR --metadata-dir DIR` exports verified SPDX and provenance payloads. `--base-sbom linux/ARCH=ARTIFACT@DIGEST` links a base inventory bound to the selected platform manifest. `--deps-verify-key` checks prepared dependency signatures before import. The opt-in `--supply-chain-policy ci` requires reproducible builds, image/metadata signing, both metadata types and prepared dependency verification where applicable. See [METADATA.md](METADATA.md) for coverage and trust limitations.
+
+Builder identity is an input to application caching and runnable image labels. Distributed CLI runs hash the actual JavaScript bundle; source runs fingerprint TypeScript sources, package.json and bun.lock. Two different installations, bundles or source revisions can therefore produce different image digests despite sharing a version string. Reproducibility requires the same builder fingerprint as well as the same application, toolchain and base inputs.

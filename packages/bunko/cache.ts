@@ -17,7 +17,7 @@ import type { InventoryEntry, NativeBinary } from "./deps.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
-export const packFormat = `tar-gzip-v1/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
+export const packFormat = `tar-gzip-v2/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
 const maxLayerBytes = 2 * 1024 ** 3;
 

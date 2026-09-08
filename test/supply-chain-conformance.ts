@@ -5,6 +5,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { build, writeReport } from "../packages/bunko/build.ts";
+import { exportMetadata } from "../packages/bunko/metadata.ts";
+import { dockerCredentials } from "../packages/oci/credentials.ts";
 import { verifyImage } from "../packages/bunko/attest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { RegistrySource } from "../packages/oci/source.ts";
@@ -43,7 +45,9 @@ try {
     await verifyImage(reference, join(directory, "test.pub"), true, cosign);
     verified.push(reference);
   }
-  await writeReport(report, { schemaVersion: 1, vendor, status: "success", repository, root: result.root, publication: result.publication,
+  const metadata = await exportMetadata(`${repository}@${result.root.digest}`, join(directory, "metadata"), { credentials: dockerCredentials() });
+  if (metadata.records.length !== 3) throw new Error("Expected two SPDX documents and one provenance statement");
+  await writeReport(report, { schemaVersion: 1, vendor, status: "success", metadata: metadata.records, repository, root: result.root, publication: result.publication,
     attestations: result.attestations, verified, privateSignatures: true, deterministic: result.verifiedDeterministic });
   console.log(`PASS: ${vendor} OCI attachments and ${verified.length} private signatures verified; report=${report}`);
 } catch (error) {

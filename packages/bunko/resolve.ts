@@ -1,3 +1,4 @@
+import { supplyChainOptions } from "./policy.ts";
 import { canonicalDependencyMap } from "./dependency-map.ts";
 import { labelSelector, selectDocuments } from "./selector.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
@@ -164,10 +165,11 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
 }
 
 export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+  options = supplyChainOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   if (options.jobs !== undefined && (!Number.isSafeInteger(options.jobs) || options.jobs < 1 || options.jobs > 32)) throw new Error("--jobs must be an integer from 1 to 32");
-  if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
-  if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
+  if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
+  if ((options.signKey || options.depsVerifyKey) && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
   const configuredRepo = options.repo ?? process.env.BUNKO_REPO;
   if (configuredRepo !== undefined) repository(options.bare ? configuredRepo : `${configuredRepo}/bunko-validation`);
   if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");

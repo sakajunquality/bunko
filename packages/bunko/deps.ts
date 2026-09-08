@@ -1,3 +1,4 @@
+import { packageLicense } from "./inventory.ts";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { canonicalJSON, object, sha256 } from "../oci/digest.ts";
@@ -11,7 +12,7 @@ import type { Toolchain } from "./toolchain.ts";
 
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 export interface DependencyPlan { manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
-export interface InventoryEntry { path: string; name: string; version: string }
+export interface InventoryEntry { path: string; name: string; version: string; license?: string }
 export interface NativeBinary { path: string; architecture: string; needed: string[] }
 
 export function packageRoot(value: string): string {
@@ -217,7 +218,7 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
       if (path.endsWith("/package.json")) {
         const pkg = object(JSON.parse(await readFile(file, "utf8")), "Dependency package.json");
         if (typeof pkg.name === "string" && typeof pkg.version === "string") {
-          inventory.push({ path: dirname(path), name: pkg.name, version: pkg.version });
+          inventory.push({ path: dirname(path), name: pkg.name, version: pkg.version, license: packageLicense(pkg.license) });
           const scripts = object(pkg.scripts ?? {}, "Dependency scripts");
           if (!prepared && ["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; M1 requires packages that ship ready-to-run files`);
         }

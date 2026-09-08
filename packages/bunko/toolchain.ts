@@ -1,3 +1,4 @@
+import { packageLicense } from "./inventory.ts";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { isBuiltin } from "node:module";
@@ -124,7 +125,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
         const pkg = object(await manifest.json(), "Bundled package");
         if (typeof pkg.name === "string" && typeof pkg.version === "string") {
           packageDirectories.add(directory);
-          inventory.push({ path: relative(contextRoot, directory), name: pkg.name, version: pkg.version });
+          inventory.push({ path: relative(contextRoot, directory), name: pkg.name, version: pkg.version, license: packageLicense(pkg.license) });
           break;
         }
       }
