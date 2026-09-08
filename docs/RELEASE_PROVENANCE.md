@@ -1,13 +1,13 @@
 # Release artifact provenance
 
-Release workflows after rc.3 attest the prepared CLI, checksum manifest, license and third-party notices with GitHub's Sigstore-backed artifact attestations. rc.3 and earlier releases have no release-tag provenance bundle and retain their immutable assets. `PROVENANCE.jsonl` is a signed bundle; its signature binds the release payload digests, so it is not added to the checksum manifest it signs.
+rc.4 and later release workflows attest the prepared CLI, checksum manifest, license and third-party notices with GitHub's Sigstore-backed artifact attestations. rc.3 and earlier releases have no release-tag provenance bundle and retain their immutable assets. `PROVENANCE.jsonl` is a signed bundle; its signature binds the release payload digests, so it is not added to the checksum manifest it signs.
 
 A separate job downloads the prepared artifacts and verifies each subject against the repository, `.github/workflows/release.yml`, exact source ref and source commit, and GitHub-hosted runners before publication. Manual validation runs are restricted to main; their attestations identify `refs/heads/main` and must not be accepted as version-tag attestations.
 
 Install a current GitHub CLI, download all release assets, then verify a particular attested version before running its CLI:
 
 ```sh
-version=v0.1.0-rc.4 # Replace with a published, attested version.
+version=v0.1.0-rc.4
 sha256sum --check SHA256SUMS
 gh attestation verify bunko.js --bundle PROVENANCE.jsonl \
   --repo sakajunquality/bunko \

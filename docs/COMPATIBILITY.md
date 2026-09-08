@@ -50,9 +50,9 @@ The compile stage honors `build.minify`; external sourcemaps and bytecode remain
 
 In every mode, Bunko defaults `BUN_RUNTIME_TRANSPILER_CACHE_PATH` to `0` in generated image configuration when the base has no explicit setting. Base and application environment overrides remain supported. This follows [Bun's container guidance](https://bun.com/docs/runtime/environment-variables) and avoids unnecessary implicit transpiler-cache writes; it is not a claim that every unset-cache application fails on a read-only filesystem.
 
-## Bun 1.4 migration (source after rc.3)
+## Bun 1.4 migration (rc.4 and later)
 
-Bun 1.4 support is available in source builds after rc.3; the immutable rc.3 CLI accepts only the previous range. Stable host versions `>=1.3.11 <1.5` are accepted, with the CI points listed above. Canaries, prereleases and Bun 1.5 are rejected. Official compile/injection archives are separately pinned for 1.3.11–1.3.13 and 1.4.0–1.4.2, and every archive still requires the embedded trusted GPG signature policy.
+Bun 1.4 support is available in rc.4 and later; the immutable rc.3 CLI accepts only the previous range. Stable host versions `>=1.3.11 <1.5` are accepted, with the CI points listed above. Canaries, prereleases and Bun 1.5 are rejected. Official compile/injection archives are separately pinned for 1.3.11–1.3.13 and 1.4.0–1.4.2, and every archive still requires the embedded trusted GPG signature policy.
 
 Bun 1.4 generates text lockfile version 2. Bunko accepts lock versions 1 and 2 with config version 1, preserving registry-only resolution and integrity requirements. Version 2 requires a selected Bun >=1.4.0; builds and `doctor` reject an older compiler before dependency installation or registry access. `check-config` reports the lock version without executing Bun. Existing version 1 locks remain supported and are not automatically rewritten by Bunko. To adopt version 2, regenerate with the selected Bun 1.4 binary in your project and commit the resulting lockfile.
 

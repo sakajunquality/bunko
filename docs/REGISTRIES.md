@@ -158,7 +158,7 @@ This config controls Bunko's OCI client. Combining it with integrated signing is
 
 ## Dependency installer proxies and private npm CAs
 
-Source builds after rc.3 forward `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lowercase forms to isolated Bun installers. Bun selects the proxy and bypass rules; Bunko preserves explicit empty values and does not inherit unrelated host execution settings. Registry fetches use Bun's native proxy environment handling. Proxy credentials are transport inputs, not image configuration.
+rc.4 and later forward `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lowercase forms to isolated Bun installers. Bun selects the proxy and bypass rules; Bunko preserves explicit empty values and does not inherit unrelated host execution settings. Registry fetches use Bun's native proxy environment handling. Proxy credentials are transport inputs, not image configuration.
 
 An application or workspace root `.npmrc` may specify `cafile=certs/npm-ca.pem`. Relative paths resolve against that original root, not the temporary installation directory. `${VARIABLE}` expansion is explicit. The input must contain valid PEM certificates and be at most 1 MiB. Bundle annotations are allowed; private keys and other PEM blocks are rejected. The file is excluded from source and asset staging, and the installer receives a temporary private copy that is removed afterward. Host trust material is not automatically installed into the application image.
 
@@ -170,7 +170,7 @@ Validation uses a local HTTPS npm registry and a separate tarball server with di
 
 ## Pull mirrors
 
-Source builds after rc.3 accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, resolve, apply, check-base and metadata. Endpoints are registry hosts with optional ports, not URLs or repository prefixes. Docker Hub aliases normalize to `registry-1.docker.io`. Mirrors must expose the same repository path as the origin.
+rc.4 and later accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, resolve, apply, check-base and metadata. Endpoints are registry hosts with optional ports, not URLs or repository prefixes. Docker Hub aliases normalize to `registry-1.docker.io`. Mirrors must expose the same repository path as the origin.
 
 ```sh
 bunko build . --registry-mirror docker.io=mirror.example.com --push=false --oci-layout output

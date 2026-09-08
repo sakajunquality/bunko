@@ -1,6 +1,6 @@
 # System fonts
 
-Available in source builds after v0.1.0-rc.3. This is a narrow extension of `assetMappings`; Bunko does not run an OS package manager or generate a fontconfig cache.
+Available in v0.1.0-rc.4 and later. This is a narrow extension of `assetMappings`; Bunko does not run an OS package manager or generate a fontconfig cache.
 
 Vendor the font files and their distribution licenses in a named local context. Map them to `/usr/share/fonts` or `/usr/local/share/fonts`, or a subdirectory below either root:
 

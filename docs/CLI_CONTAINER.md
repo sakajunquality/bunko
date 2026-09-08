@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. This recipe supports Bun lockfile v2 and is intended for the next release; the existing rc.3 image retains Bun 1.3.11. The published release reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.3`. Its verified multiarchitecture index is `sha256:96089cd845b26fc8a12c5495b007c7ce76be47617ec6621382fc7e9ad356464e`; pin this digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The rc.4 release reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.4`; use it after the corresponding CLI container workflow completes. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko:v0.1.0-rc.3 \
+  ghcr.io/sakajunquality/bunko:v0.1.0-rc.4 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -41,6 +41,6 @@ gh attestation verify "oci://ghcr.io/sakajunquality/bunko@$IMAGE_DIGEST" \
 
 A Dockerfile builds this tool distribution. Bunko application builds still construct OCI layers directly and do not gain arbitrary RUN or package-manager execution.
 
-## Published validation
+## Historical rc.3 validation
 
-[Container workflow 34229522090](https://github.com/sakajunquality/bunko/actions/runs/34229522090) completed publication and exact-source attestation verification on 2026-09-08. The recipe source was `refs/heads/main` at `589564556d67568d163f7e61e67da41cb90698de`; the CLI payload was the checksum-pinned rc.3 release. Both platform builders compiled and executed the dependency fixture before publication. The published digest above was then pulled for Linux amd64 and arm64 using an empty Docker credential configuration, and both images returned `0.1.0-rc.3` under nonroot, read-only, network-disabled execution.
+[Container workflow 34229522090](https://github.com/sakajunquality/bunko/actions/runs/34229522090) completed publication and exact-source attestation verification on 2026-09-08. The recipe source was `refs/heads/main` at `589564556d67568d163f7e61e67da41cb90698de`; the CLI payload was the checksum-pinned rc.3 release. Both platform builders compiled and executed the dependency fixture before publication. The published index `sha256:96089cd845b26fc8a12c5495b007c7ce76be47617ec6621382fc7e9ad356464e` was then pulled for Linux amd64 and arm64 using an empty Docker credential configuration, and both images returned `0.1.0-rc.3` under nonroot, read-only, network-disabled execution.

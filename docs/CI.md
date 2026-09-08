@@ -12,7 +12,9 @@ steps:
       persist-credentials: false
   - uses: sakajunquality/bunko@add75b225c8ef7f2ca9e4c885d9890965728016e
     with:
-      version: v0.1.0-rc.3
+      version: v0.1.0-rc.4
+      bun-version: 1.4.2
+      verify-attestation: 'true'
   - name: Authenticate to GHCR
     env:
       GHCR_TOKEN: ${{ github.token }}
@@ -39,11 +41,11 @@ To export telemetry, set `otel: 'true'` and configure the supported `OTEL_*` env
 
 Persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
 
-The setup default is rc.3 after its published bytes were verified against the tested candidate. Attestation verification is opt-in and applies only to future attested releases; see [release provenance](RELEASE_PROVENANCE.md).
+The setup default is rc.3 after its published bytes were verified against the tested candidate. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## Invocation constants
 
-Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
+rc.4 and later accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
 
 ```sh
 bunko build . --define 'BUILD_VERSION="1.2.3"' \

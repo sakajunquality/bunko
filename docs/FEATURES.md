@@ -15,10 +15,10 @@ Bunko builds Linux OCI images directly from Bun applications. It runs Bun depend
 | Apply, prepared artifacts and layout publication | [Operations](OPERATIONS.md) |
 | Distribution, setup/build Actions and CLI container | [Releasing](RELEASING.md), [CI](CI.md), [CLI container](CLI_CONTAINER.md) |
 | Release artifact identity | [Release provenance](RELEASE_PROVENANCE.md) |
-| Source-preserving packaging (source after rc.3) | [Source mode](SOURCE_MODE.md) |
-| Workspace defaults, runtime arguments, asset policy and application trust (source after rc.3) | [Configuration](CONFIGURATION.md) |
-| Prepared bases and bounded offline builds (source after rc.3) | [Offline](OFFLINE.md) |
-| System fonts and native renderer setup (source after rc.3) | [Fonts](FONTS.md) |
+| Source-preserving packaging (rc.4 and later) | [Source mode](SOURCE_MODE.md) |
+| Workspace defaults, runtime arguments, asset policy and application trust (rc.4 and later) | [Configuration](CONFIGURATION.md) |
+| Prepared bases and bounded offline builds (rc.4 and later) | [Offline](OFFLINE.md) |
+| System fonts and native renderer setup (rc.4 and later) | [Fonts](FONTS.md) |
 | Scope compared with ko and BuildKit | [Comparison](COMPARISON.md) |
 
-The [release notes](RELEASE_NOTES.md) describe the rc.3 release candidate. Validation reports identify their tested revisions, fixture scope and environments; a historical passing result is not a claim that every provider or workload is supported.
+The [release notes](RELEASE_NOTES.md) describe the rc.4 release candidate. Validation reports identify their tested revisions, fixture scope and environments; a historical passing result is not a claim that every provider or workload is supported.

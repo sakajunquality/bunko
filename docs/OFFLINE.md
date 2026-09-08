@@ -1,6 +1,6 @@
 # Prepared bases and offline builds
 
-Source builds after rc.3 support explicit base preparation and bounded offline builds. The immutable rc.3 distribution does not include these commands.
+rc.4 and later support explicit base preparation and bounded offline builds. The immutable rc.3 distribution does not include these commands.
 
 Prepare complete base images while connected:
 
