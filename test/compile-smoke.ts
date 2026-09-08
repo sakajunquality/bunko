@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { build } from "../packages/bunko/build.ts";
+import { join, resolve } from "node:path";
+import { build, type BuildResult } from "../packages/bunko/build.ts";
 import { checkBase } from "../packages/bunko/check-base.ts";
 import { command } from "./command.ts";
 
@@ -15,7 +15,8 @@ try {
   for (const architecture of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",").map((p) => p.split("/")[1]!)) {
     const reference = `bunko.local/compile-${process.pid}:${architecture}`;
     const tarball = join(directory, `${architecture}.tar`);
-    const result = await build({ path: source, mode: "compile", platform: `linux/${architecture}`, tarball, push: false,
+    const report = join(directory, `${architecture}-report.json`);
+    const result: BuildResult = process.env.BUNKO_CLI ? (await command([process.execPath, resolve(process.env.BUNKO_CLI), "build", source, "--mode", "compile", "--platform", `linux/${architecture}`, "--tarball", tarball, "--report", report, "--push=false", "--no-cache", "--git-metadata=false", "--verify-deterministic"]), await Bun.file(report).json()) : await build({ path: source, mode: "compile", platform: `linux/${architecture}`, tarball, push: false,
       localCache: false, gitMetadata: false, verifyDeterministic: true, log: (text) => process.stderr.write(text) });
     const config = result.images[0]!;
     if (!config.compileRuntime || config.compileRuntime.policy !== "bun-release-gpg-pinned-v1" || config.compileRuntime.expectedRevision !== result.toolchain.revision) throw new Error("Missing verified compile runtime provenance");
