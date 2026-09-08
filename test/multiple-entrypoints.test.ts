@@ -87,3 +87,16 @@ test("cached entry maps must match configured names, paths, and the default", as
     expect(rebuilt.root.digest).toBe(first.root.digest);
   }
 });
+
+test.each(["js", "ts", "mjs", "cjs", "mts", "cts", "jsx", "tsx"])("a single named %s entry infers its default and reuses its emitted map", async (extension) => {
+  const f = await fixture();
+  await writeFile(join(f.source, `src/entry.${extension}`), 'console.log("single-entry");');
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", bunko: { entrypoints: { single: `./src/entry.${extension}` } } }));
+  const options = { path: f.source, baseLayout: f.base, gitMetadata: false, cacheDir: join(f.root, "cache") };
+  const first = await build({ ...options, output: join(f.root, "first") });
+  const cached = await build({ ...options, output: join(f.root, "cached") });
+  expect(first.defaultEntrypoint).toBe("single");
+  expect(first.images[0]!.entrypoints).toEqual({ single: "/app/src/entry.js" });
+  expect(cached.root.digest).toBe(first.root.digest);
+  expect(cached.cache.some((item) => item.kind === "app" && item.status === "local")).toBe(true);
+});
