@@ -9,6 +9,7 @@ export const diagnosticLimit = 100;
 
 /** Advisory syntax analysis only; neither imports nor application code are executed. */
 export function moduleLocations(code: string, file: string): LocationWarning[] {
+  // Escaped identifiers also need parsing, even when their spelling hides a location API.
   if (!/import\s*\.|__dirname|__filename|\\/.test(code)) return [];
   const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
   interface Scope { parent?: Scope; function: boolean; names: Set<string> }
@@ -55,6 +56,7 @@ export function moduleLocations(code: string, file: string): LocationWarning[] {
     if (ts.isIdentifier(node) && globals.has(node.text) && !bindings.has(node)) {
       const p = node.parent;
       const key = (ts.isPropertyAccessExpression(p) && p.name === node) || ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) && p.name === node)
+        || (ts.isBindingElement(p) && p.propertyName === node) || (ts.isEnumMember(p) && p.name === node) || (ts.isJsxAttribute(p) && p.name === node)
         || ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isLabeledStatement(p) || ts.isBreakStatement(p) || ts.isContinueStatement(p);
       let shadowed = false;
       for (let s: Scope | undefined = scope; s; s = s.parent) if (s.names.has(node.text)) { shadowed = true; break; }

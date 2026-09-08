@@ -267,8 +267,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           app = await fileEntries(built.outdir, prefix);
           applicationMetadata = { locations: built.locations, entry: built.entry, entrypoints: built.entrypoints, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
         }
-        if (iteration === 1 && application.locations) {
-          for (const warning of application.locations.warnings) log(`${warning.code} ${warning.file}:${warning.line}:${warning.column} (${warning.expression}): ${locationMessage}\n`);
+        if (iteration === 1 && index === 0 && application.locations) {
+          if (application.locations.total) log(`${locationMessage}\n`);
+          for (const warning of application.locations.warnings) log(`${warning.code} ${warning.file}:${warning.line}:${warning.column} (${warning.expression})\n`);
           if (application.locations.total > application.locations.warnings.length) log(`BUNKO_MODULE_LOCATION: ${application.locations.total - application.locations.warnings.length} additional warnings omitted\n`);
         }
         // Reserve runtime namespaces even when the corresponding trees are lazy.

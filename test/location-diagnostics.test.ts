@@ -14,7 +14,7 @@ test("location analysis reports actual references, not comments, keys, types or 
   expect(moduleLocations(`// import.meta.dir
     const text = "__dirname import.meta.url";
     const obj = { __dirname: 1, __filename() {} };
-    obj.__dirname;
+    obj.__dirname; const { __dirname: dir } = obj; enum Names { __filename }
     import type { __dirname } from "types";
     type T = typeof __filename;
     function f(__dirname: string) { return __dirname; }
@@ -66,6 +66,7 @@ test("bundling reproduces missing module-relative data and an explicit root rest
   await writeFile(join(root, "lib/catalog.ts"), 'import {resolve} from "node:path"; import {existsSync,readFileSync} from "node:fs"; export function read() { const file=resolve(process.env.APP_ROOT || resolve(import.meta.dir,".."), "data/manifest.json"); return existsSync(file)?JSON.parse(readFileSync(file,"utf8")).length:0; }');
   const result = await guardedBuild({ root, contextRoot: root, entrypoint: "main.ts", outdir: join(root, "out"), external: [], minify: false, sourcemap: "none", define: {} });
   expect(result.success).toBe(true);
+  expect(result.locations.warnings[0]!.file).toBe("lib/catalog.ts");
   await mkdir(join(root, "out/data")); await writeFile(join(root, "out/data/manifest.json"), '["one","two","three"]');
   // Remove the original data so only the image-equivalent emitted tree remains.
   await rm(join(root, "data"), { recursive: true });
@@ -73,4 +74,26 @@ test("bundling reproduces missing module-relative data and an explicit root rest
     const child = Bun.spawn([process.execPath, join(root, "out/main.js")], { env, stdout: "pipe", stderr: "pipe" });
     expect((await new Response(child.stdout).text()).trim()).toBe(expected); expect(await child.exited).toBe(0);
   }
+});
+
+
+test("diagnostic validation rejects malformed worker/cache data", () => {
+  const item = moduleLocations("console.log(__dirname)", "src/main.ts")[0]!;
+  for (const change of [{ file: "/host/input.ts" }, { file: "bad\\path" }, { file: "bad\npath" }, { line: 0 }, { column: 1.5 }, { expression: "unknown" }]) expect(() => validateLocations({total:1, warnings:[{...item, ...change}]})).toThrow();
+  expect(() => validateLocations({total:2, warnings:[item]})).toThrow();
+  expect(() => validateLocations({total:2, warnings:[item,item]})).toThrow();
+  expect(moduleLocations("console.log(\\u005f_dirname)", "input.js")[0]!.expression).toBe("__dirname");
+});
+
+test("loaded diagnostics retain a deterministic bounded prefix", async () => {
+  const root = await fixture();
+  let main = "";
+  for (let i=0;i<105;i++) {
+    const name = `module-${String(i).padStart(3,"0")}.ts`;
+    await writeFile(join(root,name), "console.log(import.meta.dir);"); main += `import "./${name}";\n`;
+  }
+  await writeFile(join(root,"main.ts"),main);
+  const result = await guardedBuild({root,contextRoot:root,entrypoint:"main.ts",outdir:join(root,"out"),external:[],minify:false,sourcemap:"none",define:{}});
+  expect(result.success).toBe(true); expect(result.locations.total).toBe(105); expect(result.locations.warnings.length).toBe(100);
+  expect(result.locations.warnings.at(-1)!.file).toBe("module-099.ts");
 });
