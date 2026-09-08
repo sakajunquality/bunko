@@ -31,13 +31,16 @@ export async function hashFile(path: string): Promise<Digest> {
   } finally { await file.close(); }
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = []): Promise<Digest> {
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = [], assetExclusions: string[] = []): Promise<Digest> {
   const ignored = await sourceIgnore(source);
   const records: { path: string; type: string; digest?: Digest; executable?: boolean }[] = [];
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
   async function walk(path: string) {
     const current = join(source, path);
+    if (assetExclusions.some((excluded) => current === excluded || current.startsWith(`${excluded}/`))) {
+      if (!required.some((input) => input === path || input.startsWith(`${path}/`))) return;
+    }
     if (path && ignored(path)) {
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
       if (input) throw new Error(`Ignored required input: ${input}`);
@@ -92,12 +95,12 @@ export async function fileEntries(root: string, prefix: string, selected?: Set<s
   return entries;
 }
 
-export async function assetEntries(root: string, patterns: string[], prefix: string): Promise<TarEntry[]> {
+export async function assetEntries(root: string, patterns: string[], prefix: string, allowEmpty = false): Promise<TarEntry[]> {
   if (!patterns.length) return [];
   const selected = new Set<string>();
   for (const pattern of patterns) {
     const matches = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: false, dot: true, followSymlinks: false }));
-    if (!matches.length) throw new Error(`Asset pattern matched no files: ${pattern}`);
+    if (!matches.length && !allowEmpty) throw new Error(`Asset pattern matched no files: ${pattern}`);
     for (const match of matches) {
       if (match === OUTPUT_DIRECTORY || match.startsWith(`${OUTPUT_DIRECTORY}/`)) throw new Error("Assets cannot include the build output directory");
       const path = relative(root, resolve(root, match));

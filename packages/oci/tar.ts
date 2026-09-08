@@ -8,11 +8,13 @@ import { sha256 } from "./digest.ts";
 import type { BlobStore } from "./blob-store.ts";
 import { media, type Digest, type Layer } from "./types.ts";
 
+export type FileMode = 0o444 | 0o555 | 0o644 | 0o755;
+
 export type TarEntry =
   | { path: string; type: "directory" }
   | { path: string; type: "symlink"; target: string }
-  | { path: string; type: "file"; executable?: boolean; content: Uint8Array }
-  | { path: string; type: "file"; executable?: boolean; source: string; size: number };
+  | { path: string; type: "file"; executable?: boolean; mode?: FileMode; content: Uint8Array }
+  | { path: string; type: "file"; executable?: boolean; mode?: FileMode; source: string; size: number };
 
 export function archivePath(path: string): string {
   if (!path || path.startsWith("/") || path.includes("\\") || /[\x00-\x1f\x7f]/.test(path)
@@ -118,7 +120,8 @@ export async function* tar(input: TarEntry[], epoch: number): AsyncGenerator<Uin
       yield padding(bytes.length);
     }
     const type = entry.type === "directory" ? "5" : entry.type === "symlink" ? "2" : "0";
-    const mode = entry.type === "directory" ? 0o755 : entry.type === "symlink" ? 0o777 : entry.executable ? 0o755 : 0o644;
+    if (entry.type === "file" && entry.mode !== undefined && ![0o444, 0o555, 0o644, 0o755].includes(entry.mode)) throw new Error("Unsupported archive file mode");
+    const mode = entry.type === "directory" ? 0o755 : entry.type === "symlink" ? 0o777 : entry.mode ?? (entry.executable ? 0o755 : 0o644);
     yield header(path ?? { name: "PaxEntry", prefix: "" }, type, size < 8 ** 11 ? size : 0, mode,
       epoch < 8 ** 11 ? epoch : 0, Buffer.byteLength(target) <= 100 ? target : "");
     if (entry.type === "file") {

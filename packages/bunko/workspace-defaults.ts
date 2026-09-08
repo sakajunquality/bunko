@@ -1,6 +1,6 @@
 import { object } from "../oci/digest.ts";
 
-const allowed = new Set(["mode", "base", "platforms", "assets", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "deps", "inheritBaseOciLabels", "toolchain"]);
+const allowed = new Set(["mode", "base", "platforms", "assets", "assetExcludes", "assetMode", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "deps", "inheritBaseOciLabels", "toolchain"]);
 const maps = ["env", "labels", "annotations", "build", "runtime", "deps", "toolchain"];
 
 /** Shared defaults are explicit; arrays replace and configuration maps merge by key. */
