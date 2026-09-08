@@ -33,7 +33,7 @@ export interface CacheRecord {
   schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app"; packFormat: string;
   destination: string; platform: Platform | null; layer: Layer;
   inventory: InventoryEntry[]; native: NativeBinary[];
-  application?: { entry: string; entries: { path: string; type: "file" | "directory" }[] };
+  application?: { entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
 }
 export interface CacheEvent { kind: "deps" | "assets" | "app"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
@@ -62,7 +62,7 @@ export class LayerCache {
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
     this.readers = [...new Set([...(options.readRepositories ?? []), ...options.repository ? [options.repository] : []].map((value) => repositoryName(new Publisher(value, options.registry).ref)))].map((value) => new Publisher(value, options.registry));
   }
-  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null }): CacheRecord {
+  private validate(input: unknown, key: Digest, kind: "deps" | "assets" | "app", expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): CacheRecord {
     const value = object(input, "Cache config");
     const layer = object(value.layer, "Cache layer");
     if (value.schemaVersion !== 1 || value.key !== key || value.kind !== kind || value.packFormat !== packFormat || layer.kind !== kind
@@ -82,18 +82,26 @@ export class LayerCache {
     if (kind === "app") {
       const app = object(value.application, "Application cache"), destination = value.destination;
       if (typeof app.entry !== "string" || !Array.isArray(app.entries) || app.entries.length > 200_000) throw new Error("Invalid application cache metadata");
+      if (expected?.application && (app.entry !== expected.application.entry || !Buffer.from(canonicalJSON(app.entrypoints ?? null)).equals(Buffer.from(canonicalJSON(expected.application.entrypoints))))) throw new Error("Cached named entrypoints do not match project configuration");
       archivePath(app.entry);
       for (const raw of app.entries) {
         const entry = object(raw, "Cached output");
         if (typeof entry.path !== "string" || !["file", "directory"].includes(String(entry.type)) || !entry.path.startsWith(`${destination.slice(1)}/`)) throw new Error("Invalid cached output path/type");
         archivePath(entry.path);
       }
+      if (app.entrypoints !== undefined) {
+        for (const [name, path] of Object.entries(object(app.entrypoints, "Cached named entrypoints"))) {
+          if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name) || typeof path !== "string") throw new Error("Invalid cached named entrypoint");
+          archivePath(path);
+          if (!app.entries.some((raw) => { const entry = object(raw, "Cached entry"); return entry.type === "file" && entry.path === `${destination.slice(1)}/${path}`; })) throw new Error("Cached named entrypoint is missing");
+        }
+      }
       if (!app.entries.some((raw) => { const entry = object(raw, "Cached entry"); return entry.type === "file" && entry.path === `${destination.slice(1)}/${app.entry}`; })) throw new Error("Cached application entrypoint is missing");
     }
     return value as unknown as CacheRecord;
   }
 
-  async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null }): Promise<CacheRecord | undefined> {
+  async get(key: Digest, kind: "deps" | "assets" | "app", bypass = false, expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): Promise<CacheRecord | undefined> {
     if (bypass) { this.events.push({ key, kind, status: "bypass", reason: "disabled" }); return; }
     const memory = this.records.get(key);
     if (memory) { const source = this.origins.get(key); this.events.push({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }

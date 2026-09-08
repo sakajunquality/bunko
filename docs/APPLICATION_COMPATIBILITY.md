@@ -62,4 +62,36 @@ Generic fixtures cover catalog frozen installs, pre-execution macro rejection, c
 
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 
-Subsequent work includes named multiple-entry images for servers/workers/one-off migrations, explicit external asset contexts, and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
+Subsequent work includes explicit external asset contexts, and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
+
+
+## Multiple entrypoints in one image
+
+Bundle mode supports named entries with an explicit default:
+
+```json
+{
+  "bunko": {
+    "entrypoints": {
+      "server": "src/server.ts",
+      "worker": "src/worker.ts",
+      "migrate": "scripts/migrate.ts"
+    },
+    "defaultEntrypoint": "server",
+    "args": ["--serve"]
+  }
+}
+```
+
+Every entry is validated and bundled, including shared chunks and runtime assets. The image uses `Entrypoint=[bun]` and `Cmd=[default emitted file,...args]`, so a deployment can override the command without replacing the Bun interpreter:
+
+```sh
+docker run --rm example/image /app/src/worker.js
+docker run --rm example/image /app/scripts/migrate.js --check
+```
+
+The report's `images[].entrypoints` maps names to absolute image paths. The default is reported as `defaultEntrypoint`. Output paths follow the source layout and include every selected entry in cache identity. Omitted or ignored secondary entries and colliding output names fail before building. Change the workdir-aware paths if you configure a different image workdir.
+
+Use either the existing `entrypoint` setting or `entrypoints`. The existing single-entry image contract is unchanged. Named entries currently require bundle mode; compile mode rejects them. A single named entry can omit `defaultEntrypoint`. URI fragments are not introduced: `bunko://` continues to refer to the complete target image. Kubernetes `args` can select a different emitted entry in that image. Migrations remain explicit one-off commands.
+
+Named-entry images always enable code splitting, including a single named entry. Container Cmd/Kubernetes args provide Bun arguments directly and can invoke other Bun CLI operations; the entry map is a deployment convenience, not a runtime command allowlist. Treat permission to override these arguments as permission to select what the container executes.

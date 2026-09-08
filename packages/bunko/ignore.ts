@@ -11,7 +11,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
   const omitted = (path: string) => path.split("/").some((part) => sourceOmissions.has(part) || part.startsWith(".env")) || excluded.some((p) => join(root, path) === p || join(root, path).startsWith(`${p}/`));
   const required = new Set<string>(["package.json", "bun.lock", "tsconfig.json", "jsconfig.json"]);
   for (const project of projects) {
-    required.add(join(project.targetPath, project.entrypoint));
+    for (const entry of Object.values(project.entrypoints ?? { default: project.entrypoint })) required.add(join(project.targetPath, entry));
     for (const name of ["tsconfig.json", "jsconfig.json"]) required.add(join(project.targetPath, name));
     for (const pkg of project.workspace?.packages ?? []) required.add(join(pkg.path, "package.json"));
     async function asset(path: string) {
