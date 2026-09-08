@@ -1,0 +1,16 @@
+{
+  "name": "application-validation",
+  "private": true,
+  "type": "module",
+  "dependencies": { "hono": "4.13.7", "pg": "8.23.0", "@node-rs/xxhash": "1.7.7" },
+  "bunko": {
+    "entrypoints": { "server": "src/server.ts", "worker": "src/worker.ts", "migrate": "src/migrate.ts" },
+    "defaultEntrypoint": "server",
+    "external": ["@node-rs/xxhash"],
+    "assets": ["public", "data"],
+    "assetMappings": [{ "context": "generated", "from": "settings.json", "to": "/repo/settings.json" }],
+    "user": "65532:65532",
+    "ports": [3000],
+    "inheritBaseOciLabels": false
+  }
+}

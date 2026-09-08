@@ -3,7 +3,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const build = "asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config progress image-label image-annotation image-user image-refs repo bare tag push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-write local-cache registry-cache app-cache install-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom provenance sign-key cosign-path report target deps-strategy shared-deps";
   const input = "filename context recursive selector";
   const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run";
-  const diagnostic = "target platform mode deps-strategy shared-deps";
+  const diagnostic = "asset-context target platform mode deps-strategy shared-deps";
   const allowed: Record<string, string> = {
     build: `${build} deps-artifact`, resolve: `${build} ${input}`, apply: `${build} ${input} ${kube}`,
     "cache-info": "cache-dir",

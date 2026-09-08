@@ -223,7 +223,7 @@ Target preparation accepts bounded `--jobs` (1–32, default 1). All targets pre
 
 ## 14. Diagnostics
 
-`check-config [path]` validates manifests, workspace/target selection and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
+`check-config [path]` validates manifests, workspace/target selection, named entry configuration, selected external asset bindings/filesystem entries and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
 
 ## Portable ko feature additions
 

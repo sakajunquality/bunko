@@ -2,13 +2,13 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-alpha.2 prerelease** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-rc.1 prerelease** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-See the [feature guide](docs/FEATURES.md), [alpha.2 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is an alpha; review the compatibility and trust boundaries before adopting it.
+See the [feature guide](docs/FEATURES.md), [rc.1 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is a release candidate; review the compatibility and trust boundaries before adopting it.
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-alpha.2 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-alpha.2) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-rc.1 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.1) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS

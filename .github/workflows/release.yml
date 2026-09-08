@@ -38,9 +38,14 @@ jobs:
         run: |
           git merge-base --is-ancestor HEAD origin/main
           bun -e 'import p from "./package.json"; if (process.env.BUNKO_RELEASE_TAG !== "v" + p.version) throw new Error("Tag/version mismatch");'
-      - run: bun run release:prepare
+      - name: Prepare candidate
+        id: candidate
+        run: |
+          bun run release:prepare
+          bun -e 'import p from "./package.json"; import { appendFileSync } from "node:fs"; appendFileSync(process.env.GITHUB_OUTPUT!, "version=v" + p.version + "\n");'
       - uses: ./
         with:
+          version: ${{ steps.candidate.outputs.version }}
           distribution-directory: dist/release
       - run: bunko version
       - name: Verify installation from the published release
