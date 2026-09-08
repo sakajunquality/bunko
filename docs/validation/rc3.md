@@ -1,6 +1,6 @@
 # rc.3 candidate validation
 
-The tested distribution was prepared with Bun 1.3.11 from the reviewed rc.3 source tree. Its CLI SHA256 is `09486aa233147f781fb2068335d6b02fc4e5359853f2445573a5dfa5f2deb3cd`. Published assets must match this candidate before these results are attributed to the release.
+The tested distribution was prepared with Bun 1.3.11 from the reviewed rc.3 source tree. Its CLI SHA256 is `09486aa233147f781fb2068335d6b02fc4e5359853f2445573a5dfa5f2deb3cd`. The release was published from `f99257abe03493aff2d834f39bf8185b62aee1e9`. Anonymous setup verified the published assets, CLI version and exact byte equality with this candidate (7,793,861 CLI bytes).
 
 The exact bundled CLI passed:
 
