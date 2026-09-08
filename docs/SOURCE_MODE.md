@@ -18,3 +18,7 @@ Named entrypoints preserve their original extensions and paths. As with bundle m
 Configured source assets are already present at their original paths and are not packed twice. Explicit asset patterns are still checked; named external asset mappings remain a separate layer with collision checks. Source exclusions also apply to runtime data, so excluded required inputs cannot be restored implicitly. Installed native dependencies retain the target-platform checks and require an appropriate explicit base. This mode does not install system packages or certify every file in application source for ABI compatibility.
 
 Runtime injection can supply a verified Bun runtime to an explicit compatible base in source mode. Offline source builds can repackage changed source when their production dependency layer and runtime inputs are already available locally, because no build-time dependency installation is needed. A missing dependency layer still fails before attempting an offline install.
+
+## Runtime validation
+
+The generic application fixture passed in source mode on Linux amd64 and arm64 on 2026-09-08. Both platforms ran migrations and a worker against a disposable PostgreSQL database, served HTTP/static content and module data, loaded the native xxhash addon, and drained an in-flight request during shutdown as a nonroot user with a read-only root filesystem. CI repeats the source-mode fixture on Linux amd64. This fixture does not certify unrelated external applications.
