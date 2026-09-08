@@ -90,3 +90,18 @@ test("signing keys are excluded from snapshots and rejected inside required asse
   expect(second.root.digest).toBe(first.root.digest);
 
 });
+
+test("foreign metadata is reported as skipped while wrong artifact subjects remain fatal", async () => {
+  const { artifact } = await import("../packages/oci/artifacts.ts"), { BlobStore } = await import("../packages/oci/blob-store.ts");
+  const root = await fixture(), output = join(root, "image");
+  const result = await build({ path: await project(join(root, "source")), baseLayout: await baseLayout(join(root, "base")), output, push: false, localCache: false, sbom: true });
+  const store = new BlobStore(output), indexPath = join(output, "index.json"), index = JSON.parse(await readFile(indexPath, "utf8"));
+  const foreign = await artifact(store, result.manifest, "application/vnd.in-toto+json", { _type: "https://in-toto.io/Statement/v1", predicateType: "https://example.test/predicate" });
+  const older = await artifact(store, result.manifest, sbomType, { spdxVersion: "SPDX-2.2" });
+  index.manifests.push(foreign.manifest, older.manifest); await writeFile(indexPath, JSON.stringify(index));
+  const exported = await exportMetadata(`layout:${output}`, join(root, "exported"));
+  expect(exported.records).toHaveLength(1); expect(exported.skipped).toHaveLength(2);
+  const wrong = await artifact(store, { ...result.manifest, digest: `sha256:${"f".repeat(64)}` }, sbomType, { spdxVersion: "SPDX-2.2" });
+  index.manifests.push(wrong.manifest); await writeFile(indexPath, JSON.stringify(index));
+  await expect(exportMetadata(`layout:${output}`, join(root, "wrong"))).rejects.toThrow("subject mismatch");
+});

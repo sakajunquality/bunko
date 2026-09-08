@@ -167,6 +167,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       const ref = options.baseSBOMs?.[`linux/${project.platforms[i]!.architecture}`];
       return ref ? await baseInventory(ref, [base.descriptor.digest], registry) : undefined;
     }));
+    if (options.depsVerifyKey) for (const reference of new Set(Object.values(options.externalDepsByTarget?.[project.directory] ?? options.externalDeps ?? {}))) {
+      await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
+    }
     const prefix = project.workdir.slice(1);
     const assets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix);
     const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, entries: await assetInputs(assets) });
@@ -191,10 +194,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let dependencyArtifactDigest: Digest | undefined;
         const dependencyArtifact = (options.externalDepsByTarget?.[project.directory] ?? options.externalDeps)?.[`${platform.os}/${platform.architecture}`];
         if (dependencyArtifact) {
-          if (options.depsVerifyKey) {
-            if (dependencyArtifact.startsWith("layout:")) throw new Error("Dependency signature policy requires a registry artifact");
-            await verifyImage(dependencyArtifact, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
-          }
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
@@ -389,7 +388,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   for (const project of projects) {
     const artifacts = options.externalDepsByTarget?.[project.directory] ?? options.externalDeps;
     if (!artifacts) continue;
-    if (options.depsVerifyKey && Object.values(artifacts).some((ref) => ref.startsWith("layout:"))) throw new Error("Dependency signature policy requires a registry artifact");
+    if (options.depsVerifyKey && Object.values(artifacts).some((ref) => !/@sha256:[a-f0-9]{64}$/.test(ref) || ref.startsWith("layout:"))) throw new Error("Dependency signature policy requires a digest-pinned registry artifact");
     if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle target with explicit externals and no sharedDeps");
     const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
     if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");

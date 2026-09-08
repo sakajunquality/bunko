@@ -12,23 +12,24 @@ import { sbomType, provenanceType } from "./attest.ts";
 export interface MetadataRecord { subject: Descriptor; manifest: Descriptor; payload: Descriptor; document: Record<string, unknown>; bytes: Uint8Array; reference?: string }
 class UnsupportedMetadataError extends Error {}
 const maximum = 8 * 1024 ** 2;
-async function json(source: ImageSource, store: BlobStore, d: Descriptor) {
-  if (d.size > maximum) throw new Error("Metadata exceeds size limit");
+async function json(source: ImageSource, store: BlobStore, d: Descriptor, optional = false) {
+  if (d.size > maximum) throw new (optional ? UnsupportedMetadataError : Error)("Metadata exceeds size limit");
   await store.putStream(await source.blob(d), d.mediaType, d);
-  return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Metadata JSON");
+  try { return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Metadata JSON"); }
+  catch { throw new (optional ? UnsupportedMetadataError : Error)("Unsupported metadata JSON"); }
 }
 async function attachment(source: ImageSource, store: BlobStore, d: Descriptor, subjects: Set<string>): Promise<MetadataRecord> {
-  const manifest = await json(source, store, d), subject = descriptor(manifest.subject);
+  const manifest = await json(source, store, d, true), subject = descriptor(manifest.subject);
   if (!subjects.has(subject.digest)) throw new Error("Metadata artifact subject mismatch");
   if (d.mediaType !== media.manifest || manifest.schemaVersion !== 2 || ![sbomType, provenanceType].includes(String(manifest.artifactType)) || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new UnsupportedMetadataError("Unsupported metadata artifact");
   const config = descriptor(manifest.config);
   if (config.mediaType !== "application/vnd.oci.empty.v1+json") throw new UnsupportedMetadataError("Unsupported metadata config");
-  await json(source, store, config);
+  await json(source, store, config, true);
   const payload = descriptor(manifest.layers[0]);
-  if (payload.mediaType !== manifest.artifactType) throw new Error("Metadata payload type mismatch");
-  const document = await json(source, store, payload);
+  if (payload.mediaType !== manifest.artifactType) throw new UnsupportedMetadataError("Metadata payload type mismatch");
+  const document = await json(source, store, payload, true);
   if (payload.mediaType === sbomType) {
-    if (document.spdxVersion !== "SPDX-2.3" || document.SPDXID !== "SPDXRef-DOCUMENT" || typeof document.documentNamespace !== "string" || !URL.canParse(document.documentNamespace) || !Array.isArray(document.packages)) throw new Error("Unsupported SPDX document");
+    if (document.spdxVersion !== "SPDX-2.3" || document.SPDXID !== "SPDXRef-DOCUMENT" || typeof document.documentNamespace !== "string" || !URL.canParse(document.documentNamespace) || !Array.isArray(document.packages)) throw new UnsupportedMetadataError("Unsupported SPDX document");
   } else if (document._type !== "https://in-toto.io/Statement/v1" || document.predicateType !== "https://slsa.dev/provenance/v1") throw new UnsupportedMetadataError("Unsupported provenance statement");
   if (payload.mediaType === provenanceType && (!Array.isArray(document.subject) || !document.subject.some((item) => object(object(item, "Statement subject").digest, "Statement digest").sha256 === subject.digest.slice(7)))) throw new Error("Provenance statement subject mismatch");
   return { subject, manifest: d, payload, document, bytes: await store.read(payload) };
@@ -53,7 +54,7 @@ export async function baseInventory(reference: string, subjects: string[], regis
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-export async function imageMetadata(reference: string, registry: RegistryOptions = {}): Promise<MetadataRecord[]> {
+async function inspectMetadata(reference: string, registry: RegistryOptions = {}) {
   if (!reference.startsWith("layout:") && !/@sha256:[a-f0-9]{64}$/.test(reference)) throw new Error("Metadata requires a digest-pinned image or layout:DIR");
   const temporary = await mkdtemp(join(tmpdir(), "bunko-metadata-"));
   try {
@@ -108,23 +109,28 @@ export async function imageMetadata(reference: string, registry: RegistryOptions
       }
     }
     const records = [];
+    const skipped: { manifest: Descriptor; reason: string }[] = [];
     let totalBytes = 0;
     for (const d of [...candidates.values()].sort((a, b) => a.digest.localeCompare(b.digest))) {
       let record: MetadataRecord;
       try { record = await attachment(source, store, d, subjects); }
-      catch (error) { if (error instanceof UnsupportedMetadataError) continue; throw error; }
+      catch (error) { if (error instanceof UnsupportedMetadataError) { skipped.push({ manifest: d, reason: error.message }); continue; } throw error; }
       if (expectedSubjects.has(d.digest) && record.subject.digest !== expectedSubjects.get(d.digest)) throw new Error("Metadata referrer subject mismatch");
       totalBytes += record.bytes.byteLength;
       if (totalBytes > 128 * 1024 ** 2) throw new Error("Metadata payloads exceed total size limit");
       records.push(record);
     }
-    return records;
+    return { records, skipped };
   } finally { await rm(temporary, { recursive: true, force: true }); }
+}
+
+export async function imageMetadata(reference: string, registry: RegistryOptions = {}): Promise<MetadataRecord[]> {
+  return (await inspectMetadata(reference, registry)).records;
 }
 
 export async function exportMetadata(reference: string, output: string, registry: RegistryOptions = {}) {
   output = resolve(output); await assertOutputAvailable(output);
-  const records = await imageMetadata(reference, registry);
+  const { records, skipped } = await inspectMetadata(reference, registry);
   await mkdir(dirname(output), { recursive: true });
   const temporary = await mkdtemp(join(dirname(output), ".bunko-metadata-"));
   try {
@@ -134,8 +140,8 @@ export async function exportMetadata(reference: string, output: string, registry
       await writeFile(join(temporary, file), record.bytes);
       index.push({ file, subject: record.subject, manifest: record.manifest, payload: record.payload });
     }
-    await writeFile(join(temporary, "index.json"), canonicalJSON({ schemaVersion: 1, records: index }));
+    await writeFile(join(temporary, "index.json"), canonicalJSON({ schemaVersion: 1, records: index, skipped }));
     await assertOutputAvailable(output); await rename(temporary, output);
-    return { records: index, directory: output };
+    return { records: index, skipped, directory: output };
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }

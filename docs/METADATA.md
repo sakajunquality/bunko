@@ -1,6 +1,6 @@
 # Supply-chain metadata and policy
 
-Metadata is opt-in. `--sbom --provenance` publishes OCI subject artifacts alongside the runnable image and includes them in an OCI layout. They do not change the runnable image digest. The builder fingerprint does participate in image identity and application cache keys.
+Metadata is opt-in. `--sbom --provenance` publishes OCI subject artifacts alongside the runnable image and includes them in an OCI layout. They do not change the runnable image digest. The host Bun compressor version and the builder fingerprint does participate in image identity and application cache keys.
 
 ```sh
 bunko build . --repo registry.example/team/app --sbom --provenance
@@ -8,7 +8,7 @@ bunko metadata registry.example/team/app@sha256:REPLACE_WITH_DIGEST --metadata-d
 bunko metadata layout:./image --metadata-dir ./metadata
 ```
 
-The metadata command checks manifest and payload digests and subject relationships before exporting. It supports the OCI referrers API and the referrers tag fallback. Output must be absent or an empty directory. `index.json` maps each exact payload file to its manifest and subject; exported bytes retain their original digest. Only SPDX 2.3 and in-toto Statement v1 with SLSA provenance v1 are exported. Unrelated artifact types and unsupported artifact envelopes or predicates are skipped; digest and subject mismatches fail. This checks content integrity and binding, not the publisher's trustworthiness. Use `bunko verify` with a trusted key to verify signatures separately.
+The metadata command checks manifest and payload digests and subject relationships before exporting. It supports the OCI referrers API and the referrers tag fallback. Output must be absent or an empty directory. `index.json` maps each exact payload file to its manifest and subject; exported bytes retain their original digest. Only SPDX 2.3 and in-toto Statement v1 with SLSA provenance v1 are exported. Unrelated artifact types are ignored. Unsupported envelopes, predicates, JSON documents and oversized individual metadata payloads are skipped and listed in `index.json` and the command result; digest and subject mismatches fail. This checks content integrity and binding, not the publisher's trustworthiness. Use `bunko verify` with a trusted key to verify signatures separately.
 
 ## Inventory scope
 
