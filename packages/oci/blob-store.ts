@@ -8,7 +8,7 @@ import { assertDigest, sha256 } from "./digest.ts";
 import type { Descriptor, Digest } from "./types.ts";
 
 export class BlobStore {
-  constructor(readonly root: string) { }
+  constructor(readonly root: string, private readonly onMaterialize?: (descriptor: Descriptor, task: () => Promise<void>) => Promise<void>) { }
   readonly origins = new Map<Digest, { registry: string; repository: string }>();
   private readonly pending = new Map<Digest, () => Promise<AsyncIterable<Uint8Array>>>();
   private readonly inflight = new Map<Digest, Promise<void>>();
@@ -23,10 +23,11 @@ export class BlobStore {
     if (!materialize) return;
     let work = this.inflight.get(d.digest);
     if (!work) {
-      work = (async () => {
+      const load = async () => {
         await this.putStream(await materialize(), d.mediaType, d);
         this.pending.delete(d.digest);
-      })();
+      };
+      work = this.onMaterialize ? this.onMaterialize(d, load) : load();
       this.inflight.set(d.digest, work);
     }
     try { await work; } finally { this.inflight.delete(d.digest); }

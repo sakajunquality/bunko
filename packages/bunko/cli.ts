@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { Telemetry, telemetryConfig } from "./telemetry.ts";
 import { parseAssetContexts } from "./asset-contexts.ts";
 import { exportMetadata } from "./metadata.ts";
 import { dependencyMap } from "./dependency-map.ts";
@@ -130,6 +131,7 @@ Options:
   --deps-map <file>         Per-target, per-platform prepared dependency artifacts
   --artifact-target <path>  Bind pack-deps output to a workspace member
   --registry-config <file>  Host-scoped CA/client certificate configuration
+  --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
   --report <file>          Write a JSON result, including transfers/cache/partial publication
   --help                   Show this help
@@ -206,6 +208,7 @@ export async function main(argv: string[]): Promise<number> {
       "artifact-target": { type: "string" },
       "registry-config": { type: "string" },
       progress: { type: "string" },
+      otel: { type: "boolean" },
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
       mode: { type: "string" },
@@ -356,6 +359,8 @@ export async function main(argv: string[]): Promise<number> {
       progress: values.progress === "json" ? (event) => { process.stderr.write(JSON.stringify(event) + "\n"); } : undefined,
       log: (message) => process.stderr.write(values.progress === "json" ? JSON.stringify({ schemaVersion: 1, type: "log", message }) + "\n" : message),
     };
+    const telemetry = telemetryConfig(values.otel);
+    const execute = async () => {
     if (command === "apply") {
       const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector,
         kubectlPath: values["kubectl-path"], kubeContext: values["kube-context"], namespace: values.namespace, serverSide: values["server-side"],
@@ -374,6 +379,8 @@ export async function main(argv: string[]): Promise<number> {
       else if (result.localReference) process.stdout.write(`${result.localReference}\n`);
     }
     return 0;
+    };
+    return telemetry ? await new Telemetry(telemetry, () => buildOptions.log?.("OpenTelemetry export incomplete; build result is unchanged\n")).run(command!, execute, (code) => code !== 0) : await execute();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(jsonProgress ? JSON.stringify({ schemaVersion: 1, type: "error", message }) + "\n" : `bunko: ${message}\n`);
