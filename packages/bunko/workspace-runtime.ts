@@ -25,7 +25,7 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
     if (seen.has(path)) return;
     seen.add(path);
     const file = join(root, path), info = await lstat(file);
-    const destination = `${prefix}/${workspaceDirectory}/${path}`;
+    const destination = project.mode === "source" ? `${prefix}/${path}` : `${prefix}/${workspaceDirectory}/${path}`;
     archivePath(destination);
     if (info.isSymbolicLink()) {
       const target = await realpath(file), local = relative(root, target);
@@ -50,11 +50,11 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
       entries.push({ type: "file", path: destination, source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported runtime file: ${path}`);
   }
-  for (const path of [...modulePaths, ...sourcePaths].sort()) {
+  for (const path of [...modulePaths, ...(project.mode === "source" ? [] : sourcePaths)].sort()) {
     try { await lstat(join(root, path)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && modulePaths.includes(path)) continue; throw error; }
     await walk(path);
   }
-  for (const name of project.external) {
+  for (const name of project.mode === "source" ? [] : project.external) {
     let directory = join(root, project.targetPath), target: string | undefined;
     while (true) {
       try { target = await realpath(join(directory, "node_modules", name)); break; }
@@ -65,6 +65,10 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
     if (!target || !admitted(relative(root, target))) throw new Error(`External ${name} is absent from the Linux production install`);
     const destination = `${prefix}/node_modules/${name}`;
     entries.push({ type: "symlink", path: destination, target: relative(dirname(destination), `${prefix}/${workspaceDirectory}/${relative(root, target)}`) });
+  }
+  if (project.mode === "source") for (const pkg of workspace.packages.filter((pkg) => sourcePaths.includes(pkg.path))) {
+    const hooks = ignoredInstallScripts(pkg.manifest, project.allowIgnoredScripts);
+    inventory.push({ path: pkg.path, name: String(pkg.manifest.name), version: typeof pkg.manifest.version === "string" ? pkg.manifest.version : "", license: packageLicense(pkg.manifest.license), ...(hooks.length ? { ignoredInstallScripts: hooks } : {}) });
   }
   inventory.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   native.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));

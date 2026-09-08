@@ -69,7 +69,7 @@ export interface BuildOptions {
 }
 
 export interface Project {
-  mode: "bundle" | "compile";
+  mode: "bundle" | "compile" | "source";
   directory: string;
   manifestText: string;
   workspace?: Workspace;
@@ -178,11 +178,12 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   knownKeys(config, ["entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
-  if (mode !== "bundle" && mode !== "compile") throw new Error("mode must be bundle or compile");
-  const external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
+  if (mode !== "bundle" && mode !== "compile" && mode !== "source") throw new Error("mode must be bundle, compile or source");
+  let external = [...new Set(strings(config.external, "external").map(packageRoot))].sort();
   if (mode === "compile" && external.length) throw new Error("Compile mode currently requires bundled JavaScript dependencies; runtime externals are unsupported");
   const production = { ...object(manifest.dependencies ?? {}, "dependencies"), ...object(manifest.optionalDependencies ?? {}, "optionalDependencies"), ...object(manifest.peerDependencies ?? {}, "peerDependencies") };
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
+  if (mode === "source") external = Object.keys(production).sort();
   const deps = object(config.deps ?? {}, "deps");
   knownKeys(deps, ["strategy", "allowIgnoredScripts"], "deps");
   const allowIgnoredScripts = [...new Set(strings(deps.allowIgnoredScripts, "deps.allowIgnoredScripts"))].sort();
@@ -191,7 +192,9 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
   const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");
   if (depsStrategy !== "production" && depsStrategy !== "closure") throw new Error("deps.strategy must be production or closure");
+  if (mode === "source" && (depsStrategy !== "production" || options.sharedDeps || config.sharedDeps)) throw new Error("Source mode requires production dependencies without sharedDeps");
   const build = config.build === undefined ? {} : object(config.build, "build");
+  if (mode === "source" && (Object.keys(build).length || Object.keys(options.define ?? {}).length)) throw new Error("Source mode does not accept bundler build settings or invocation defines");
   knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target", "allowUnresolved"], "build");
   if (build.allowUnresolved !== undefined && (!Array.isArray(build.allowUnresolved) || !build.allowUnresolved.every((value) => typeof value === "string" && !/[\x00-\x1f]/.test(value)))) throw new Error("build.allowUnresolved must be an array of specifier patterns");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
@@ -203,7 +206,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   knownKeys(runtime, ["bunPath", "libc", "inject"], "runtime");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
-  if (runtimeInject && (options.mode ?? config.mode ?? "bundle") !== "bundle") throw new Error("Runtime injection requires bundle mode");
+  if (runtimeInject && mode === "compile") throw new Error("Runtime injection requires bundle mode or source mode");
   if (runtimeInject && !(options.base ?? process.env.BUNKO_DEFAULT_BASE ?? config.base) && !options.baseLayout) throw new Error("Runtime injection requires an explicit base or base layout");
   if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported");
   const env = stringMap(config.env, "env");
@@ -219,7 +222,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     const names = Object.keys(entrypoints).sort();
     if (!names.length || names.some((name) => !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) || new Set(names.map((name) => name.toLowerCase())).size !== names.length) throw new Error("entrypoints requires unique names containing letters, numbers, underscores or hyphens");
     if (config.entrypoint !== undefined) throw new Error("Use entrypoint or named entrypoints, not both");
-    if (mode === "compile") throw new Error("Named entrypoints currently require bundle mode");
+    if (mode === "compile") throw new Error("Named entrypoints require bundle mode or source mode");
     defaultEntrypoint ??= names.length === 1 ? names[0] : undefined;
     if (!defaultEntrypoint || !Object.hasOwn(entrypoints, defaultEntrypoint)) throw new Error("Select a defaultEntrypoint from entrypoints");
     const outputs = new Set<string>();
@@ -228,7 +231,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
       if (!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) throw new Error("Entrypoint must be a JavaScript or TypeScript file");
       const file = await realpath(join(directory, path)).catch(() => { throw new Error(`Missing named entrypoint: ${name}`); });
       if (relative(directory, file).startsWith("..") || !(await stat(file)).isFile()) throw new Error("Entrypoint must be a file inside the project");
-      const output = path.replace(/\.[^.]+$/, ".js").toLowerCase();
+      const output = (mode === "source" ? path : path.replace(/\.[^.]+$/, ".js")).toLowerCase();
       if (outputs.has(output)) throw new Error("Named entrypoints have colliding output paths (case-insensitive)");
       outputs.add(output); entrypoints[name] = path;
     }
