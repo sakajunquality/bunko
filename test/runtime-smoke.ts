@@ -13,6 +13,7 @@ try {
     if (process.env.BUNKO_TEST_CLI) {
       const report = join(directory, `${mode}-${platform.split("/")[1]}.json`);
       await command([process.execPath, resolve(process.env.BUNKO_TEST_CLI), "build", resolve("examples/sqlite"), "--mode", mode, "--platform", platform,
+        ...(process.env.BUNKO_TEST_BASE ? ["--base", process.env.BUNKO_TEST_BASE] : []),
         "--tarball", tarball, "--push=false", "--no-local-cache", "--no-git-metadata", "--report", report]);
       result = await Bun.file(report).json();
     } else result = await build({ path: resolve("examples/sqlite"), mode, platform, tarball, push: false, localCache: false, gitMetadata: false });
