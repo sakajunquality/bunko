@@ -60,3 +60,13 @@ test("CLI prepares bases and disables implicit publication for offline builds", 
   const bad = await cli(["build", source, "--offline", "--push=true", "--base-layout", base]);
   expect(bad.exit).toBe(1); expect(bad.stderr).toContain("Offline builds cannot publish");
 });
+
+
+test("prepared base layouts inside the project stay outside the source snapshot", async () => {
+  const directory = await root(), source = await project(join(directory, "source")), base = await baseLayout(join(source, "prepared-base"));
+  const options = { path: source, offline: true, baseLayout: base, localCache: false, gitMetadata: false };
+  const first = await build({ ...options, output: join(directory, "first") });
+  await writeFile(join(base, "unreferenced-note.txt"), "local base storage is not application source");
+  const second = await build({ ...options, output: join(directory, "second") });
+  expect(second.sourceDigest).toBe(first.sourceDigest); expect(second.root.digest).toBe(first.root.digest);
+});
