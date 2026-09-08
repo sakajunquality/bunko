@@ -152,3 +152,16 @@ jobs:
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
             --notes-file ../../docs/RELEASE_NOTES.md "${flags[@]}" \
             bunko.js SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md PROVENANCE.jsonl
+  dispatch-container:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch container packaging after all release assets are published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh workflow run container.yml --repo "$GITHUB_REPOSITORY" --ref main -f "version=$RELEASE_TAG"
+          echo "Container publication continues separately: https://github.com/$GITHUB_REPOSITORY/actions/workflows/container.yml" >> "$GITHUB_STEP_SUMMARY"
