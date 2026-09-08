@@ -10,14 +10,14 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/bunko@main # Pin to a reviewed commit.
+  - uses: sakajunquality/bunko@add75b225c8ef7f2ca9e4c885d9890965728016e
     with:
       version: v0.1.0-rc.3
   - name: Authenticate to GHCR
     env:
       GHCR_TOKEN: ${{ github.token }}
     run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-  - uses: sakajunquality/bunko/build@main # Pin to the same reviewed commit.
+  - uses: sakajunquality/bunko/build@add75b225c8ef7f2ca9e4c885d9890965728016e
     id: image
     with:
       path: .
@@ -43,7 +43,7 @@ The setup default is rc.3 after its published bytes were verified against the te
 
 ## Invocation constants
 
-Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
+Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
 
 ```sh
 bunko build . --define 'BUILD_VERSION="1.2.3"' \

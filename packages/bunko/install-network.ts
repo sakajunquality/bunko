@@ -1,3 +1,7 @@
+import { readFile, realpath, stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import { X509Certificate } from "node:crypto";
+
 /** Preserve Bun's proxy selection and bypass rules without inheriting unrelated host settings. */
 export function installNetworkEnvironment(environment: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const result: Record<string, string> = {};
@@ -7,9 +11,6 @@ export function installNetworkEnvironment(environment: NodeJS.ProcessEnv = proce
   return result;
 }
 
-import { readFile, realpath, stat } from "node:fs/promises";
-import { resolve } from "node:path";
-import { X509Certificate } from "node:crypto";
 
 export interface NpmCertificate { pem: string; files: string[] }
 
@@ -34,15 +35,15 @@ export async function npmCertificate(directory: string, validate = true): Promis
 }
 
 /** Reject private keys and arbitrary files when combining installer trust bundles. */
-export async function certificatePEM(path: string): Promise<string> {
+export async function certificatePEM(path: string, label = "Installer CA"): Promise<string> {
   try {
     const info = await stat(path);
     if (!info.isFile() || info.size > 1024 * 1024) throw new Error();
     const pem = await readFile(path, "utf8");
     const pattern = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
     const certificates = pem.match(pattern);
-    if (!certificates?.length || Buffer.byteLength(pem) > 1024 * 1024 || pem.replace(pattern, "").trim()) throw new Error();
+    if (!certificates?.length || Buffer.byteLength(pem) > 1024 * 1024 || /-----BEGIN |-----END /.test(pem.replace(pattern, ""))) throw new Error();
     for (const certificate of certificates) new X509Certificate(certificate);
-    return pem;
-  } catch { throw new Error("Installer CA must be a readable PEM certificate bundle of at most 1 MiB"); }
+    return certificates.join("\n") + "\n";
+  } catch { throw new Error(`${label} must be a readable PEM certificate bundle of at most 1 MiB`); }
 }
