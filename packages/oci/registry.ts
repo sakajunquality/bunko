@@ -6,6 +6,7 @@ export type Fetcher = (url: string | URL, init?: RequestInit) => Promise<Respons
 export interface RegistryOptions {
   /** Origin-to-mirror hosts; only RegistrySource uses these for digest reads. */
   mirrors?: Record<string, string[]>;
+  onMirrorFallback?: (event: { registry: string; mirror: string; reason: string }) => void;
   sensitivePaths?: string[];
   tls?: Record<string, import("./tls.ts").RegistryTLS>;
   fetcher?: Fetcher;
