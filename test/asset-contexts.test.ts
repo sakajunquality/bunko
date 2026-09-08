@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { assetMappings, parseAssetContexts, stageAssetMappings } from "../packages/bunko/asset-contexts.ts";
+import { assetMappings, normalizeAssetContexts, parseAssetContexts, stageAssetMappings } from "../packages/bunko/asset-contexts.ts";
 import { build } from "../packages/bunko/build.ts";
 import { provenance } from "../packages/bunko/attest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
@@ -95,4 +95,36 @@ test("asset mappings cannot replace a custom runtime", async () => {
   const f = await fixture();
   await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { bunPath: "/repo/config/bun" }, assetMappings: [f.mapping] } }));
   await expect(build({ path: f.source, assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false })).rejects.toThrow("overlaps the configured Bun runtime");
+});
+
+
+test("recursive mappings preserve empty directories and modes but reject reserved descendants", async () => {
+  const f = await fixture();
+  await mkdir(join(f.context, "config/empty"));
+  await writeFile(join(f.context, "config/run.sh"), "echo fixture", { mode: 0o755 });
+  const staged = await stageAssetMappings([f.mapping], { repo: f.context }, join(f.root, "stage"));
+  expect(staged.entries.some((entry) => entry.path === "repo/config/empty" && entry.type === "directory")).toBe(true);
+  expect(staged.entries.some((entry) => entry.path === "repo/config/run.sh" && entry.type === "file" && entry.executable)).toBe(true);
+  await mkdir(join(f.context, "config/.bunko-deps"));
+  await expect(stageAssetMappings([{ ...f.mapping, to: "/app" }], { repo: f.context }, join(f.root, "invalid"))).rejects.toThrow("destination is reserved");
+});
+
+test("destination mappings participate in material identity", async () => {
+  const f = await fixture();
+  const first = await stageAssetMappings([f.mapping], { repo: f.context }, join(f.root, "first"));
+  const relocated = await stageAssetMappings([{ ...f.mapping, to: "/repo/other" }], { repo: f.context }, join(f.root, "second"));
+  expect(first.materials[0]!.digest).not.toBe(relocated.materials[0]!.digest);
+});
+
+
+test("API bindings validate names and paths without exposing host values", () => {
+  expect(() => normalizeAssetContexts({ "invalid:name": "/tmp/input" })).toThrow("Asset contexts require");
+  expect(() => normalizeAssetContexts({ repo: "private-value\n" })).toThrow("Asset contexts require");
+});
+
+test("case and file/directory mapping conflicts fail", async () => {
+  const f = await fixture();
+  const file = { context: "repo", from: "config/settings.json", to: "/repo/item" };
+  await expect(stageAssetMappings([file, { ...file, to: "/repo/ITEM" }], { repo: f.context }, join(f.root, "case"))).rejects.toThrow("Case-colliding");
+  await expect(stageAssetMappings([file, { ...file, to: "/repo/item/child" }], { repo: f.context }, join(f.root, "parent"))).rejects.toThrow("collision");
 });

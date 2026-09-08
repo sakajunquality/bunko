@@ -1,4 +1,4 @@
-import { stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
+import { normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
@@ -372,7 +372,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
-  options = supplyChainOptions(options);
+  options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
