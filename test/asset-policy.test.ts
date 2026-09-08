@@ -43,3 +43,11 @@ test("external asset mappings filter relative descendants and retain explicit re
   expect(() => assetMappings([{ ...mapping, mode: "4755" }])).toThrow("Asset mode");
   expect(() => assetMappings([{ ...mapping, exclude: ["../escape"] }])).toThrow("archive path");
 });
+
+test("source exclusions reject extended tsconfig files discovered after asset selection", async () => {
+  const directory = await root(), source = await project(join(directory, "source"), { bunko: { assets: ["config"], assetExcludes: ["config/base.json"] } });
+  await mkdir(join(source, "config"));
+  await writeFile(join(source, "tsconfig.json"), JSON.stringify({ extends: "./config/base.json" }));
+  await writeFile(join(source, "config/base.json"), JSON.stringify({ compilerOptions: { jsx: "react-jsx" } }));
+  await expect(build({ path: source, mode: "source", baseLayout: await baseLayout(join(directory, "base")), push: false, localCache: false, output: join(directory, "image") })).rejects.toThrow("required source input: config/base.json");
+});

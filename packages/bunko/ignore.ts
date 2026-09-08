@@ -54,6 +54,9 @@ export async function requiredInputs(root: string, projects: Project[], excluded
   for await (const path of new Bun.Glob("**/{tsconfig,jsconfig}.json").scan({ cwd: root, dot: true, followSymlinks: false })) {
     if (!omitted(path) && !isIgnored(path)) await config(path);
   }
+  if (projects.some((project) => project.mode === "source")) {
+    for (const path of required) if (assetExclusions.some((excluded) => join(root, path) === excluded || join(root, path).startsWith(`${excluded}/`))) throw new Error(`Asset exclusion overlaps a required source input: ${path}`);
+  }
   return [...required];
 }
 
