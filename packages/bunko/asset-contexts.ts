@@ -1,3 +1,4 @@
+import { systemFontPath, fontFileKind, validateFontFile } from "./font-assets.ts";
 import { assetExcluder, assetMode } from "./asset-policy.ts";
 import { chmod, copyFile, lstat, mkdir, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -16,7 +17,7 @@ const protectedRoots = new Set(["bin", "boot", "dev", "etc", "home", "lib", "lib
 
 function validateDestination(path: string): void {
   archivePath(path);
-  if (protectedRoots.has(path.split("/")[0]!.toLowerCase()) || path.split("/").some((part) => ["node_modules", ".bunko-build", ".bunko-workspace", ".bunko-deps"].includes(part.toLowerCase()))) throw new Error("Asset mapping destination is reserved");
+  if (protectedRoots.has(path.split("/")[0]!.toLowerCase()) && !systemFontPath(path) || path.split("/").some((part) => ["node_modules", ".bunko-build", ".bunko-workspace", ".bunko-deps"].includes(part.toLowerCase()))) throw new Error("Asset mapping destination is reserved");
 }
 
 export function assetMappings(value: unknown): AssetMapping[] {
@@ -31,7 +32,8 @@ export function assetMappings(value: unknown): AssetMapping[] {
     validateDestination(row.to.slice(1));
     if (row.exclude !== undefined && (!Array.isArray(row.exclude) || !row.exclude.every((item) => typeof item === "string"))) throw new Error("Asset mapping exclude must be an array of relative patterns");
     const exclude = (row.exclude as string[] | undefined)?.map((pattern) => archivePath(pattern.replace(/^\.\//, "")));
-    assetMode(row.mode);
+    const mode = assetMode(row.mode);
+    if (systemFontPath(row.to.slice(1)) && mode !== undefined && (mode & 0o111)) throw new Error("System font mappings require non-executable modes");
     return { context: row.context, from: row.from, to: row.to, ...(exclude ? { exclude } : {}), ...(row.mode !== undefined ? { mode: row.mode as string } : {}) };
   });
 }
@@ -111,6 +113,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
           for (const name of (await readdir(input)).sort()) await walk(`${path}/${name}`, `${destination}/${name}`);
         } else if (info.isFile()) {
           if (path === mapping.from && excludeAsset(basename(path))) return;
+          if (systemFontPath(destination)) fontFileKind(destination, mode ?? info.mode, info.size);
           if (stage === undefined) {
             selected.push({ type: "file", path: destination, content: new Uint8Array(0), ...(mode !== undefined ? { mode } : {}), executable: Boolean((mode ?? info.mode) & 0o111) });
             return;
@@ -120,6 +123,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
           await copyFile(input, copied);
           await chmod(copied, mode ?? (info.mode & 0o111 ? 0o755 : 0o644));
           const captured = await lstat(copied);
+          if (systemFontPath(destination)) await validateFontFile(copied, destination, mode ?? captured.mode);
           selected.push({ type: "file", path: destination, source: copied, size: captured.size, ...(mode !== undefined ? { mode } : {}), executable: Boolean((mode ?? info.mode) & 0o111) });
         } else throw new Error(`Unsupported asset input type: ${mapping.context}/${path}`);
       }
