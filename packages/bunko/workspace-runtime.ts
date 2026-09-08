@@ -1,3 +1,4 @@
+import { ignoredInstallScripts } from "./install-scripts.ts";
 import { packageLicense } from "./inventory.ts";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
@@ -37,8 +38,8 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
         const pkg = object(JSON.parse(await readFile(file, "utf8")), "Runtime package.json");
         if (typeof pkg.name === "string") {
           inventory.push({ path: dirname(path), name: pkg.name, version: typeof pkg.version === "string" ? pkg.version : "", license: packageLicense(pkg.license) });
-          const scripts = object(pkg.scripts ?? {}, "Runtime scripts");
-          if (["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; ready-to-run files are required`);
+          const hooks = ignoredInstallScripts(pkg, project.allowIgnoredScripts);
+          if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
         }
       }
       const elf = await inspectELF(file, platform);

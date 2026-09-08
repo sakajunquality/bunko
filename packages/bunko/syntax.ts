@@ -248,22 +248,51 @@ MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 
 ------------- End of ThirdPartyNotices -------------------------------------------
 */
-import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, isImportDeclaration, isStringLiteralLike, ScriptTarget, SyntaxKind, type Node } from "typescript";
+import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, isImportDeclaration, isStringLiteralLike, isIdentifier, isPropertyAccessExpression, isObjectLiteralExpression, isPropertyAssignment, ScriptTarget, SyntaxKind, type Node } from "typescript";
 
 /** Parse syntax only: never resolve imports, transform code, or execute macros. */
 export function rejectMacroSyntax(code: string, name: string): void {
   // Without either keyword or escapes, no import/export syntax is possible.
   // Escapes require parsing because identifiers and module strings can use them.
-  if (!/import|export|\\/.test(code)) return;
+  if (!/import|export|require|\\/.test(code)) return;
   const source = createSourceFile(name, code, ScriptTarget.Latest);
   const pending: Node[] = [source];
   while (pending.length) {
     const node = pending.pop()!;
     const declaration = isImportDeclaration(node) || isExportDeclaration(node) ? node : undefined;
     const dynamic = isCallExpression(node) && node.expression.kind === SyntaxKind.ImportKeyword ? node : undefined;
-    const specifier = declaration?.moduleSpecifier ?? dynamic?.arguments[0];
-    if (declaration?.attributes || dynamic && dynamic.arguments.length > 1 || specifier && isStringLiteralLike(specifier) && specifier.text.startsWith("macro:")) {
+    const requireCall = isCallExpression(node) && isIdentifier(node.expression) && node.expression.text === "require" ? node : undefined;
+    const specifier = declaration?.moduleSpecifier ?? dynamic?.arguments[0] ?? requireCall?.arguments[0];
+    let unsafeAttributes = false;
+    const supported = (key: string, value: Node) => isStringLiteralLike(value) && (key === "type" && ["json", "text", "file", "toml"].includes(value.text) || key === "resolution-mode" && ["import", "require"].includes(value.text));
+    if (declaration?.attributes) unsafeAttributes = declaration.attributes.elements.length !== 1 || declaration.attributes.elements.some((item) => !supported(item.name.text, item.value));
+    if (dynamic && dynamic.arguments.length > 1) {
+      const options = dynamic.arguments[1];
+      unsafeAttributes = true;
+      if (dynamic.arguments.length === 2 && options && isObjectLiteralExpression(options) && options.properties.length === 1) {
+        const prop = options.properties[0]!;
+        if (isPropertyAssignment(prop) && (isIdentifier(prop.name) || isStringLiteralLike(prop.name)) && ["with", "assert"].includes(prop.name.text) && isObjectLiteralExpression(prop.initializer) && prop.initializer.properties.length === 1) {
+          const attr = prop.initializer.properties[0]!;
+          unsafeAttributes = !(isPropertyAssignment(attr) && (isIdentifier(attr.name) || isStringLiteralLike(attr.name)) && supported(attr.name.text, attr.initializer));
+        }
+      }
+    }
+    if (unsafeAttributes || specifier && isStringLiteralLike(specifier) && specifier.text.startsWith("macro:")) {
       throw new Error(`Import attributes / macros are not supported: ${name}`);
+    }
+    forEachChild(node, (child) => { pending.push(child); });
+  }
+}
+
+
+/** Reject computed application loads structurally, without inspecting comments. */
+export function rejectApplicationImports(code: string, name: string): void {
+  if (!/import|require|\\/.test(code)) return;
+  const pending: Node[] = [createSourceFile(name, code, ScriptTarget.Latest)];
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (isCallExpression(node) && (node.expression.kind === SyntaxKind.ImportKeyword || isIdentifier(node.expression) && node.expression.text === "require" || isPropertyAccessExpression(node.expression) && isIdentifier(node.expression.expression) && node.expression.expression.text === "require" && node.expression.name.text === "resolve")) {
+      if (!node.arguments[0] || !isStringLiteralLike(node.arguments[0])) throw new Error(`Computed require/import is not supported in application source: ${name}`);
     }
     forEachChild(node, (child) => { pending.push(child); });
   }

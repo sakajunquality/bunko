@@ -69,13 +69,6 @@ export async function snapshot(source: string, destination: string, excluded: st
       const copied = join(destination, path);
       await copyFile(current, copied);
       await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
-      // Bun 1.3.11's CLI does not reliably honor --no-macros. Reject import
-      // attributes before invoking the bundler; parsing never executes source code.
-      if (/\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)) {
-        await rejectMacros(copied, path, syntax);
-        const code = (await readFile(copied, "utf8")).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
-        if (/\b(?:require|import)\s*\(\s*(?![\s"'])/.test(code) || /\b(?:require|import)\s*\(\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*[^)\s]/.test(code)) throw new Error(`Computed require/import is not supported in application source: ${path}`);
-      }
       records.push({ path, type: "file", digest: await hashFile(copied), executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported source file type: ${path}`);
   }

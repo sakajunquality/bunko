@@ -82,7 +82,7 @@ Supported `package.json.bunko` configuration; all fields are optional:
 }
 ```
 
-`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. Project bunfig.toml, source symlinks, import attributes/macros, and computed application require/import expressions are rejected. Import attributes and macros are detected from parsed syntax without executing source, so matching comments and strings are accepted. Computed-import detection remains conservative.
+`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. Source symlinks, macros, unsupported import attributes, and computed application require/import expressions are rejected. A trusted worker under the selected Bun executable validates loaded executable inputs before parsing. Application import checks use the syntax tree. Copy-only assets and unreachable modules are not executable inputs. Static json/text/file/toml attributes and import resolution-mode attributes are supported. See [application compatibility](APPLICATION_COMPATIBILITY.md) for bunfig settings and explicit dependency allowances.
 
 Base/platform precedence: CLI > BUNKO_DEFAULT_BASE/BUNKO_DEFAULT_PLATFORMS > package.json > defaults. The default base is `oven/bun:<selected Bun version>-distroless`; automatic catalog pinning is not implemented. Native dependencies require an explicit base containing their shared libraries instead of implicit distroless.
 
@@ -149,7 +149,7 @@ Cloud Registry coverage is recorded per provider in the [Registry matrix](REGIST
 
 ## 8. Workspaces and multiple targets
 
-An ancestor becomes the workspace root only if its workspaces declaration matches the selected package. Unrelated or malformed ancestor manifests do not capture standalone projects. The root `package.json.workspaces` must be an array of positive relative globs. Leading `./` segments and trailing slashes are normalized consistently for discovery and ancestor membership checks; `./packages/*` and `packages/*` select the same members. Member names are unique. Declared and discovered membership is cross-checked against the root lock, including root/member names, versions, dependency declarations, and optional peers. Manifest or membership changes during snapshotting fail.
+An ancestor becomes the workspace root only if its workspaces declaration matches the selected package. Unrelated or malformed ancestor manifests do not capture standalone projects. The root `package.json.workspaces` must be an array of positive relative globs or an object with a `packages` array and optional `catalog`/`catalogs` definitions. Leading `./` segments and trailing slashes are normalized consistently for discovery and ancestor membership checks; `./packages/*` and `packages/*` select the same members. Member names are unique. Declared and discovered membership is cross-checked against the root lock, including root/member names, versions, dependency declarations, and optional peers. Manifest or membership changes during snapshotting fail.
 
 A member directory searches parent declarations and uses the common lock. Root discovery excludes enabled:false, prefers children with bunko settings, and otherwise chooses bin/module children. Zero candidates fail. Use `--target .` for the root or repeat package names/root-relative paths for members. Deduplicate targets and process by path. Root application settings are not inherited.
 
@@ -169,7 +169,9 @@ Multi-target reports use `{schemaVersion:3,status,targets:[BuildResult...]}`, wi
 
 `buildTargets(options)` returns multiple results. `build(options)` retains its single-result API and rejects multiple selections before side effects.
 
-Unsupported workspace forms: nested members, object/catalog declarations, negative globs, file/link packages, and member-local npmrc/overrides/resolutions/patchedDependencies. Put the latter at the root. Project bunfig and install-script restrictions are unchanged.
+Default and named catalog references are supported for registry dependencies. Define catalogs at the workspace root, either as top-level fields or inside `workspaces`; declaring the same field in both locations is rejected. Missing catalog entries, recursive catalog references, and non-registry catalog entries fail before installation. Catalog declarations are checked against the frozen lock and included in dependency cache identity. Member-local catalogs are unsupported.
+
+Unsupported workspace forms: nested members, negative globs, file/link packages, and member-local npmrc/overrides/resolutions/patchedDependencies. Put the latter at the root. Workspace install settings belong in the root bunfig.toml; member test settings may be present but are ignored. See the application compatibility policy for install-script declarations.
 
 ## 9. Dependency closure and sharedDeps
 

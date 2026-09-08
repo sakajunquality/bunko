@@ -1,3 +1,4 @@
+import { workerCode } from "../packages/bunko/worker-code.ts";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +8,7 @@ export async function bundleCLI(output: string) {
   return Bun.build({
     entrypoints: [fileURLToPath(new URL("../packages/bunko/cli.ts", import.meta.url))],
     target: "bun", throw: false, naming: "bunko.js", outdir: output, minify: true,
-    define: { __dirname: "import.meta.dir", __filename: "import.meta.path" },
+    define: { BUNKO_WORKER_CODE: JSON.stringify(await workerCode()), __dirname: "import.meta.dir", __filename: "import.meta.path" },
   });
 }
 

@@ -1,3 +1,4 @@
+import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -6,32 +7,13 @@ import { canonicalJSON, object } from "../oci/digest.ts";
 import type { Project } from "./config.ts";
 import { type InventoryEntry, inspectELF, packageRoot } from "./deps.ts";
 import type { SyntaxCache } from "./syntax-cache.ts";
-import { OUTPUT_DIRECTORY, rejectMacros } from "./files.ts";
+import { OUTPUT_DIRECTORY } from "./files.ts";
 
 export interface Toolchain { path: string; version: string; revision: string }
 
 function inside(root: string, path: string): boolean {
   const local = relative(root, path);
   return local !== ".." && !local.startsWith("../");
-}
-
-async function validateTsconfigs(root: string): Promise<void> {
-  const seen = new Set<string>();
-  async function visit(path: string) {
-    if (!inside(root, path)) throw new Error("tsconfig extends must stay inside the project snapshot");
-    if (seen.has(path)) return;
-    seen.add(path);
-    const config = object(Bun.JSONC.parse(await readFile(path, "utf8")), "tsconfig");
-    if (config.extends === undefined) return;
-    const parents = Array.isArray(config.extends) ? config.extends : [config.extends];
-    for (const parent of parents) {
-      if (typeof parent !== "string" || !parent.startsWith(".")) throw new Error("Bunko supports only relative tsconfig extends inside the project");
-      let candidate = resolve(dirname(path), parent);
-      if (!candidate.endsWith(".json")) candidate += ".json";
-      await visit(candidate);
-    }
-  }
-  for await (const path of new Bun.Glob("**/tsconfig.json").scan({ cwd: root, dot: true })) if (!path.split("/").includes("node_modules")) await visit(join(root, path));
 }
 
 export async function selectToolchain(path?: string): Promise<Toolchain> {
@@ -46,20 +28,14 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
 }
 
 export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[]; inputs: string[] }> {
-  await validateTsconfigs(contextRoot);
-  for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path, syntax);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
-  const args = [toolchain.path, "build", `./${project.entrypoint}`, "--target=bun", "--format=esm", "--packages=bundle", "--root=.",
-    `--outdir=${OUTPUT_DIRECTORY}/out`, `--metafile=${OUTPUT_DIRECTORY}/meta.json`,
-    "--entry-naming=[dir]/[name].[ext]", "--env=disable", "--no-env-file", "--reject-unresolved",
-    `--sourcemap=${project.build.sourcemap}`];
-  for (const name of project.external) args.push("--external", name, "--external", `${name}/*`);
-  if (project.build.minify) args.push("--minify");
-  for (const [key, value] of Object.entries(project.build.define).sort(([a], [b]) => a.localeCompare(b))) args.push("--define", `${key}=${value}`);
-  // Use an explicit empty config and a small environment without global overrides.
+  const worker = join(root, OUTPUT_DIRECTORY, "worker.js");
+  const settings = join(root, OUTPUT_DIRECTORY, "worker.json");
+  await writeFile(worker, await workerCode());
+  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, external: project.external, ...project.build }));
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
-  args.push(`--config=${OUTPUT_DIRECTORY}/bunfig.toml`);
+  const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   const child = Bun.spawn(args, {
     cwd: root,
     env: { PATH: process.env.PATH ?? "", NODE_ENV: "production", TZ: "UTC", LANG: "C", LC_ALL: "C" },
@@ -72,7 +48,15 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (last) log(last);
   };
   const [, , exit] = await Promise.all([drain(child.stdout), drain(child.stderr), child.exited]);
-  if (exit !== 0) throw new Error(`Bun build failed (exit ${exit})`);
+  if (exit !== 0) {
+    const errors = Bun.file(join(root, OUTPUT_DIRECTORY, "errors.json"));
+    const detail = await errors.exists() ? (await errors.json() as string[]).join("; ").slice(0, 8192) : "";
+    throw new Error(`Bun build failed (exit ${exit})${detail ? `: ${detail}` : ""}`);
+  }
+  if (syntax) {
+    const stats = JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "validation.json"), "utf8"));
+    syntax.stats.parsed += stats.parsed; syntax.stats.bytes += stats.bytes;
+  }
   const meta = object(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "meta.json"), "utf8")), "Bun metafile");
   const outputs = object(meta.outputs, "Bun metafile outputs");
   const inputs = new Set(Object.keys(object(meta.inputs, "Bun metafile inputs")).map((path) => resolve(root, path)));

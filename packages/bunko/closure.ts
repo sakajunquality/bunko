@@ -1,3 +1,4 @@
+import { ignoredInstallScripts } from "./install-scripts.ts";
 import { packageLicense } from "./inventory.ts";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
@@ -44,8 +45,7 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   async function visit(path: string) {
     if (instances.has(path)) return;
     const manifest = object(JSON.parse(await readFile(join(root, path, "package.json"), "utf8")), "Runtime package.json");
-    const scripts = object(manifest.scripts ?? {}, "Runtime scripts");
-    if (["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${manifest.name} declares install scripts; ready-to-run files are required`);
+    for (const project of projects) ignoredInstallScripts(manifest, project.allowIgnoredScripts);
     const instance: Instance = { path, manifest, edges: new Map() };
     instances.set(path, instance);
     const required = object(manifest.dependencies ?? {}, "dependencies");
@@ -111,6 +111,8 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   }
   for (const [path, instance] of [...instances].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     inventory.push({ path, name: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), license: packageLicense(instance.manifest.license) });
+    const hooks = ignoredInstallScripts(instance.manifest, projects[0]?.allowIgnoredScripts);
+    if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
     await walk(path);
     entries.push(...aliases(instance.edges, `${destination(path)}/node_modules`));
   }
