@@ -7,7 +7,7 @@
 <div class="eyebrow">Remote execution handoff · 2026-09-08</div>
 <h1>Bunko application validation<br>v0.1.0-rc.2</h1>
 <p>Please re-test the application from the original compatibility report on its own machine. Use an isolated checkout and disposable services. The goal is functional parity for the web server, worker, bot and explicit migration job, including real runtime files and native behavior.</p>
-<div class="note pending"><strong>Release candidate, not workload certification.</strong> Use the immutable <a href="https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.2">rc.2 release</a> after its assets are available. If the release is not yet published, wait for it; do not substitute alpha.2. Record the CLI checksum and release commit. Application results below remain unverified until you execute them.</div>
+<div class="note pending"><strong>Release candidate, not workload certification.</strong> Use the immutable <a href="https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.2">rc.2 release</a> after its assets are available. If the release is not yet published, wait for it; do not substitute rc.1 or alpha.2. Record the CLI checksum and release commit. Application results below remain unverified until you execute them.</div>
 <h2>1. What changed since the original report</h2>
 <table><thead><tr><th>Request</th><th>Candidate behavior / remaining adaptation</th></tr></thead><tbody>
 <tr><td>R1</td><td>Restricted install-only bunfig settings are supported. Only minimumReleaseAge and minimumReleaseAgeExcludes are forwarded; test settings are ignored. Other unsupported keys still fail.</td></tr>
@@ -73,7 +73,7 @@ export BUNKO_QUARANTINE="$(mktemp -d)"
 bun "$BUNKO_CLI" doctor "$APP_COPY" \
   --asset-context "generated=$GENERATED_INPUTS" \
   &gt; "$BUNKO_QUARANTINE/doctor.json" 2&gt; "$BUNKO_QUARANTINE/doctor.log"
-# With runtime.inject: release in configuration, add --runtime-inject release here.
+# With runtime.inject: release in configuration, add --runtime-inject release to check-base.
 bun "$BUNKO_CLI" check-base --base "$BASE" --platform "$PLATFORM" --run \
   &gt; "$BUNKO_QUARANTINE/base.json" 2&gt; "$BUNKO_QUARANTINE/base.log"
 
