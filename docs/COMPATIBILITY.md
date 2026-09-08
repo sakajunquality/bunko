@@ -21,7 +21,7 @@ bunko build ./examples/hello --push=false --base-layout ./base-layout \
 
 ## Installation and distribution
 
-The supported CLI distribution is the self-contained `bunko.js` release artifact plus Bun. The setup action verifies the archive/checksum and selects this distribution; see RELEASING.md. Source checkout (`bun install --frozen-lockfile --ignore-scripts`, then `bun run build`) remains useful for private development. No npm package or public release is required. Repository and artifact visibility remain private.
+The supported CLI distribution is the self-contained `bunko.js` release artifact plus Bun. The setup action verifies the archive/checksum and selects this distribution; see RELEASING.md. Source checkout (`bun install --frozen-lockfile --ignore-scripts`, then `bun run build`) remains useful for development. No npm package is required. Private forks need appropriate release repository credentials; see [installation](RELEASING.md).
 
 Application `--mode compile` is separate from distributing the CLI as a native executable. A standalone CLI binary, Windows support and automatic Bun upgrades are not provided. Explicit pinned Bun installations keep builds and cache keys traceable. A Bun patch change can change compiled output and cache keys; rebuild and recheck both image platforms before updating production.
 

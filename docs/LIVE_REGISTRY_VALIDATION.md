@@ -1,5 +1,8 @@
 # Live registry validation
 
+The committed validation reports are the primary reader-accessible evidence. Links to workflows in the separate private `bunko-test` repository require access and are supplemental; publishing Bunko does not publish that test repository.
+
+
 For subsequent tests of the published alpha.2 CLI, including Docker Hub account publication and an authenticated upstream base, see [published release validation](PUBLISHED_RELEASE_VALIDATION.md). The results below describe their original checkpoints.
 
 

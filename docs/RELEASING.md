@@ -24,7 +24,7 @@ For a new version, merge reviewed changes and verify the recorded CI/runtime res
 
 Publication uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
 
-The repository is currently private, so release downloads and use of this Action from other repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
+Public release assets can be downloaded without repository credentials, subject to GitHub rate limits. Private forks and private release repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
 
 ## Use the setup Action
 
@@ -69,4 +69,4 @@ bun ./bunko.js build /path/to/app --repo ghcr.io/OWNER
 
 The CLI file is portable between supported hosts. Use the supplied notices when redistributing it. Its bundled runtime has no external npm module requirement, but the applications being built still need their declared dependency installs and suitable Linux base images.
 
-Candidate review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
+Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).

@@ -1,6 +1,6 @@
 # Comparison with ko and BuildKit
 
-Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the alpha.2 candidate. This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
+Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the alpha.2 release. This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
 
 ko is the workflow reference for building images directly from language source and resolving deployment manifests. BuildKit is a general build execution backend with workers and frontends. Bunko directly uses Bun and composes OCI images; duplicating BuildKit's execution engine would change that scope.
 

@@ -2,11 +2,24 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-alpha.2 candidate** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-alpha.2 prerelease** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
 See the [feature guide](docs/FEATURES.md), [alpha.2 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is an alpha; review the compatibility and trust boundaries before adopting it.
 
-## Quick start
+## Install a release
+
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, and `THIRD_PARTY_NOTICES.md` from the [v0.1.0-alpha.2 release](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-alpha.2) into the same directory. Install Bun 1.3.11, then verify the files before running the CLI:
+
+```sh
+# Linux; on macOS use: shasum -a 256 --check SHA256SUMS
+sha256sum --check SHA256SUMS
+bun ./bunko.js version
+bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
+```
+
+See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Alpha.2's help text still says "private preview"; the next CLI release updates that wording without replacing the published assets.
+
+## Quick start from source
 
 Requires Bun `>=1.3.11 <1.4`; the tested CI matrix covers Bun 1.3.11 and 1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
@@ -167,3 +180,5 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+See [security reporting](SECURITY.md) and the [roadmap](docs/ROADMAP.md) for support boundaries and planned work.

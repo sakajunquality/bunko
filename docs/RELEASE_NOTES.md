@@ -1,4 +1,4 @@
-This alpha candidate adds local development interoperability, clearer supply-chain metadata and more control over build inputs and caches.
+The alpha.2 prerelease adds local development interoperability, clearer supply-chain metadata and more control over build inputs and caches.
 
 - Exclude optional context files with `.bunkoignore`; reuse application output using conservative target inputs and an actual bundle-input backstop. Inspect plain/JSON stage progress.
 - Resolve manifests into local Docker or kind images, and apply to the matching kind context. Select prepared dependencies per workspace target with validated platform, lock and target bindings.
