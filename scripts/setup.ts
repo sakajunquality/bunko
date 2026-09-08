@@ -1,10 +1,11 @@
+import { verifyRelease } from "./verify-release.ts";
 import { appendFile, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assetNames, localAsset, maxAssetBytes, releaseTag, verifyAssets } from "./distribution.ts";
 
 type Fetcher = (url: URL, init?: RequestInit) => Promise<Response>;
-interface SetupOptions { version: string; repository?: string; token?: string; distribution?: string; temporary?: string; fetcher?: Fetcher }
+interface SetupOptions { verifyAttestation?: boolean; version: string; repository?: string; token?: string; distribution?: string; temporary?: string; fetcher?: Fetcher }
 
 /** Follow HTTPS asset redirects without forwarding the GitHub token off-origin. */
 export async function githubBytes(url: URL, token: string | undefined, accept: string, fetcher: Fetcher = fetch): Promise<Uint8Array> {
@@ -65,6 +66,11 @@ export async function setup(options: SetupOptions) {
   try {
     if (/[\r\n]/.test(root)) throw new Error("Installation path contains a newline");
     for (const [name, bytes] of assets) await writeFile(join(root, name), bytes, { flag: "wx" });
+    if (options.verifyAttestation) {
+      await writeFile(join(root, "SHA256SUMS"), hashes, { flag: "wx" });
+      await writeFile(join(root, "PROVENANCE.jsonl"), await load("PROVENANCE.jsonl"), { flag: "wx" });
+      await verifyRelease(root, repository, `refs/tags/${tag}`);
+    }
     const child = Bun.spawn([process.execPath, join(root, "bunko.js"), "version"], { cwd: root, env: { PATH: process.env.PATH ?? "" }, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (exit || stderr || stdout !== `${tag.slice(1)}\n`) throw new Error("Downloaded CLI version does not match the requested release");
@@ -77,7 +83,8 @@ export async function setup(options: SetupOptions) {
 }
 
 if (import.meta.main) {
-  const result = await setup({ version: process.env.INPUT_VERSION ?? "v0.1.0-alpha.2", repository: process.env.INPUT_REPOSITORY,
+  if (process.env.INPUT_VERIFY_ATTESTATION && !["true", "false"].includes(process.env.INPUT_VERIFY_ATTESTATION)) throw new Error("verify-attestation must be true or false");
+  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", version: process.env.INPUT_VERSION ?? "v0.1.0-alpha.2", repository: process.env.INPUT_REPOSITORY,
     token: process.env.INPUT_TOKEN, distribution: process.env.INPUT_DISTRIBUTION_DIRECTORY || undefined, temporary: process.env.RUNNER_TEMP });
   if (process.env.GITHUB_PATH) await appendFile(process.env.GITHUB_PATH, `${result.bin}\n`);
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `version=${result.version}\nbunko-path=${result.executable}\n`);
