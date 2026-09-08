@@ -44,7 +44,7 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[] }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[]; inputs: string[] }> {
   await validateTsconfigs(contextRoot);
   for await (const path of new Bun.Glob("**/node_modules/**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}").scan({ cwd: contextRoot, dot: true, followSymlinks: false })) await rejectMacros(join(contextRoot, path), path, syntax);
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
@@ -143,7 +143,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
-    return { outdir, inventory, entry: executable };
+    return { outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: executable };
   }
-  return { outdir, inventory, entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
+  return { outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
 }

@@ -1,3 +1,4 @@
+import { sourceIgnore, sourceOmissions } from "./ignore.ts";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, open } from "node:fs/promises";
 import { join, posix, relative, resolve } from "node:path";
@@ -8,7 +9,7 @@ import type { SyntaxCache } from "./syntax-cache.ts";
 import { rejectMacroSyntax } from "./syntax.ts";
 
 export const OUTPUT_DIRECTORY = ".bunko-build";
-const omitted = new Set([".git", ".cursor", "node_modules", ".bunko-output", OUTPUT_DIRECTORY, ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
+const omitted = sourceOmissions;
 
 export async function rejectMacros(file: string, name: string, cache?: SyntaxCache): Promise<void> {
   if (cache) return cache.check(file, name);
@@ -30,12 +31,19 @@ export async function hashFile(path: string): Promise<Digest> {
   } finally { await file.close(); }
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = []): Promise<Digest> {
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = []): Promise<Digest> {
+  const ignored = await sourceIgnore(source);
   const records: { path: string; type: string; digest?: Digest; executable?: boolean }[] = [];
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
   async function walk(path: string) {
     const current = join(source, path);
+    if (path && ignored(path)) {
+      const input = required.find((item) => item === path || item.startsWith(`${path}/`));
+      if (input) throw new Error(`Ignored required input: ${input}`);
+      if (strictAssetRoots.some((root) => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))) throw new Error(`Ignored required asset: ${path}`);
+      return;
+    }
     const strictAsset = strictAssetRoots.some((root) => path === root || path.startsWith(`${root}/`));
     if (exclude.some((p) => current === p || current.startsWith(`${p}/`))) {
       if (strictAsset) throw new Error(`Output/cache exclusion overlaps bunkodata: ${path}`);

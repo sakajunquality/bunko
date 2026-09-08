@@ -11,6 +11,7 @@ export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   path: string;
+  progress?: (event: import("./progress.ts").ProgressEvent) => void;
   imageLabels?: Record<string, string>;
   imageAnnotations?: Record<string, string>;
   imageUser?: string;

@@ -252,6 +252,9 @@ import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, 
 
 /** Parse syntax only: never resolve imports, transform code, or execute macros. */
 export function rejectMacroSyntax(code: string, name: string): void {
+  // Without either keyword or escapes, no import/export syntax is possible.
+  // Escapes require parsing because identifiers and module strings can use them.
+  if (!/import|export|\\/.test(code)) return;
   const source = createSourceFile(name, code, ScriptTarget.Latest);
   const pending: Node[] = [source];
   while (pending.length) {
