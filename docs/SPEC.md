@@ -263,3 +263,7 @@ Builder identity is an input to application caching and runnable image labels. D
 ## Injected runtime layers
 
 `runtime.inject: "release"` optionally adds a signed official Bun runtime layer between the base and dependencies. It requires an explicit glibc base and bundle mode; supported versions, verification policy, cache behavior, licensing notices and execution checks are specified in [runtime injection](RUNTIME_INJECTION.md). It does not alter normal runtime inheritance or imply that native addon libraries are installed.
+
+## Build telemetry
+
+`--otel` explicitly enables bounded OTLP/HTTP JSON metrics and traces for build, resolve and apply. Standard OTel variables alone never enable transmission. Stage boundaries are shared with progress events and local report timings; target identities are replaced with invocation-local numbers in exported traces. Supported configuration, signal definitions, privacy limits, export deadlines and Collector interoperability are defined in [TELEMETRY.md](TELEMETRY.md). This feature is on the development branch and is not included in rc.2.

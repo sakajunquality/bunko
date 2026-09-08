@@ -4,7 +4,8 @@ This is a delivery plan, not a promise of release dates or complete ko/BuildKit 
 
 ## Release candidate and workload acceptance
 
-- Publish v0.1.0-rc.2 after reviewed diagnostics/runtime-injection changes and CI pass; preserve earlier immutable assets.
+- v0.1.0-rc.2 is published with reviewed diagnostics/runtime injection; its anonymous installation and CLI checksum were verified. Preserve its immutable assets.
+- Prepare the next candidate, rc.3, with reviewed OpenTelemetry support and exact-artifact validation.
 - Verify checksums and installation of the exact published RC from a clean consumer environment.
 - Complete the [remote application acceptance matrix](validation-request.html) on the application machine. Generic fixture passes do not certify Temporal, Snowflake, bot or framework-specific behavior.
 - Re-run the registry matrix with the exact RC artifact before carrying forward alpha.2 interoperability claims. Record unavailable credentials or services as not-run.
