@@ -7,7 +7,7 @@ The downloaded `bunko.js` SHA-256 is `fc6af0500637623df354ebe983004447acade1abd4
 ## Installation
 
 - Authenticated downloading, checksums, and version verification passed through `scripts/setup.ts` on macOS against the actual private release.
-- The setup action's network download path passed on Linux in the [release repository workflow](https://github.com/sakajunquality/bunko/actions/runs/34180937784), using its standard repository token.
+- The setup action's network download path passed on Linux in the [release repository workflow](https://github.com/sakajunquality/bunko/actions/runs/34181456366), using its standard repository token.
 - The separate private `bunko-test` repository used the same downloaded release assets with `distribution-directory`. Its ordinary `GITHUB_TOKEN` cannot read another private repository's releases. No personal token was copied into Actions secrets and private action sharing was not enabled. This validates pre-downloaded installation there, not cross-repository network authentication.
 - The fixture assets live only on the `validate/published-alpha2` validation branch. Its additional metadata/signing steps use older vendored source and are not evidence for the distributed CLI.
 
@@ -39,3 +39,7 @@ bun test/registry-conformance.ts
 ```
 
 `BUNKO_TEST_BASE` selects an upstream base for CLI conformance and the distributed-CLI runtime smoke test. Without `BUNKO_TEST_CLI`, runtime smoke still uses its normal source-build default. Private ECR, Docker Hub referrers/signatures, token expiry, permission changes, and other private upstream authentication policies remain separate tests.
+
+## Review and harness checks
+
+Claude review identified lost partial-publication details in subprocess failures, ambiguous PATH-based setup verification, and missing invocation fingerprints. The harness now preserves partial publication, records and checks the downloaded CLI digest, streams build diagnostics without copying them into its summary error, and has a subprocess failure-report regression. The workflow invokes the exact setup output path and accepts an optional explicit published version. Docker Hub conformance passed again after these changes.

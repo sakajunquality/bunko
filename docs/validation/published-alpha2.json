@@ -5,7 +5,7 @@
   "releaseWorkflow": "https://github.com/sakajunquality/bunko/actions/runs/34180809960",
   "sha256": "fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
   "authenticatedLocalSetup": "passed",
-  "setupActionWorkflow": "https://github.com/sakajunquality/bunko/actions/runs/34180937784",
+  "setupActionWorkflow": "https://github.com/sakajunquality/bunko/actions/runs/34181456366",
   "registries": [
     {
       "vendor": "ghcr",
@@ -1106,5 +1106,49 @@
     "Private upstream runtime checks cover linux/arm64 on GAR, not all provider authentication policies.",
     "Docker Hub referrers, signatures, token expiry and permission changes were not tested in this run.",
     "The GHCR workflow also ran older vendored-source metadata/signing tests; those are not evidence for the distributed CLI."
-  ]
+  ],
+  "reviewedHarnessDockerHubRepeat": {
+    "invocation": {
+      "digest": "sha256:fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
+      "kind": "cli"
+    },
+    "runId": "d97ee789-5239-44ec-b023-3704c9275e07",
+    "status": "success",
+    "cacheVerified": true,
+    "directDockerPull": true,
+    "tags": [
+      "bunko-smoke-d97ee789-5239-44ec-b023-3704c9275e07-first",
+      "bunko-smoke-d97ee789-5239-44ec-b023-3704c9275e07-warm"
+    ],
+    "runtime": [
+      {
+        "body": {
+          "hash": 510391394,
+          "message": "bunko conformance d97ee789-5239-44ec-b023-3704c9275e07 warm",
+          "number": true
+        },
+        "config": "sha256:265fdc563047c00117c61377808cfa8d1d25bc6f54875ab7594de38b6bc40128",
+        "dockerId": "sha256:837d782f37902b256b126235df8547f962b7837214964b1542665ccaf0ce529c",
+        "exitCode": 0,
+        "manifest": "sha256:837d782f37902b256b126235df8547f962b7837214964b1542665ccaf0ce529c",
+        "platform": "linux/amd64",
+        "readOnly": true,
+        "user": "65532:65532"
+      },
+      {
+        "body": {
+          "hash": 510391394,
+          "message": "bunko conformance d97ee789-5239-44ec-b023-3704c9275e07 warm",
+          "number": true
+        },
+        "config": "sha256:ec34cfbc3b3a3771cdbd42e94dd069f10d376e3e1f201e0aeb4152bb008b58aa",
+        "dockerId": "sha256:6a870b996fe531a3633e6f2c2903da3ebfeec79d2327c81c723c843d54591eac",
+        "exitCode": 0,
+        "manifest": "sha256:6a870b996fe531a3633e6f2c2903da3ebfeec79d2327c81c723c843d54591eac",
+        "platform": "linux/arm64",
+        "readOnly": true,
+        "user": "65532:65532"
+      }
+    ]
+  }
 }
