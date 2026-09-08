@@ -110,4 +110,9 @@ test("oversized metadata is never persisted or published and missing local blobs
   expect(reader.events[1]).toMatchObject({ status: "registry", source: "registry.test/cache" });
   await reader.persistHits();
   expect(await Bun.file(new BlobStore(directory).path(item.layer.descriptor.digest)).exists()).toBe(true);
+  const manifest = JSON.parse(Buffer.from(mock.manifests.get(`registry.test/cache/${cacheTag("assets", item.key)}`)!.bytes).toString());
+  mock.blobs.delete(`registry.test/cache/${manifest.config.digest}`);
+  const incomplete = new LayerCache(new BlobStore(join(root, "incomplete")), { readRepositories: ["registry.test/cache"], registry, log: () => {} });
+  expect(await incomplete.get(item.key, "assets")).toBeUndefined();
+  expect(incomplete.events[0]!.reason).toBe("invalid-or-unavailable");
 });

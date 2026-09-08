@@ -111,9 +111,10 @@ export class LayerCache {
     }
     let unavailable = false;
     for (const reader of this.readers) {
+      let found = false;
       try {
         const source = new RegistrySource(`${repositoryName(reader.ref)}:${cacheTag(kind, key)}`, this.options.registry);
-        const root = await source.root();
+        const root = await source.root(); found = true;
         const manifest = object(JSON.parse(Buffer.from(root.bytes).toString()), "Cache manifest");
         if (root.descriptor.mediaType !== media.manifest || manifest.schemaVersion !== 2 || manifest.artifactType !== artifactMedia || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new Error("Invalid cache artifact");
         const config = descriptor(manifest.config), layer = descriptor(manifest.layers[0]);
@@ -130,7 +131,7 @@ export class LayerCache {
         if (this.remote && repositoryName(reader.ref) === repositoryName(this.remote.ref)) this.remoteHits.add(key);
         this.events.push({ key, kind, status: "registry", source: repositoryName(reader.ref) });
         return record;
-      } catch (error) { if (!(error instanceof RegistryError && error.status === 404)) { unavailable = true; this.options.log(`Registry ${kind} cache unavailable; trying remaining sources\n`); } }
+      } catch (error) { if (found || !(error instanceof RegistryError && error.status === 404)) { unavailable = true; this.options.log(`Registry ${kind} cache unavailable; trying remaining sources\n`); } }
     }
     this.events.push({ key, kind, status: "miss", reason: unavailable || this.invalidLocal.has(key) ? "invalid-or-unavailable" : "not-found" });
   }
