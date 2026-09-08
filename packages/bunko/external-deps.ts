@@ -33,7 +33,7 @@ export async function packDependencies(directory: string, lockfile: string, plat
     const config = await store.put(canonicalJSON({ schemaVersion: targetPath ? 2 : 1, targetPath: targetPath || undefined, platform, workdir, lockDigest: lockDigest(lock), layer }), configType);
     const root = { ...await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType, config, layers: [layer.descriptor] }), media.manifest), artifactType };
     await exportLayout(store, output, root, [config, layer.descriptor], "bunko-dependencies");
-    return { schemaVersion: 1, digest: root.digest, platform, workdir, inventory: content.inventory, native: content.native, layout: output };
+    return { schemaVersion: 1, digest: root.digest, platform, workdir, inventory: content.inventory, native: content.native, omitted: content.omitted, layout: output };
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 

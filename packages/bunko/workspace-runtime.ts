@@ -6,7 +6,7 @@ import { object } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
-import { AddonLedger, inspectRuntimeFile, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
 
 export const workspaceDirectory = ".bunko-workspace";
 
@@ -16,7 +16,7 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
   root = await realpath(root);
   const workspace = plan.workspace!;
   const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
-  const ledger = new AddonLedger(platform);
+  const ledger = new AddonLedger(platform, root);
   const seen = new Set<string>();
   const sourcePaths = Object.keys(plan.workspaceSources ?? {});
   const modulePaths = workspace.packages.map((pkg) => pkg.path ? `${pkg.path}/node_modules` : "node_modules");
@@ -30,6 +30,7 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
     if (info.isSymbolicLink()) {
       const target = await realpath(file), local = relative(root, target);
       if (!admitted(local) || isAbsolute(local) || local === ".." || local.startsWith("../")) throw new Error(`Workspace dependency symlink escapes the packaged runtime: ${path}`);
+      if (!await includeRuntimeLink(file, path, target, platform, ledger)) return;
       entries.push({ type: "symlink", path: destination, target: relative(dirname(file), target) });
     } else if (info.isDirectory()) {
       entries.push({ type: "directory", path: destination });

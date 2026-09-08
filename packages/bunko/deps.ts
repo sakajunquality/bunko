@@ -26,30 +26,43 @@ const elfMachine = (platform: Platform) => platform.architecture === "amd64" ? 6
  * Packages such as @temporalio/core-bridge or snowflake-sdk ship one prebuilt
  * `.node` per supported platform inside a single tree and select one at
  * runtime. Only the target's little-endian ELF64 addon is packaged; a `.node`
- * file of any other format or architecture can never load on the target, so
+ * file in a recognized foreign format or architecture cannot load on the target, so
  * it is omitted from the image instead of failing the build.
  */
 export async function classifyAddon(path: string, platform: Platform): Promise<{ elf?: NativeBinary; omit?: OmittedAddon["reason"] }> {
   const file = await open(path, "r");
-  const header = Buffer.alloc(20);
+  const header = Buffer.alloc(64);
   let bytesRead: number;
-  try { ({ bytesRead } = await file.read(header, 0, 20, 0)); } finally { await file.close(); }
-  if (bytesRead < 20 || !header.subarray(0, 4).equals(ELF_MAGIC) || header[4] !== 2 || header[5] !== 1) return { omit: "foreign-format" };
+  try { ({ bytesRead } = await file.read(header, 0, header.length, 0)); } finally { await file.close(); }
+  if (!header.subarray(0, 4).equals(ELF_MAGIC)) {
+    const magic = header.subarray(0, 4).toString("hex");
+    const macho = ["feedface", "cefaedfe", "feedfacf", "cffaedfe", "cafebabe", "bebafeca", "cafebabf", "bfbafeca"].includes(magic);
+    const windows = bytesRead >= 2 && header.subarray(0, 2).toString() === "MZ";
+    if (macho || windows) return { omit: "foreign-format" };
+    throw new Error(`Unrecognized native addon format: ${path}`);
+  }
+  if (![1, 2].includes(header[4]!) || ![1, 2].includes(header[5]!) || bytesRead < (header[4] === 1 ? 52 : 64)) throw new Error(`Invalid native ELF header: ${path}`);
+  if (header[4] !== 2 || header[5] !== 1 || ![0, 3].includes(header[7]!)) return { omit: "foreign-format" };
   if (header.readUInt16LE(18) !== elfMachine(platform)) return { omit: "foreign-architecture" };
+  if (header.readUInt16LE(16) !== 3) throw new Error(`Native addon must be an ELF shared object: ${path}`);
   return { elf: await inspectELF(path, platform) };
 }
 
 /** Records packaged and omitted `.node` files per package; a package that ships addons but none for the target still fails. */
 export class AddonLedger {
   private readonly packages = new Map<string, { kept: number; omitted: OmittedAddon[] }>();
-  constructor(private readonly platform: Platform) {}
+  constructor(private readonly platform: Platform, private readonly root: string) {}
   private async entry(file: string, path: string) {
-    // Attribute the addon to the nearest enclosing package.json; fall back to its own directory.
+    // Unnamed package.json files only establish module scope, not package ownership.
+    // Never consult manifests outside the frozen runtime tree.
     let directory = dirname(file), depth = 0;
-    while (!(await Bun.file(join(directory, "package.json")).exists())) {
-      const parent = dirname(directory);
-      if (parent === directory) { directory = dirname(file); depth = 0; break; }
-      directory = parent; depth++;
+    while (true) {
+      try {
+        const manifest = object(JSON.parse(await readFile(join(directory, "package.json"), "utf8")), "Native addon package.json");
+        if (typeof manifest.name === "string" && manifest.name.length) break;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (directory === this.root || dirname(directory) === directory) { directory = dirname(file); depth = 0; break; }
+      directory = dirname(directory); depth++;
     }
     const segments = path.split("/");
     const key = segments.slice(0, Math.max(0, segments.length - 1 - depth)).join("/") || ".";
@@ -59,14 +72,14 @@ export class AddonLedger {
   }
   async keep(file: string, path: string): Promise<void> { (await this.entry(file, path)).kept++; }
   async omit(file: string, path: string, reason: OmittedAddon["reason"]): Promise<void> { (await this.entry(file, path)).omitted.push({ path, reason }); }
-  /** Returns every omitted addon in walk order; throws when a package retains no addon for the target. */
+  /** Returns every omitted addon in path order; throws when a package retains no addon for the target. */
   finish(): OmittedAddon[] {
     const omitted: OmittedAddon[] = [];
     for (const [pkg, record] of this.packages) {
       if (!record.kept) throw new Error(`Native addon package has no ${this.platform.os}/${this.platform.architecture} build: ${pkg} (omitted ${record.omitted.map((o) => o.path).join(", ")})`);
       omitted.push(...record.omitted);
     }
-    return omitted;
+    return omitted.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   }
 }
 
@@ -77,6 +90,15 @@ export async function inspectRuntimeFile(file: string, path: string, platform: P
   if (addon.omit) { await ledger.omit(file, path, addon.omit); return null; }
   await ledger.keep(file, path);
   return addon.elf;
+}
+
+/** Omit links to omitted addons as well, so the packaged tree has no dangling addon aliases. */
+export async function includeRuntimeLink(file: string, path: string, target: string, platform: Platform, ledger: AddonLedger): Promise<boolean> {
+  if ((!path.endsWith(".node") && !target.endsWith(".node")) || !(await lstat(target)).isFile()) return true;
+  const addon = await classifyAddon(target, platform);
+  if (addon.omit) { await ledger.omit(file, path, addon.omit); return false; }
+  await ledger.keep(file, path);
+  return true;
 }
 
 export function packageRoot(value: string): string {
@@ -268,7 +290,7 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
   const entries: TarEntry[] = [];
   const inventory: InventoryEntry[] = [];
   const native: NativeBinary[] = [];
-  const ledger = new AddonLedger(platform);
+  const ledger = new AddonLedger(platform, modules);
   async function walk(path: string) {
     const file = join(modules, path);
     const info = await lstat(file);
@@ -279,6 +301,7 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
       const target = await realpath(file);
       const local = relative(modules, target);
       if (local === ".." || local.startsWith("../") || isAbsolute(local)) throw new Error(`Dependency symlink escapes node_modules: ${path}`);
+      if (!await includeRuntimeLink(file, path, target, platform, ledger)) return;
       entries.push({ type: "symlink", path: destination, target: isAbsolute(original) ? relative(dirname(file), target) : original });
     } else if (info.isDirectory()) {
       entries.push({ type: "directory", path: destination });
@@ -311,5 +334,5 @@ export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, pla
   const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
   const definitions = catalogs(plan.manifest);
-  return { manifests, ...(Object.keys(plan.installPolicy ?? {}).length ? { installPolicy: plan.installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
+  return { nativeAddonPolicy: "target-elf-v1", manifests, ...(Object.keys(plan.installPolicy ?? {}).length ? { installPolicy: plan.installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
 }

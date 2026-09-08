@@ -195,7 +195,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const base = bases[index]!;
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         await cp(snapshotRoot, root, { recursive: true });
-        const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} prebuilt native addon file(s) built for other platforms (${platform.architecture})\n`); };
+        const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
@@ -205,6 +205,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (dependencyArtifact) {
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
+          noteOmittedAddons(content.omitted);
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
           for (const name of project.external) if (!inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
           depsLayer = await packLayer(store, depsEntries, "deps", timestamp);

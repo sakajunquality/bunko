@@ -125,7 +125,7 @@ describe("isolated Bun dependency preparation", () => {
     const root = await dir(), pkg = join(root, "node_modules/multi"), releases = join(pkg, "releases");
     await mkdir(releases, { recursive: true });
     await writeFile(join(pkg, "package.json"), JSON.stringify({ name: "multi", version: "1.0.0" }));
-    const elf = (machine: number) => { const bytes = Buffer.alloc(64); Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]).copy(bytes); bytes.writeUInt16LE(machine, 18); bytes.writeUInt16LE(56, 54); return bytes; };
+    const elf = (machine: number) => { const bytes = Buffer.alloc(64); Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]).copy(bytes); bytes.writeUInt16LE(3, 16); bytes.writeUInt16LE(machine, 18); bytes.writeUInt16LE(56, 54); return bytes; };
     await writeFile(join(releases, "linux-arm64.node"), elf(183));
     await writeFile(join(releases, "linux-x64.node"), elf(62));
     await writeFile(join(releases, "darwin-arm64.node"), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));

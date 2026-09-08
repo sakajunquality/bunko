@@ -6,7 +6,7 @@ import { object } from "../oci/digest.ts";
 import type { TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
-import { AddonLedger, inspectRuntimeFile, packageRoot, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, packageRoot, type InventoryEntry, type NativeBinary } from "./deps.ts";
 
 export const closureDirectory = ".bunko-deps";
 interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string> }
@@ -71,12 +71,13 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   }
   const destination = (path: string) => `${prefix}/${closureDirectory}/${path}`;
   const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
-  const ledger = new AddonLedger(platform);
+  const ledger = new AddonLedger(platform, root);
   async function walk(path: string) {
     const file = join(root, path), info = await lstat(file);
     if (info.isSymbolicLink()) {
       const target = local(await realpath(file));
       if (![...instances.keys()].some((pkg) => target === pkg || target.startsWith(`${pkg}/`) && !relative(pkg, target).split("/").includes("node_modules"))) throw new Error(`Dependency symlink escapes the selected closure: ${path}`);
+      if (!await includeRuntimeLink(file, path, join(root, target), platform, ledger)) return;
       entries.push({ type: "symlink", path: destination(path), target: relative(dirname(destination(path)), destination(target)) });
     } else if (info.isDirectory()) {
       entries.push({ type: "directory", path: destination(path) });
