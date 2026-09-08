@@ -11,7 +11,7 @@ test("released CLI failures retain partial publication without copying stderr in
   const directory = await mkdtemp(join(tmpdir(), "bunko-cli-report-"));
   const output = join(directory, "report.json");
   try {
-    const publication = { published: false, pendingTags: ["test"], completedTags: [] };
+    const publication = { published: false, pendingTags: ["test"], completedTags: [], reference: "registry.example/test@sha256:" + "a".repeat(64), tags: [], transfers: [] };
     const script = `await Bun.write(process.argv[1], JSON.stringify({status:"failed",publication:${JSON.stringify(publication)}})); process.exit(2);`;
     try {
       await cliBuild([process.execPath, "-e", script, output], output);

@@ -118,7 +118,7 @@ export async function registryConformance(options: ConformanceOptions) {
       if (deterministic) args.push("--verify-deterministic");
       for (const host of options.insecure ?? []) args.push("--insecure-registry", host);
       const result = await cliBuild(args, output);
-      if (result.builder.kind !== "bundle" || result.builder.digest !== cliDigest) throw new Error("Released CLI builder fingerprint mismatch");
+      if (result.builder?.kind !== "bundle" || result.builder.digest !== cliDigest) throw new Error("Released CLI builder fingerprint mismatch");
       return result;
     };
     results.push(await runBuild(tags[0]!, true));
