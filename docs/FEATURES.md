@@ -16,4 +16,4 @@ Bunko builds Linux OCI images directly from Bun applications. It runs Bun depend
 | Distribution and setup Action | [Releasing](RELEASING.md) |
 | Scope compared with ko and BuildKit | [Comparison](COMPARISON.md) |
 
-The [release notes](RELEASE_NOTES.md) describe the current alpha candidate. Validation reports identify their tested revisions, fixture scope and environments; a historical passing result is not a claim that every provider or workload is supported.
+The [release notes](RELEASE_NOTES.md) describe the published alpha.2 release. Validation reports identify their tested revisions, fixture scope and environments; a historical passing result is not a claim that every provider or workload is supported.

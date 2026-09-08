@@ -1,5 +1,8 @@
 # Published alpha.2 validation
 
+The committed validation reports are the primary reader-accessible evidence. Links to workflows in the separate private `bunko-test` repository require access and are supplemental; publishing Bunko does not publish that test repository.
+
+
 On 2026-09-08, the private [v0.1.0-alpha.2 prerelease](https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-alpha.2) was published from commit `4766373ab3369bb776433b2957a82260e72656e2`. Repository visibility and IAM were unchanged. No npm package was published.
 
 The downloaded `bunko.js` SHA-256 is `fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6`, identical to the reviewed candidate. Every registry build below reports this builder digest. The [machine-readable evidence](validation/published-alpha2.json) records immutable image references, transfers, runtime checks, and limitations.

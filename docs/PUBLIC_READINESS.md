@@ -6,7 +6,7 @@ Reviewed on 2026-09-08 (Asia/Tokyo), starting from main commit `87b7fffafa39f5a3
 
 No credentials were detected in the audited source, history, or available GitHub records. The changes accompanying this review add the owner's selected MIT license, complete dependency notices, and CI action pinning. Within this scope, there is no identified credential-related blocker to making the repository public after merging the changes.
 
-Public visibility also exposes non-secret information already present in history: a personal Git author email, the owner/repository names, the dedicated Google Cloud project and Artifact Registry paths, image digests, and validation timestamps. The exact email is intentionally not repeated here. Removing such information from the current tree would not remove it from earlier commits. The owner should accept that disclosure before changing visibility.
+Public visibility also exposes non-secret information already present in history: a personal Git author email, the owner/repository names, the dedicated Google Cloud project and Artifact Registry paths, image digests, and validation timestamps. The exact email is intentionally not repeated here. Removing such information from the current tree would not remove it from earlier commits. The owner accepted disclosure of historical commit email addresses on 2026-09-08. Dedicated cloud identifiers remain documented as non-secret validation context.
 
 ## Audit scope and evidence
 
@@ -43,3 +43,14 @@ The repository's default workflow token permissions are read-only, and Actions c
 ## Alpha.2 distribution follow-up
 
 The updated source, all reachable Git history, unique historical blob contents and prepared distribution were scanned again with Gitleaks 8.30.1; no credentials were detected. A separate byte inspection found that Bun had embedded TypeScript's absolute build-time directory/file globals in candidate bundles. The shared bundler now resolves those globals at runtime, and release regressions reject checkout paths in the CLI. Those earlier candidates are superseded. This distinction matters: a secret scanner alone does not detect every identifying build path. The [current candidate evidence](validation/alpha2-release.json) records exact artifact hashes and runtime results.
+
+
+## Post-release publication review
+
+The follow-up audit examined main `2ef59db56b2d073b290cb80d9186cfd4fdee3164` on 2026-09-08, including all remote branches and 21 PR head refs. It covered 64 reachable commits and all 552 unique blobs, 104 available Actions logs, 78 retained artifacts, PR bodies/comments/reviews, and all four published release assets. All 207 downloaded log/artifact/review/asset resources were retrieved successfully; the metadata inventories were scanned as well. Gitleaks found no credentials in current source, Git diffs, historical blob contents, or approximately 61.69 MB of fetched remote content. The lockfile advisory check returned no advisories. Seven release checks passed with 55 assertions.
+
+One superseded candidate, artifact `10037454412` from run `34176537109`, contained a generic GitHub runner build path. The owner authorized its deletion, and it was deleted during launch preparation. No history was rewritten. The published alpha.2 CLI retains SHA-256 `fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6`; its checksums and notices matched, and it contained none of the checked build paths. Normal runner paths in historical Actions logs are not personal workstation paths or credentials.
+
+The current preparation changes remove stale private/candidate wording, label restricted test-workflow links, add a security reporting policy, disable credential persistence in the manual conformance checkout, and bound the CI matrix runtime. The separate test repository remains private. Historical audit and validation sections retain their original checkpoints.
+
+At the audit cutoff, default workflow tokens were read-only and could not approve PRs; repository Actions secrets, variables, environments, and self-hosted runners were empty. Wiki, Pages, and Discussions were disabled. The private repository's fork-approval endpoint returned 422; branch/ruleset reads returned 403; security-analysis details were unavailable. These responses do not establish the settings after publication. Verify external-contributor workflow approval, main/tag protection, secret scanning, push protection, and private vulnerability reporting at the actual visibility transition. Publication is a separate owner-authorized step.

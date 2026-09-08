@@ -24,7 +24,7 @@ For a new version, merge reviewed changes and verify the recorded CI/runtime res
 
 Publication uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
 
-The repository is currently private, so release downloads and use of this Action from other repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
+Public release assets can be downloaded without repository credentials, subject to GitHub rate limits. Private forks and private release repositories require appropriate repository access. bunko's own code is licensed under MIT; the release includes LICENSE and the bundled dependencies' complete notices. This workflow does not change visibility or publish to npm.
 
 ## Use the setup Action
 
