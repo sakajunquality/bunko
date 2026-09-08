@@ -17,6 +17,10 @@ try {
   }
   const install = Bun.spawn([process.execPath, "install", "--ignore-scripts", "--lockfile-only"], { cwd: source, env: installEnv, stdout: "ignore", stderr: "pipe" });
   const installError = await new Response(install.stderr).text(); if (await install.exited) throw new Error(installError);
+  // Exercise the Bun 1.4 lock format even when validation runs on the oldest supported host.
+  const lockPath = join(source, "bun.lock");
+  const lock = Bun.JSON5.parse(await readFile(lockPath, "utf8")) as Record<string, unknown>;
+  await writeFile(lockPath, JSON.stringify({ ...lock, lockfileVersion: 2 }));
   for (const platform of platforms) {
     if (!["linux/amd64", "linux/arm64"].includes(platform)) throw new Error("Unsupported container validation platform");
     const architecture = platform.split("/")[1]!, image = process.env.BUNKO_CONTAINER_IMAGE ?? `bunko.local/cli-candidate:${architecture}`;
@@ -35,5 +39,5 @@ try {
       if (result.dependency !== true || result.message !== "container builder works" || result.arch !== (architecture === "amd64" ? "x64" : "arm64") || result.revision !== report.images[0].compileRuntime.releaseRevision) throw new Error("Built application runtime mismatch");
     } finally { await command(["docker", "image", "rm", application]); }
   }
-  console.log(JSON.stringify({ status: "passed", platforms, builderNonroot: true, builderReadOnly: true, dockerSocket: false, signedCompileRuntime: true, applicationExecuted: true }));
+  console.log(JSON.stringify({ status: "passed", platforms, lockfileVersion: 2, builderNonroot: true, builderReadOnly: true, dockerSocket: false, signedCompileRuntime: true, applicationExecuted: true }));
 } finally { await rm(root, { recursive: true, force: true }); }

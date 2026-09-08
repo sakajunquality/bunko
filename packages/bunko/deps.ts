@@ -118,7 +118,7 @@ function validateDeclarations(manifest: Record<string, unknown>, root: Record<st
 
 export function validateLock(manifest: Record<string, unknown>, input: unknown, workspace?: Workspace): Record<string, unknown> {
   const lock = object(input, "bun.lock");
-  if (lock.lockfileVersion !== 1 || (lock.configVersion !== undefined && lock.configVersion !== 1)) throw new Error("Unsupported bun.lock schema; regenerate a text lock with Bun 1.3.11");
+  if ((lock.lockfileVersion !== 1 && lock.lockfileVersion !== 2) || (lock.configVersion !== undefined && lock.configVersion !== 1)) throw new Error("Unsupported bun.lock schema; use a supported Bun text lockfile (version 1 or 2)");
   const workspaces = object(lock.workspaces, "bun.lock workspaces");
   const packages = workspace?.packages ?? [{ path: "", manifest }];
   if (JSON.stringify(Object.keys(workspaces).sort()) !== JSON.stringify(packages.map((p) => p.path).sort())) throw new Error("Workspace membership and bun.lock disagree; run bun install first");
@@ -207,8 +207,13 @@ export async function dependencyPlan(project: Project, root: string, validateCre
   return { npmCertificate: certificate ?? await npmCertificate(workspace?.directory ?? project.directory, validateCredentials), installPolicy, manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
 }
 
+export function assertLockToolchain(plan: Pick<DependencyPlan, "lock">, toolchain: Toolchain): void {
+  if (plan.lock?.lockfileVersion === 2 && !Bun.semver.satisfies(toolchain.version, ">=1.4.0")) throw new Error("bun.lock version 2 requires Bun >=1.4.0; select a compatible --bun-path");
+}
+
 export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string, offline = false): Promise<void> {
   if (!plan.lock) return;
+  assertLockToolchain(plan, toolchain);
   if (offline) throw new Error("Offline dependency installation is unavailable; prepare matching application/dependency caches while online");
   const config = join(root, OUTPUT_DIRECTORY, "install.toml");
   await mkdir(dirname(config), { recursive: true });
