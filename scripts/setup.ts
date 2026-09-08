@@ -44,7 +44,7 @@ const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 
 export async function setup(options: SetupOptions) {
   if (!["linux", "darwin"].includes(process.platform)) throw new Error("setup-bunko currently supports Linux and macOS runners");
-  if (options.sourceCommit && (!options.verifyAttestation || !/^[a-f0-9]{40,64}$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
+  if (options.sourceCommit && (!options.verifyAttestation || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
   const tag = releaseTag(options.version), repository = options.repository ?? "sakajunquality/bunko";
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.split("/").some((part) => part === "." || part === "..")) throw new Error("Invalid release repository");
   let load: (name: string) => Promise<Uint8Array>;
