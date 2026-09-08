@@ -11,7 +11,10 @@ const inputs = [
 
 /** Prepare pinned public font inputs in a new directory; never overwrite user files. */
 export async function prepareFontInputs(context: string) {
-  await mkdir(context);
+  await mkdir(context).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Font input destination already exists; choose a new directory");
+    throw error;
+  });
   try {
     await mkdir(join(context, "noto"), { recursive: false });
     for (const [name, path, digest] of inputs) {

@@ -25,7 +25,7 @@ For each mode/platform, two recipes must match explicitly registered font pixels
 | `fontconfig` (default) | `loadSystemFonts: true` | Package `fonts.conf` and set `FONTCONFIG_FILE=/app/fonts.conf` |
 | `directories` | `loadSystemFonts: false`, `fontDirs: ['/usr/share/fonts/bunko']` | No fontconfig file needed |
 
-The directory recipe is also run with a missing `FONTCONFIG_FILE` to prove that it works independently. Negative controls require clear failures when the system recipe loses its fontconfig file or Canvas system scanning is disabled. Every container uses UID 65532, a read-only root filesystem, no network, dropped capabilities and no font-cache generation. Resvg color emoji support is not asserted.
+The directory recipe is also run with a missing `FONTCONFIG_FILE` to prove that it works independently. Negative controls require clear failures when the system recipe loses its fontconfig file or Canvas system scanning is disabled. Every container uses UID 65532, a read-only root filesystem, no network, dropped capabilities and no font-cache generation. Resvg color emoji support is not asserted. Negative controls describe these pinned renderer versions and base; re-check discovery behavior when upgrading them.
 
 ## Prepare inputs and build manually
 
@@ -45,10 +45,10 @@ Use the image reference printed by `docker load` as `IMAGE` below. Choose `linux
 
 ```sh
 docker run --rm --platform linux/arm64 --user 65532:65532 \
-  --read-only --network=none --cap-drop=ALL IMAGE
+  --read-only --network=none --cap-drop=ALL --security-opt=no-new-privileges IMAGE
 
 docker run --rm --platform linux/arm64 --user 65532:65532 \
-  --read-only --network=none --cap-drop=ALL \
+  --read-only --network=none --cap-drop=ALL --security-opt=no-new-privileges \
   --env FONT_DISCOVERY=directories \
   --env FONTCONFIG_FILE=/missing-fontconfig.conf IMAGE
 ```

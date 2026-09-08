@@ -4,14 +4,14 @@ import { join, resolve } from "node:path";
 import { prepareFontInputs } from "./font-inputs.ts";
 import { command } from "../../test/command.ts";
 
-const root = await mkdtemp(join(tmpdir(), "bunko-fonts-smoke-"));
 const platforms = (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",");
+if (platforms.some((platform) => !["linux/amd64", "linux/arm64"].includes(platform))) throw new Error("Unsupported font validation platform");
+const root = await mkdtemp(join(tmpdir(), "bunko-fonts-smoke-"));
 try {
   const source = join(root, "source"), context = join(root, "inputs");
   await cp(resolve("examples/font-validation"), source, { recursive: true, filter: (path) => !path.split("/").includes("node_modules") });
   await prepareFontInputs(context);
   for (const mode of ["bundle", "source"]) for (const platform of platforms) {
-    if (!["linux/amd64", "linux/arm64"].includes(platform)) throw new Error("Unsupported font validation platform");
     const archive = join(root, `${mode}-${platform.split("/")[1]}.tar`);
     await command([process.execPath, resolve("dist/bunko.js"), "build", source, "--mode", mode, "--platform", platform, "--asset-context", `fonts=${context}`, "--push=false", "--tarball", archive, "--git-metadata=false", "--no-cache"]);
     const loaded = await command(["docker", "load", "--input", archive]);
