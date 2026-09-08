@@ -196,3 +196,5 @@ Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; s
 See [security reporting](SECURITY.md) and the [roadmap](docs/ROADMAP.md) for support boundaries and planned work.
 
 Named external runtime files can be mapped with `bunko.assetMappings` and repeatable `--asset-context NAME=DIR` bindings. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md#named-local-asset-contexts) for exact destination and exclusion rules.
+
+Build observability is available through opt-in [OpenTelemetry traces and metrics](docs/TELEMETRY.md) with `--otel` (development branch; not included in rc.2).

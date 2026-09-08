@@ -10,6 +10,7 @@ import { builderIdentity } from "./identity.ts";
 import { canonicalDependencyMap } from "./dependency-map.ts";
 import { requiredInputs } from "./ignore.ts";
 import { targetInputs } from "./inputs.ts";
+import { metric } from "./telemetry.ts";
 import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
 import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -55,6 +56,7 @@ export interface BuildResult {
   defaultEntrypoint?: string;
   builder?: Awaited<ReturnType<typeof builderIdentity>>;
   mode?: "bundle" | "compile";
+  timings?: { phase: string; platform?: string; status: string; durationMs: number }[];
   syntaxValidation?: { parsed: number; reused: number; bytes: number };
   supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
   attestations?: { subject: Descriptor; manifest: Descriptor }[];
@@ -119,11 +121,18 @@ interface BuildContext {
   sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor } }>>;
 }
 interface PreparedBuild {
-  result: BuildResult; store: BlobStore; descriptors: Descriptor[]; refName: string;
+  targetKey: string; result: BuildResult; store: BlobStore; descriptors: Descriptor[]; refName: string;
   finish(): Promise<BuildResult>; dispose(): Promise<void>;
 }
 
 async function prepareBuild(options: BuildOptions, context: BuildContext): Promise<PreparedBuild> {
+  const timings: NonNullable<BuildResult["timings"]> = [];
+  const emit = options.progress;
+  options = { ...options, progress: (event) => {
+    if (event.durationMs !== undefined && timings.length < 4096) timings.push({ phase: event.phase, platform: event.platform, status: event.status, durationMs: event.durationMs });
+    emit?.(event);
+  } };
+  const stage = <T>(name: import("./progress.ts").ProgressEvent["phase"], task: () => Promise<T>, platform?: Platform) => phase(options.progress, name, task, context.project.name, platform ? `${platform.os}/${platform.architecture}` : undefined, context.project.directory);
   const log = options.log ? (message: string) => options.log!((options.jobs ?? 1) > 1 ? `[${context.project.name}] ${message}` : message) : () => {};
   const output = options.output ? await canonicalOutput(options.output) : undefined;
   const archive = options.tarball ? await canonicalOutput(options.tarball) : undefined;
@@ -152,7 +161,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   if (options.reproducible && !options.baseLayout && !/@sha256:[a-f0-9]{64}$/.test(baseRef)) throw new Error("--reproducible requires --base with a sha256 digest, or --base-layout");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-")));
   try {
-    const store = new BlobStore(join(temporary, "store"));
+    const basePlatforms = new Map<Digest, Platform>();
+    const store = new BlobStore(join(temporary, "store"), (descriptor, task) => !basePlatforms.has(descriptor.digest) ? task() : stage("base-pull", async () => {
+      await task();
+      metric("bunko.base.read.bytes", "By", descriptor.size, { "bunko.source": options.baseLayout ? "layout" : "registry" });
+    }, basePlatforms.get(descriptor.digest)));
     const snapshotRoot = context.source;
     const sourceDigest = context.sourceDigest;
     const plan = context.plan;
@@ -171,14 +184,15 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const fixedSource = { root: async () => pinned, blob: source.blob.bind(source) };
     const bases: BaseImage[] = [];
     for (const platform of project.platforms) {
-      const base = await resolveBase(fixedSource, platform, store, true);
+      const base = await stage("base-resolve", () => resolveBase(fixedSource, platform, store, true), platform);
       if (source instanceof RegistrySource) for (const layer of base.manifest.layers) store.origins.set(layer.digest, source.ref);
       bases.push(base);
+      for (const layer of base.manifest.layers) if (!basePlatforms.has(layer.digest)) basePlatforms.set(layer.digest, platform);
     }
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
-        const runtime = await downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, log });
+        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, log }), platform);
         runtime.metadata.path = project.bunPath;
         const tree = await baseFilesystem(store, bases[index]!, temporary);
         runtimes.push({ ...runtime, tree });
@@ -202,10 +216,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       let assetsLayer: Layer | undefined;
       if (assets.length) {
         const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
-        assetsLayer = hit?.layer ?? await packLayer(store, assets, "assets", timestamp);
+        assetsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp));
         if (!hit && iteration === 1 && assetsLayer) records.push({ schemaVersion: 1, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer: assetsLayer, inventory: [], native: [] });
       }
       for (const [index, platform] of project.platforms.entries()) {
+        await stage("assemble", async () => {
         const base = bases[index]!;
         const inputRuntime = runtimes[index];
         const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
@@ -231,7 +246,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           noteOmittedAddons(content.omitted);
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
           for (const name of project.external) if (!inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
-          depsLayer = await packLayer(store, depsEntries, "deps", timestamp);
+          depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
         } else if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
           const content = await context.closure(context.closureProjects, platform, iteration);
           aliases = content.aliases.get(project.targetPath) ?? [];
@@ -242,7 +257,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
           depsEntries = content.entries;
-          depsLayer = hit?.layer ?? await packLayer(store, depsEntries, "deps", timestamp);
+          depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
           if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
         } else if (project.external.length) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
@@ -252,11 +267,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             log(`Installing Linux production dependencies (${platform.architecture})\n`);
             const runtime = join(temporary, `runtime-${iteration}-${platform.architecture}`);
             await cp(snapshotRoot, runtime, { recursive: true });
-            await installDependencies(runtime, plan, toolchain, platform, options.installCache);
+            await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             noteOmittedAddons(content.omitted);
-            depsLayer = await packLayer(store, depsEntries, "deps", timestamp);
+            depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
           }
         }
@@ -280,7 +295,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Preparing build dependencies (${platform.architecture})\n`);
           if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache);
           log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-          const built = sharedBundle ?? await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax);
+          const built = sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax));
           if (project.mode === "bundle") sharedBundle = built;
           cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
@@ -297,7 +312,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
         app.push(...aliases);
         assertNoLayerCollision([runtime?.entries ?? [], depsEntries, assets, app]);
-        const appLayer = appHit?.layer ?? await packLayer(store, app, "app", timestamp);
+        const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
@@ -310,6 +325,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
         result.push({ runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        }, platform);
       }
       return result;
     }
@@ -325,7 +341,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
-      schemaVersion: 2, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
+      schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
       sourceDigest, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
@@ -337,7 +353,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
     const descriptors = [...attestations.flatMap((item) => [item.manifest, ...item.blobs]), ...bases.flatMap((base) => base.manifest.layers), ...images.flatMap((image) => [...image.layers.map((l) => l.descriptor), image.config, image.manifest])];
     const refName = `${destination ?? project.name}:latest`;
-    return { result, store, descriptors, refName,
+    return { targetKey: project.directory, result, store, descriptors, refName,
       dispose: () => rm(temporary, { recursive: true, force: true }),
       finish: async () => {
         if (!options.dryRun) {
@@ -352,7 +368,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`${options.dryRun ? "Estimating transfer to" : "Publishing to"} ${destination}\n`);
           try {
             const publisher = new Publisher(destination, registry);
-            result.publication = await publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun);
+            result.publication = await stage("push", () => publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun));
             if (options.dryRun) {
               for (const item of attestations) {
                 const estimate = await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true);
@@ -370,6 +386,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             if (error instanceof PublicationError && !result.publication) result.publication = error.result;
             if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" });
             throw error;
+          }
+          finally {
+            for (const transfer of result.publication?.transfers ?? []) metric("bunko.image.transfer.bytes", "By", transfer.action === "uploaded" ? transfer.uploaded : transfer.size, { "bunko.transfer.action": transfer.action });
           }
           if (!options.dryRun) await cache.publish();
         }
@@ -499,7 +518,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         const runtime = join(temporary, `closure-${closures.size}`);
         options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
         await cp(source, runtime, { recursive: true });
-        await installDependencies(runtime, plan, toolchain, platform, options.installCache);
+        await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache), undefined, `${platform.os}/${platform.architecture}`);
         return dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
       })());
       return closures.get(key)!;
@@ -507,7 +526,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);
@@ -520,7 +539,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       try {
         // No target is exported or published until every selected build succeeds.
         if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
-        for (const item of prepared) { await phase(options.progress, "publish", () => item.finish(), item.result.target); finished.add(item.result.target); }
+        for (const item of prepared) { await phase(options.progress, "publish", () => item.finish(), item.result.target, undefined, item.targetKey); finished.add(item.result.target); }
         if (imageRefs) await writeReferences(imageRefs, results.map((result) => result.publication!.reference));
         if (!multiple && report && imageRefs) await writeReport(report, results[0]);
         if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });

@@ -1,3 +1,4 @@
+import { metric } from "./telemetry.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import packageMetadata from "../../package.json";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -48,6 +49,10 @@ export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
 
 export class LayerCache {
   readonly events: CacheEvent[] = [];
+  private event(event: CacheEvent) {
+    this.events.push(event);
+    metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": event.kind, "bunko.cache.result": event.status });
+  }
   private readonly invalidLocal = new Set<Digest>();
   private readonly origins = new Map<Digest, string>();
   private readonly fetched = new Set<Digest>();
@@ -104,9 +109,9 @@ export class LayerCache {
   }
 
   async get(key: Digest, kind: "deps" | "assets" | "app" | "runtime", bypass = false, expected?: { destination: string; platform: Platform | null; application?: { entry: string; entrypoints: Record<string, string> } }): Promise<CacheRecord | undefined> {
-    if (bypass) { this.events.push({ key, kind, status: "bypass", reason: "disabled" }); return; }
+    if (bypass) { this.event({ key, kind, status: "bypass", reason: "disabled" }); return; }
     const memory = this.records.get(key);
-    if (memory) { const source = this.origins.get(key); this.events.push({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }
+    if (memory) { const source = this.origins.get(key); this.event({ key, kind, status: source ? "registry" : "local", ...(source ? { source } : {}) }); return memory; }
     if (this.local) {
       let found = false;
       try {
@@ -115,7 +120,7 @@ export class LayerCache {
         await this.store.copyFrom(this.local!, record.layer.descriptor);
         await decodeLayer(this.store, record.layer.descriptor, record.layer.diffId, undefined, maxLayerBytes);
         this.records.set(key, record);
-        this.events.push({ key, kind, status: "local" });
+        this.event({ key, kind, status: "local" });
         return record;
       } catch (error) { if (found || (error as NodeJS.ErrnoException).code !== "ENOENT") { this.invalidLocal.add(key); this.options.log(`Ignoring invalid local ${kind} cache\n`); } }
     }
@@ -139,11 +144,11 @@ export class LayerCache {
         this.store.origins.set(layer.digest, source.ref);
         this.records.set(key, record); this.origins.set(key, repositoryName(reader.ref)); this.fetched.add(key);
         if (this.remote && repositoryName(reader.ref) === repositoryName(this.remote.ref)) this.remoteHits.add(key);
-        this.events.push({ key, kind, status: "registry", source: repositoryName(reader.ref) });
+        this.event({ key, kind, status: "registry", source: repositoryName(reader.ref) });
         return record;
       } catch (error) { if (found || !(error instanceof RegistryError && error.status === 404)) { unavailable = true; this.options.log(`Registry ${kind} cache unavailable; trying remaining sources\n`); } }
     }
-    this.events.push({ key, kind, status: "miss", reason: unavailable || this.invalidLocal.has(key) ? "invalid-or-unavailable" : "not-found" });
+    this.event({ key, kind, status: "miss", reason: unavailable || this.invalidLocal.has(key) ? "invalid-or-unavailable" : "not-found" });
   }
 
   async persistHits(): Promise<void> {
