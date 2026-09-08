@@ -142,3 +142,20 @@ test("identically named targets in different contexts have separate anonymous gr
   expect(spans(r.received).filter((s) => s.name === "bunko.target")).toHaveLength(2);
   expect(JSON.stringify(r.received)).not.toContain("/private");
 });
+
+test("Retry-After beyond the deadline is not retried and malformed partial success is rejected", async () => {
+  const limited = receiver(() => new Response(null, { status: 429, headers: { "retry-after": "60" } }));
+  let warnings = 0;
+  await new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: limited.endpoint })!, () => { warnings++; }).run("build", async () => 0);
+  expect(limited.received).toHaveLength(2); expect(warnings).toBe(1);
+  const malformed = receiver(() => Response.json({ partialSuccess: { rejectedSpans: "invalid" } }));
+  await new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: malformed.endpoint })!, () => { warnings++; }).run("build", async () => 0);
+  expect(warnings).toBe(2);
+});
+
+test("a returned nonzero command exit is a failure and a session cannot be reused", async () => {
+  const r = receiver(), session = new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: r.endpoint })!);
+  expect(await session.run("apply", async () => 7, (code) => code !== 0)).toBe(7);
+  expect(spans(r.received).find((s) => s.name === "bunko.build").status.code).toBe(2);
+  await expect(session.run("apply", async () => 0)).rejects.toThrow("only run once");
+});
