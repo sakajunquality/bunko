@@ -132,6 +132,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -152,3 +153,8 @@ jobs:
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
             --notes-file ../../docs/RELEASE_NOTES.md "${flags[@]}" \
             bunko.js SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md PROVENANCE.jsonl
+      - name: Dispatch container packaging after all release assets are published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh workflow run container.yml --ref main -f "version=$RELEASE_TAG"
