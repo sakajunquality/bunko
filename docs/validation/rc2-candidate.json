@@ -1,0 +1,50 @@
+{
+  "candidate": "v0.1.0-rc.2",
+  "date": "2026-09-08",
+  "cliSha256": "3091d6a12e39563e63f943ba786ffbab70d90355e7f5d12f843f31dae8ac0135",
+  "bun": "1.3.11",
+  "scope": "Local distributed CLI candidate; signed runtime injection and independently authored Hono/PostgreSQL/xxhash fixture using an explicit glibc base. The published assets must match this CLI checksum.",
+  "architectures": {
+    "linux/amd64": "Docker emulation on arm64 host",
+    "linux/arm64": "Docker on arm64 host"
+  },
+  "result": {
+    "schemaVersion": 1,
+    "status": "passed",
+    "checks": {
+      "artifactGate": true,
+      "injectedRuntime": true,
+      "amd64.migrate": true,
+      "amd64.worker": true,
+      "amd64.database": true,
+      "amd64.httpNativeAndFiles": true,
+      "amd64.shutdown": true,
+      "arm64.migrate": true,
+      "arm64.worker": true,
+      "arm64.database": true,
+      "arm64.httpNativeAndFiles": true,
+      "arm64.shutdown": true
+    }
+  },
+  "notVerified": [
+    "private applications",
+    "React Router browser behavior",
+    "Temporal workflows",
+    "Slack bot delivery",
+    "Snowflake native functionality",
+    "RC registry publication"
+  ],
+  "runtimeInjection": {
+    "status": "passed",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "signedRelease": true,
+    "runtimeRevision": true,
+    "staticRejected": true,
+    "localBase": true,
+    "runtimeCache": true,
+    "nativeLibraryBoundary": true
+  }
+}

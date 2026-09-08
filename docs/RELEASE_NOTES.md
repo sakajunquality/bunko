@@ -1,24 +1,20 @@
-# v0.1.0-rc.1
+# v0.1.0-rc.2
 
-This release candidate expands compatibility with existing Bun applications and adds a repeatable application acceptance workflow.
+This release candidate makes module-relative file risks visible and adds opt-in signed Bun runtime injection for custom glibc bases.
 
-- Bundle only loaded executable inputs, with pre-execution macro checks and explicit data imports. Copied frontend assets and unreachable dependencies no longer receive executable syntax checks.
-- Support workspace catalogs, selected application compiler configuration, and a restricted install-only bunfig contract.
-- Allow explicitly reviewed dependency install hooks to be ignored (never executed), and opt into unresolved dependency expressions when runtime resolution is required.
-- Omit recognized foreign prebuilt native addons and their aliases while retaining target shared objects. Reject corrupt/unknown addons, bound package ownership checks, and preserve the target-addon requirement across all dependency strategies.
-- Bundle named server, worker and migration entries into one image with an overridable default command.
-- Map selected named local asset inputs to image destinations, including generated files outside the project.
-- Optionally suppress inherited base OCI labels. This is not an anonymization feature.
-- Diagnose named entries and external asset bindings before building. Add a disposable HTTP/PostgreSQL/native-addon acceptance fixture and an exact-identifier output gate.
+- Report advisory `BUNKO_MODULE_LOCATION` diagnostics for loaded location-sensitive expressions, including entries and bundled dependencies. Diagnostics use relative paths, are bounded and deduplicated, and replay on application-cache hits. They do not rewrite paths or prove runtime correctness.
+- Add `runtime.inject: "release"` / `--runtime-inject release` for explicit glibc bases, bundle mode, Linux amd64/arm64, and official Bun 1.3.11–1.3.13. Verify the official signature and pinned release checksum before extracting a bounded executable. This optional feature requires `gpgv` on the build host.
+- Insert a runtime layer with licensing/source notices before dependencies, assets and application output. Cache verified downloads separately, check base destination/loader paths without host extraction, and include release/executable/checksum-document identities in reports, SBOM and provenance.
+- Extend `check-base --run` to execute the composed runtime image, including local OCI base input, as nonroot with a read-only filesystem and no network.
 
-## Migration and validation boundaries
+## Compatibility and validation
 
-The existing single-entry image contract remains unchanged. Named entries require bundle mode and use `Entrypoint=[bun]`; select another entry using its emitted path from `images[].entrypoints`. Config diagnostics now require bindings for declared external assets. Build frontend and workflow bundles before invoking Bunko, declare runtime files explicitly, and adapt location-sensitive file reads for bundled output.
+Normal builds still use the existing Bun-containing base contract. Injection does not install libgcc/libstdc++, Node.js, shell tools or application dependencies. A minimal base can run Bun while failing to load a native addon. Source-preserving mode remains unimplemented. See [runtime injection](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/RUNTIME_INJECTION.md) and [application compatibility](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/APPLICATION_COMPATIBILITY.md).
 
-Source-preserving mode and automatic Bun injection into arbitrary bases are not implemented. Prepared bases must already include Bun and the required ABI/shared libraries. Allowing ignored scripts or unresolved dependency expressions does not establish native runtime compatibility.
+The generic acceptance fixture covers PostgreSQL migrations/tasks, native hashing, HTTP/static content, exact runtime files and graceful shutdown. Runtime-injection checks cover compatible/static bases, local OCI input, cache reuse and missing native libraries. Exact candidate evidence is recorded with the CLI checksum in the repository's validation documents. These fixtures do not certify React Router, Temporal, Slack or Snowflake application behavior; complete the [remote acceptance checklist](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/validation-request.html).
 
-The generic acceptance fixture checks PostgreSQL migration and a database task worker, HTTP/static content, exact runtime file content, a native hash operation, non-root/read-only execution and graceful server shutdown. It does not establish React Router, Temporal, Slack or Snowflake workload compatibility. Remote application validation remains required before stable release; use [the acceptance guide](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.1/docs/APPLICATION_VALIDATION.md).
+The cache packing format changed with module-location diagnostics, so older application-layer cache records are not reused. No application source or runtime paths are automatically rewritten. Existing `build.define`, explicit runtime environment roots and asset mappings remain available.
 
-Bun >=1.3.11 <1.4 is required. CI covers 1.3.11, 1.3.12 and 1.3.13 on Linux/macOS. The distribution includes the standalone JavaScript CLI, SHA256SUMS, MIT license and third-party notices; npm publication is not part of this release.
+Bun >=1.3.11 <1.4 is required for general builds; injection is explicitly limited to 1.3.11, 1.3.12 and 1.3.13. CI covers those versions on Linux/macOS. The distribution contains the standalone JavaScript CLI, SHA256SUMS, MIT license and third-party notices. npm publication is not included.
 
-GHCR, Artifact Registry, Docker Hub and authenticated upstream evidence in [published release validation](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.1/docs/PUBLISHED_RELEASE_VALIDATION.md) belongs to alpha.2, not this RC. Private ECR remains unverified. Existing tags and release assets are immutable.
+Registry interoperability evidence in [published release validation](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/PUBLISHED_RELEASE_VALIDATION.md) belongs to alpha.2 unless explicitly recorded otherwise. Private ECR remains unverified. Earlier release tags and assets are immutable.

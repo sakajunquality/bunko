@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bunko rc.1 — Application validation request</title>
+<title>Bunko rc.2 — Application validation request</title>
 <style>
 :root{color-scheme:light;--ink:#17283c;--muted:#526276;--line:#d7e0e8;--accent:#126b63}*{box-sizing:border-box}body{margin:0;background:#edf2f5;color:var(--ink);font:16px/1.65 system-ui,sans-serif}main{max-width:1080px;margin:40px auto;padding:48px;background:white;border-radius:16px}h1{font-size:38px;line-height:1.2;margin:12px 0 24px}h2{margin-top:44px;font-size:25px;border-bottom:1px solid var(--line);padding-bottom:10px}h3{font-size:18px}a{color:var(--accent)}.eyebrow{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}.note{padding:18px 22px;background:#eaf6f3;border-left:4px solid var(--accent);border-radius:4px}.pending{background:#fff5dd;border-color:#bc8500}pre{background:#102638;color:#e6f1f7;padding:20px;border-radius:8px;overflow:auto;font:13px/1.65 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}code{font-family:ui-monospace,monospace}table{border-collapse:collapse;width:100%;font-size:14px}td,th{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid var(--line)}th{background:#f0f5f7}td:first-child{font-weight:700;white-space:nowrap}.small{font-size:13px;color:var(--muted)}li{margin:8px 0}@media(max-width:700px){main{margin:0;padding:24px;border-radius:0}h1{font-size:30px}table{font-size:12px}td,th{padding:7px}}@media print{body{background:white}main{margin:0;padding:0}pre{color:black;background:#f0f3f5}h2,h3{break-after:avoid}tr{break-inside:avoid}}
 </style><main>
 <div class="eyebrow">Remote execution handoff · 2026-09-08</div>
-<h1>Bunko application validation<br>v0.1.0-rc.1</h1>
+<h1>Bunko application validation<br>v0.1.0-rc.2</h1>
 <p>Please re-test the application from the original compatibility report on its own machine. Use an isolated checkout and disposable services. The goal is functional parity for the web server, worker, bot and explicit migration job, including real runtime files and native behavior.</p>
-<div class="note pending"><strong>Release candidate, not workload certification.</strong> Use the immutable <a href="https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.1">rc.1 release</a> after its assets are available. If the release is not yet published, wait for it; do not substitute alpha.2. Record the CLI checksum and release commit. Application results below remain unverified until you execute them.</div>
+<div class="note pending"><strong>Release candidate, not workload certification.</strong> Use the immutable <a href="https://github.com/sakajunquality/bunko/releases/tag/v0.1.0-rc.2">rc.2 release</a> after its assets are available. If the release is not yet published, wait for it; do not substitute alpha.2. Record the CLI checksum and release commit. Application results below remain unverified until you execute them.</div>
 <h2>1. What changed since the original report</h2>
 <table><thead><tr><th>Request</th><th>Candidate behavior / remaining adaptation</th></tr></thead><tbody>
 <tr><td>R1</td><td>Restricted install-only bunfig settings are supported. Only minimumReleaseAge and minimumReleaseAgeExcludes are forwarded; test settings are ignored. Other unsupported keys still fail.</td></tr>
@@ -15,17 +15,17 @@
 <tr><td>R4–R5</td><td>Explicit unresolved dependency allowances and allowIgnoredScripts are available. Hooks never run. Recognized foreign native variants and their aliases are pruned; corrupt or unknown addons still fail. You must prove required dynamic packages and target native binaries are present and functional.</td></tr>
 <tr><td>R6</td><td>Named entries share an image with a default command. Use emitted paths from the build report to select worker, bot or migrate.</td></tr>
 <tr><td>R7</td><td>Named local asset contexts map selected files to absolute image destinations such as /repo. All bindings are explicit.</td></tr>
-<tr><td>R8</td><td>Source-preserving mode and automatic Bun injection are not implemented. Use bundle mode, explicit assets and a prepared Bun-containing base with native shared libraries. Record a blocker if those adaptations cannot preserve behavior.</td></tr>
+<tr><td>R8</td><td>Source-preserving mode remains unimplemented. Optional runtime.inject: release adds verified Bun to an explicit glibc base; gpgv is required on the build host and native shared libraries must still come from the base. Prepared Bun-containing bases remain supported.</td></tr>
 <tr><td>R9</td><td>inheritBaseOciLabels: false suppresses inherited OCI labels. It does not anonymize source, package names or reports.</td></tr>
 </tbody></table>
 <h2>2. Pin tools and isolate output</h2>
-<p>Use Bun 1.3.11, 1.3.12 or 1.3.13; Bun 1.4 is outside this candidate's range. Docker must support the architecture being tested. Use native machines where possible and record emulation when used. Download bunko.js, SHA256SUMS, LICENSE and THIRD_PARTY_NOTICES.md from the same rc.1 release into a private tool directory.</p>
+<p>Use Bun 1.3.11, 1.3.12 or 1.3.13; Bun 1.4 is outside this candidate's range. Docker must support the architecture being tested. Use native machines where possible and record emulation when used. Download bunko.js, SHA256SUMS, LICENSE and THIRD_PARTY_NOTICES.md from the same rc.2 release into a private tool directory.</p>
 <pre>set -eu
 # Run in the downloaded release directory.
 sha256sum --check SHA256SUMS
 # On macOS: shasum -a 256 -c SHA256SUMS
 bun ./bunko.js version
-# Required output: 0.1.0-rc.1
+# Required output: 0.1.0-rc.2
 bun --revision
 
 # Set these privately. Do not paste source roots into shared reports.
@@ -61,10 +61,10 @@ export BUNKO_QUARANTINE="$(mktemp -d)"
 }</pre>
 <ul>
 <li><strong>Native dependencies:</strong> externalize location-sensitive packages as needed, based on the resolved inventory. The example allowances are candidates from the original report, not a blanket approved list. Confirm published files work without hooks. If the original opaque dependency expressions still require runtime resolution, explicitly add <code>"build": { "allowUnresolved": [""] }</code> after auditing those imports. Prefer exact specifier patterns for identifiable imports; the empty pattern allows opaque expressions broadly and does not install missing runtime packages.</li>
-<li><strong>Runtime files:</strong> create a local manifest of source path → image path → expected content/hash. Adapt import.meta-relative reads to declared image paths or embed explicit data imports. A warning followed by a default value fails acceptance.</li>
+<li><strong>Runtime files:</strong> create a local manifest of source path → image path → expected content/hash. Adapt import.meta-relative reads to declared image paths or embed explicit data imports. Review BUNKO_MODULE_LOCATION warnings and use an explicit runtime root where bundling relocates a module. Confirm exact file content; a warning followed by a default value fails acceptance.</li>
 <li><strong>Temporal:</strong> prebuild workflows with bundleWorkflowCode in the trusted preparation step. Configure the worker with workflowBundle.codePath to the copied bundle instead of runtime workflowsPath compilation. See the <a href="https://github.com/temporalio/samples-typescript/blob/main/production/src/worker.ts">official production worker example</a>. Verify the native bridge and required shared libraries on each architecture.</li>
 <li><strong>Migrations:</strong> provide one explicit entry that calls the migration API and every ordered synchronization step. Shell command chains and external CLI executables are not automatically bundled. A separate trusted migration preparation job is an acceptable operational fallback, but then mark the migration-image criterion not-run.</li>
-<li><strong>Base:</strong> digest-pin a base already containing the selected Bun runtime and native libraries, including libgcc where required. A generic check-base pass is insufficient proof for Temporal or Snowflake.</li>
+<li><strong>Base:</strong> digest-pin a base already containing the selected Bun runtime and native libraries, including libgcc where required. Alternatively enable runtime.inject: release with a compatible glibc base and pass --runtime-inject release to check-base. See the <a href="https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/RUNTIME_INJECTION.md">injection guide</a>. A generic check-base pass is insufficient proof for Temporal or Snowflake.</li>
 </ul>
 <h2>4. Diagnose, build and load locally</h2>
 <pre>bun "$BUNKO_CLI" check-config "$APP_COPY" \
@@ -73,6 +73,7 @@ export BUNKO_QUARANTINE="$(mktemp -d)"
 bun "$BUNKO_CLI" doctor "$APP_COPY" \
   --asset-context "generated=$GENERATED_INPUTS" \
   &gt; "$BUNKO_QUARANTINE/doctor.json" 2&gt; "$BUNKO_QUARANTINE/doctor.log"
+# With runtime.inject: release in configuration, add --runtime-inject release here.
 bun "$BUNKO_CLI" check-base --base "$BASE" --platform "$PLATFORM" --run \
   &gt; "$BUNKO_QUARANTINE/base.json" 2&gt; "$BUNKO_QUARANTINE/base.log"
 
@@ -103,7 +104,7 @@ docker run --name validation-job --network "$TEST_NETWORK" \
 <h2>5. Required acceptance matrix</h2>
 <p>Record pass, fail or not-run for <strong>each architecture separately</strong>. Run the current deployment image against the same disposable data as a baseline when behavior is ambiguous.</p>
 <table><thead><tr><th>ID</th><th>Required evidence</th></tr></thead><tbody>
-<tr><td>A01</td><td>Unpatched rc.1 configuration and build succeed. Record public CLI checksum, Bun revision, target architecture, emulation and base digest.</td></tr>
+<tr><td>A01</td><td>Unpatched rc.2 configuration and build succeed. Record public CLI checksum, Bun revision, target architecture, emulation and base digest.</td></tr>
 <tr><td>A02</td><td>SPA shell, hashed JS/CSS and public assets match generated content; a deep-link route loads and the browser hydrates without console errors.</td></tr>
 <tr><td>A03</td><td>Database health succeeds with a real connection; a representative API transaction reads/writes expected data. A connection-refused response is not a pass.</td></tr>
 <tr><td>A04</td><td>Every YAML/Markdown/generated file is read from the expected image location with expected content. No default prompt, empty config or fallback warning.</td></tr>
@@ -117,9 +118,9 @@ docker run --name validation-job --network "$TEST_NETWORK" \
 </tbody></table>
 <div class="note"><strong>Already exercised with an independent public fixture:</strong> Linux amd64 and arm64 database migration/task worker, exact runtime files, Hono/static responses, native xxhash operation, non-root/read-only execution and server shutdown. This does not substitute for A02 React Router behavior, A06 Temporal, A07 bot or A08 Snowflake.</div>
 <h2>6. Return only an anonymous result</h2>
-<p>Keep images, source, package manifests, reports, raw logs, sourcemaps, service URLs, credentials and application identifiers on the private machine. Metadata controls are not anonymization. Optionally run the repository's exact-identifier gate as described in <a href="https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.1/docs/APPLICATION_VALIDATION.md">the validation guide</a>; a pass does not approve raw output for publication.</p>
+<p>Keep images, source, package manifests, reports, raw logs, sourcemaps, service URLs, credentials and application identifiers on the private machine. Metadata controls are not anonymization. Optionally run the repository's exact-identifier gate as described in <a href="https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.2/docs/APPLICATION_VALIDATION.md">the validation guide</a>; a pass does not approve raw output for publication.</p>
 <pre>{
-  "candidate": "v0.1.0-rc.1",
+  "candidate": "v0.1.0-rc.2",
   "cliSha256": "PUBLIC_RELEASE_CHECKSUM",
   "bunRevision": "PUBLIC_BUN_REVISION",
   "results": [

@@ -2,7 +2,7 @@
 
 The accepted bundling toolchain range is Bun >=1.3.11 <1.4. The CI matrix pins Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bun 1.3.12 and 1.3.13 are additional compatibility points, not claims about the latest release.
 
-Linux images support amd64 and arm64 with glibc bases. Bundle mode requires the selected Bun runtime in the image. Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
+Linux images support amd64 and arm64 with glibc bases. Bundle mode requires the selected Bun runtime in the image, either already in the base or added with opt-in [signed runtime injection](RUNTIME_INJECTION.md). Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
 
 ```sh
 bunko doctor ./examples/hello

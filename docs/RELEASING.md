@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The release candidate version is **0.1.0-rc.1**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
+The release candidate version is **0.1.0-rc.2**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
 
 ## Prepare and inspect artifacts
 
@@ -33,9 +33,9 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.0-rc.1
+  - uses: sakajunquality/bunko@v0.1.0-rc.2
     with:
-      version: v0.1.0-rc.1
+      version: v0.1.0-rc.2
   - run: bunko version
 ```
 
@@ -71,4 +71,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The setup default remains the already published alpha.2 release during RC preparation. Select `version: v0.1.0-rc.1` explicitly after publication. Defaults are promoted only after the new assets are available; this prevents a download gap for unversioned development-branch consumers.
+The setup default remains the already published alpha.2 release during RC preparation. Select `version: v0.1.0-rc.2` explicitly after publication. Defaults are promoted only after the new assets are available; this prevents a download gap for unversioned development-branch consumers.
