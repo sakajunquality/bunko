@@ -6,7 +6,7 @@ This is a delivery plan, not a promise of release dates or complete ko/BuildKit 
 
 - v0.1.0-rc.2 is published with reviewed diagnostics/runtime injection; its anonymous installation and CLI checksum were verified. Preserve its immutable assets.
 - v0.1.0-rc.3 is published with OpenTelemetry support, verified compile runtime selection and exact-artifact validation; preserve its immutable assets.
-- rc.4 adds Bun 1.4 and lockfile v2 support, the completed features below, and signed release-tag provenance. Exact candidate evidence is recorded in [rc.4 validation](validation/rc4.md).
+- rc.4 is published with anonymously verified exact-candidate bytes and release-tag attestations. It adds Bun 1.4 and lockfile v2 support, the completed features below, and signed release-tag provenance. Exact candidate evidence is recorded in [rc.4 validation](validation/rc4.md).
 - Anonymous installation and checksums of rc.3 were verified. The official amd64/arm64 CLI container was also published and anonymously executed.
 - Complete the [remote application acceptance matrix](validation-request.html) on the application machine. Generic fixture passes do not certify Temporal, Snowflake, bot or framework-specific behavior.
 - Re-run the registry matrix with the exact RC artifact before carrying forward alpha.2 interoperability claims. Record unavailable credentials or services as not-run.

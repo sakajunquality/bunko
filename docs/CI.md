@@ -41,7 +41,7 @@ To export telemetry, set `otel: 'true'` and configure the supported `OTEL_*` env
 
 Persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
 
-The setup default is rc.3 after its published bytes were verified against the tested candidate. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+On main after promotion, setup defaults to the verified rc.4 release and Bun 1.4.2. Older Action commits, including the immutable rc.4 tag, retain their original defaults; keep both version inputs explicit when pinning them. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## Invocation constants
 

@@ -24,3 +24,5 @@ See [GitHub artifact attestation guidance](https://docs.github.com/en/actions/ho
 ## Live verification
 
 [Workflow run 34226876341](https://github.com/sakajunquality/bunko/actions/runs/34226876341) generated real GitHub attestations on main at `944929d` and verified all downloaded subjects in a separate job, including the exact source commit. The negative check rejected a version-tag ref because the authenticated source ref was `refs/heads/main`. Publication was skipped. This validates candidate signing and consumer policy; it does not add a release-tag bundle to rc.3.
+
+The [rc.4 release workflow](https://github.com/sakajunquality/bunko/actions/runs/34286224253) subsequently published real version-tag attestations from `d89fecd854135500e994724573dc58226cae0cdf`. Independent anonymous asset download, exact-candidate equality, all-subject provenance verification and a wrong-ref negative check passed; see [rc.4 validation](validation/rc4.md).
