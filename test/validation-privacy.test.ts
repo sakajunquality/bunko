@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -36,4 +36,26 @@ test("privacy gate normalizes root paths and checks raw gzip headers", async () 
   await writeFile(join(root,"blob"),Buffer.concat([gzip.subarray(0,10),Buffer.from(`${term}\0`),gzip.subarray(10)]));
   await expect(scanPrivateOutput(root,[term])).rejects.toThrow("PRIVATE_IDENTIFIER_DETECTED");
   await expect(scanPrivateOutput(root,["非公開"])).rejects.toThrow("INVALID_PRIVACY_TERMS");
+});
+
+test("privacy CLI emits only a fixed summary and never authorizes publication", async () => {
+  const root = await fixture(), terms = join(root,"terms.json"), output = join(root,"output");
+  await writeFile(terms,JSON.stringify(["private-organization"]));
+  const run = async () => {
+    const child = Bun.spawn([process.execPath,join(import.meta.dir,"../scripts/validation/scan-output.ts")],{
+      env:{BUNKO_QUARANTINE:output,BUNKO_PRIVATE_TERMS_FILE:terms},stdout:"pipe",stderr:"pipe",
+    });
+    return {code:await child.exited,out:await new Response(child.stdout).text(),err:await new Response(child.stderr).text()};
+  };
+  await mkdir(output); await writeFile(join(output,"result.json"),"{}");
+  const clean = await run();
+  expect(clean.code).toBe(0); expect(clean.err).toBe("");
+  expect(JSON.parse(clean.out)).toEqual({schemaVersion:1,identifierGate:"passed",publicationApproved:false});
+  await writeFile(join(output,"result.json"),"private-organization");
+  const rejected = await run();
+  expect(rejected.code).toBe(1); expect(rejected.out).not.toContain("private-organization");
+  await rm(output,{recursive:true});
+  const missing = await run();
+  expect(missing.code).toBe(1); expect(missing.err).toBe("");
+  expect(JSON.parse(missing.out)).toEqual({schemaVersion:1,identifierGate:"failed",publicationApproved:false});
 });
