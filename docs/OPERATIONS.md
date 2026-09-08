@@ -1,6 +1,6 @@
 # Prepared dependencies, apply, and cache management
 
-These M4 operations are explicit commands. Ordinary builds still do not execute install scripts, apply Kubernetes resources, or prune caches.
+These operations are explicit commands. Ordinary builds still do not execute install scripts, apply Kubernetes resources, or prune caches.
 
 ## Prepared dependency artifacts
 

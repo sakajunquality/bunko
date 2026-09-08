@@ -402,7 +402,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (discovered.workspace) for (const pkg of discovered.workspace.packages) {
     validateDependencySpecs(pkg.manifest, discovered.workspace);
     if (pkg.path && ["overrides", "resolutions", "patchedDependencies"].some((key) => pkg.manifest[key] !== undefined)) throw new Error("Workspace overrides/resolutions/patchedDependencies must be configured at the root");
-    if (await Bun.file(join(discovered.directory, pkg.path, "bunfig.toml")).exists()) throw new Error("Workspace bunfig.toml is not supported in M2a");
+    if (await Bun.file(join(discovered.directory, pkg.path, "bunfig.toml")).exists()) throw new Error("Workspace bunfig.toml is not supported");
     if (pkg.path && await Bun.file(join(discovered.directory, pkg.path, ".npmrc")).exists()) throw new Error("Workspace npm configuration must be in the root .npmrc");
   }
   const output = options.output ? await canonicalOutput(options.output) : undefined;

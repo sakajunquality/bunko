@@ -2,14 +2,20 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { build } from "../packages/bunko/build.ts";
+import { build, type BuildResult } from "../packages/bunko/build.ts";
 import { command } from "./command.ts";
 
-const directory = await mkdtemp(join(tmpdir(), "bunko-m6-smoke-"));
+const directory = await mkdtemp(join(tmpdir(), "bunko-runtime-smoke-"));
 try {
   for (const platform of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",")) for (const mode of ["bundle", "compile"]) {
-    const name = `bunko-m6-${randomUUID()}`, tarball = join(directory, `${mode}-${platform.split("/")[1]}.tar`);
-    const result = await build({ path: resolve("examples/sqlite"), mode, platform, tarball, push: false, localCache: false, gitMetadata: false });
+    const name = `bunko-runtime-${randomUUID()}`, tarball = join(directory, `${mode}-${platform.split("/")[1]}.tar`);
+    let result: BuildResult;
+    if (process.env.BUNKO_TEST_CLI) {
+      const report = join(directory, `${mode}-${platform.split("/")[1]}.json`);
+      await command([process.execPath, resolve(process.env.BUNKO_TEST_CLI), "build", resolve("examples/sqlite"), "--mode", mode, "--platform", platform,
+        "--tarball", tarball, "--push=false", "--no-local-cache", "--no-git-metadata", "--report", report]);
+      result = await Bun.file(report).json();
+    } else result = await build({ path: resolve("examples/sqlite"), mode, platform, tarball, push: false, localCache: false, gitMetadata: false });
     const loaded = await command(["docker", "load", "--input", tarball]), image = /Loaded image: (.+)/.exec(loaded)?.[1];
     if (!image) throw new Error("Docker did not load the SQLite example");
     try {
@@ -24,7 +30,7 @@ try {
       const changed = await (await fetch(`${origin}/visits`, { method: "POST" })).json() as { count: number };
       const read = await (await fetch(`${origin}/visits`)).json() as { count: number };
       if (changed.count !== 1 || read.count !== 1) throw new Error("SQLite state did not persist between requests");
-      console.log(JSON.stringify({ platform, mode, digest: result.root.digest, sqlite: "passed" }));
+      console.log(JSON.stringify({ platform, mode, digest: result.root.digest, builder: result.builder, sqlite: "passed" }));
     } finally { await command(["docker", "rm", "--force", name]).catch(() => {}); await command(["docker", "image", "rm", image]); }
   }
 } finally { await rm(directory, { recursive: true, force: true }); }

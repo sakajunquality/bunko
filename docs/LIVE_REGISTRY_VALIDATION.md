@@ -44,7 +44,7 @@ Docker Hub account push and ECR private remain unverified. Token expiry, permiss
 
 `bun run check` passes with 170 tests and 579 assertions on the tested source revision. The PR CI additionally checks Linux/macOS distribution installation and authenticated Distribution 3 integration.
 
-## M6 and portable ko additions: private supply-chain validation
+## Portable ko workflows: private supply-chain validation
 
 On 2026-09-08 JST, the owner-authorized dedicated GHCR and GAR repositories also passed `test/supply-chain-conformance.ts`:
 
@@ -57,4 +57,4 @@ GHCR used the existing packages-write GITHUB_TOKEN in the **private** bunko-test
 
 GAR used the existing Docker gcloud helper with the private gcloud configuration; IAM and visibility were unchanged. [GAR supply-chain report](validation/2026-09-08-gar-supply-chain.json).
 
-This closes the earlier unverified referrer/signing item for these particular provider configurations. It does not establish every registry policy or key backend. Docker Hub account publication and ECR private remain unverified. OS/runtime checks remain separately recorded in validation/m6-runtime.json and validation/ko-runtime.json.
+This closes the earlier unverified referrer/signing item for these particular provider configurations. It does not establish every registry policy or key backend. Docker Hub account publication and ECR private remain unverified. OS/runtime checks remain separately recorded in validation/runtime-compatibility.json and validation/ko-runtime.json.

@@ -3,7 +3,7 @@ description: Install Bun and a checksum-verified bunko release on Linux or macOS
 inputs:
   version:
     description: Explicit bunko release version
-    default: v0.1.0-alpha.1
+    default: v0.1.0-alpha.2
   bun-version:
     description: Bun runtime version (bunko supports >=1.3.11 <1.4)
     default: 1.3.11

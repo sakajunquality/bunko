@@ -1,4 +1,4 @@
-# ko workflow review and final validation
+# Ko workflow review and final validation
 
 Claude Code 2.1.263 reviewed the researched gap plan and implementation with read-only tools. The following findings were fixed:
 

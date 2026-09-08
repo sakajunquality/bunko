@@ -7,7 +7,7 @@ export const maxAssetBytes = 64 * 1024 * 1024;
 export const checksum = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 export function releaseTag(value: string): string {
-  if (!/^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(value)) throw new Error("Use an explicit release version, for example v0.1.0-alpha.1");
+  if (!/^v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(value)) throw new Error("Use an explicit release version, for example v0.1.0-alpha.2");
   return value.startsWith("v") ? value : `v${value}`;
 }
 

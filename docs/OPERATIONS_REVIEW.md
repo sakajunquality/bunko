@@ -1,4 +1,4 @@
-# M4 validation and review
+# Operations validation and review
 
 Validated privately on 2026-09-08 with Bun 1.3.11, Distribution 3, and a disposable kind v0.33.0 cluster.
 

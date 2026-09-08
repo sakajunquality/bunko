@@ -37,7 +37,7 @@ describe("isolated Bun dependency preparation", () => {
     const plan = await dependencyPlan(project, fixture.source);
     // Bun fetches the original tarball when first applying a patch; the synthetic
     // download cache cannot exercise that network path. The real-package install
-    // is covered separately by the M1 validation probe.
+    // is covered separately by the build and cache validation probe.
     const toolchain = await selectToolchain(), platform = { os: "linux", architecture: "amd64" } as const;
     const base = `sha256:${"0".repeat(64)}` as const;
     const before = cacheKey(dependencyInputs(plan, toolchain, platform, base, project));

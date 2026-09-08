@@ -2,11 +2,13 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.1.0-alpha.1 / private M6 preview** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.1.0-alpha.2 candidate** supports standalone apps and Bun workspaces, bundling, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+
+See the [feature guide](docs/FEATURES.md), [alpha.2 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). This is an alpha; review the compatibility and trust boundaries before adopting it.
 
 ## Quick start
 
-Requires Bun `>=1.3.11 <1.4`; the tested CI matrix covers Bun 1.3.11 and 1.3.12. The distributed `dist/bunko.js` bundles its YAML parser and requires no external npm runtime dependencies. Install development dependencies before running from source:
+Requires Bun `>=1.3.11 <1.4`; the tested CI matrix covers Bun 1.3.11 and 1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -115,9 +117,9 @@ Resolve requires Registry publication. It rejects `--push=false`, export/local/k
 
 `--reproducible` requires a digest-pinned base or `--base-layout`. `--verify-deterministic` bypasses layer caches and compares two independent staging builds. Use `--git-metadata=false` to omit automatic Git metadata.
 
-See [M4 operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, layout publication, and cache pruning.
+See [Operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, layout publication, and cache pruning.
 
-See [M3 supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
+See [Supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
 
 Unsupported: nested workspaces, catalogs, file/link/git dependencies, bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts without a prepared dependency artifact. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
 
@@ -129,10 +131,10 @@ bun run build
 bun dist/bunko.js --help
 
 # Docker and network required for publication, reuse, pull, and runtime checks.
-bun run test:m1-smoke
-bun run test:m2a-smoke
-bun run test:m2b-smoke
-bun run test:m2c-smoke
+bun run test:build-smoke
+bun run test:workspace-smoke
+bun run test:closure-smoke
+bun run test:resolve-smoke
 bun run test:bundled-smoke
 ```
 
@@ -157,3 +159,11 @@ Use `bunko check-config PATH` for offline configuration checks and `bunko doctor
 ## Portable ko workflows
 
 Use `--image-label`, `--image-annotation` and `--image-user` for per-invocation image metadata, and `--image-refs FILE` for a new file of published immutable references. Resolve/apply support `--selector` label queries. A `bunkodata/` directory is included as assets and exposed through `BUNKO_DATA_PATH`. See the [researched ko comparison](docs/KO_GAPS.md) for examples, exact semantics and deliberate differences.
+
+## Local manifests, metadata and cache control
+
+Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`. Use `apply --kind` with the matching kind context; ordinary `apply --local` is rejected because a Docker daemon does not identify a Kubernetes cluster. See [Local development](docs/LOCAL_DEVELOPMENT.md).
+
+Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted read repositories, `--cache-write=false` disables Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
+
+`metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.

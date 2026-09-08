@@ -45,7 +45,7 @@ The original proposal called for a benchmark at the top of the README to substan
 ```text
 bunko build [<path>...]       Build and push images by default
 bunko resolve -f <file>...    Replace bunko:// references with image digest references
-bunko apply -f <file>...      Resolve and pipe to kubectl apply (M4)
+bunko apply -f <file>...      Resolve and pipe to kubectl apply (operations)
 bunko cache ls|prune         List or remove Registry cache tags
 bunko version
 ```
@@ -164,7 +164,7 @@ Omit empty layers rather than adding empty tar archives.
 
 Proposed default: `oven/bun:1-distroless`, subject to existence/content checks in section 11. Pin the resolved digest and label the config with `org.bunko.base.digest`. Resolve tags each build to follow base updates; users can configure a digest for an immutable base.
 
-Bundle mode requires Bun at `/usr/local/bin/bun`. Compile mode requires glibc and libstdc++, with `gcr.io/distroless/cc-debian12` proposed as its default. Evaluate the bun-linux-x64-musl target in M3.
+Bundle mode requires Bun at `/usr/local/bin/bun`. Compile mode requires glibc and libstdc++, with `gcr.io/distroless/cc-debian12` proposed as its default. Evaluate the bun-linux-x64-musl target in supply-chain and compile.
 
 ### 6.2 Dependency layer
 
@@ -286,7 +286,7 @@ Allow arbitrary base references. Before startup in bundle mode, inspect config P
 - A root package.json with workspaces enables workspace mode.
 - `bunko build .` builds packages with bunko configuration; if none have it, use packages with bin or module.
 - Allow explicit paths such as `bunko build ./apps/api ./apps/worker`.
-- Compute each target's dependency closure independently; identical contents share digests. Root `bunko.sharedDeps:true` requests a common layer for all targets in M2.
+- Compute each target's dependency closure independently; identical contents share digests. Root `bunko.sharedDeps:true` requests a common layer for all targets in workspace and resolution.
 - Run bun build with the target directory as cwd and bundle internal workspace packages.
 
 ## 11. Open questions before implementation
@@ -350,7 +350,7 @@ Fail instead of guessing when the entrypoint is unknown, Bun is absent from the 
 - Generate SPDX 2.3 JSON from bun.lock and reference any base SBOM referrer. Push through OCI 1.1 referrers, falling back to a `sha256-<digest>.sbom` tag.
 - Emit minimal SLSA v1 provenance with bunko@version as builder and Git SHA, lockfile digest, and base digest as materials, using the terminology of the original proposal.
 - Execute `cosign sign` for --sign rather than implementing signatures internally.
-- Record the pinned base digest label; proposed M3 `bunko build --check-base` reports available base updates.
+- Record the pinned base digest label; proposed supply-chain and compile `bunko build --check-base` reports available base updates.
 
 ## 14. Resolve
 
@@ -360,13 +360,13 @@ Find bunko://<path> strings in YAML/JSON, build each target, replace them with r
 
 | Milestone | Scope | Proposed completion criteria |
 | --- | --- | --- |
-| M0 | OCI auth/blobs/manifests/tar, bundle mode, push | bunx builds hello for Cloud Run/Kubernetes; determinism tests pass |
-| M1 | Registry/local cache, multiple platforms, local/kind | README benchmarks; a one-line edit uploads only the app layer |
-| M2 | Workspaces, sharedDeps, resolve | Three example services share dependencies |
-| M3 | SBOM/provenance, signing, base checks, compile, musl evaluation | Publish a GitHub Action |
-| M4 | Apply, cache prune, deps-from, HTML fullstack example | Publish LAYERS.md as an upstream proposal |
+| initial prototype | OCI auth/blobs/manifests/tar, bundle mode, push | bunx builds hello for Cloud Run/Kubernetes; determinism tests pass |
+| build and cache | Registry/local cache, multiple platforms, local/kind | README benchmarks; a one-line edit uploads only the app layer |
+| workspace and resolution | Workspaces, sharedDeps, resolve | Three example services share dependencies |
+| supply-chain and compile | SBOM/provenance, signing, base checks, compile, musl evaluation | Publish a GitHub Action |
+| operations | Apply, cache prune, deps-from, HTML fullstack example | Publish LAYERS.md as an upstream proposal |
 
-The original proposal required completing every section 11 experiment before M0 and recording the results there. The later detailed design changed this sequencing.
+The original proposal required completing every section 11 experiment before initial prototype and recording the results there. The later detailed design changed this sequencing.
 
 ## 16. Original design rationale
 

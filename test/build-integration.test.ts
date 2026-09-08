@@ -14,7 +14,7 @@ const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
 async function dir() { const root = await temporary(); directories.push(root); return root; }
 
-describe("M1 build/cache/export integration", () => {
+describe("build and cache build/cache/export integration", () => {
   test("a source edit verifies remote deps/assets before reuse with zero upload", async () => {
     const root = await dir(), fixture = await dependencyFixture(root), base = await baseLayout(join(root, "base")), remote = new MockRegistry();
     const options = { path: fixture.source, baseLayout: base, repo: "registry.example/team", push: true, gitMetadata: false, localCache: false,

@@ -13,8 +13,8 @@ import { command } from "./command.ts";
 import { pullImage } from "./docker-pull.ts";
 
 export async function workspaceSmoke(options: { closure?: boolean; resolve?: boolean } = {}) {
-  const temporary = await mkdtemp(join(tmpdir(), "bunko-m2a-smoke-"));
-  const id = randomUUID(), registryName = `bunko-m2a-registry-${id}`;
+  const temporary = await mkdtemp(join(tmpdir(), "bunko-workspace-smoke-"));
+  const id = randomUUID(), registryName = `bunko-workspace-registry-${id}`;
   const containers = new Set<string>(), images = new Set<string>();
   let registryStarted = false;
   try {
@@ -67,7 +67,7 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
     }
     const runtime: unknown[] = [];
     for (const [targetIndex, target] of [...second, ...shared].entries()) for (const platform of process.env.BUNKO_SMOKE_PLATFORMS?.split(",") ?? ["linux/amd64", "linux/arm64"]) {
-      const name = `bunko-m2a-${id}-${targetIndex}-${target.target}-${platform.split("/")[1]}`;
+      const name = `bunko-workspace-${id}-${targetIndex}-${target.target}-${platform.split("/")[1]}`;
       const store = new BlobStore(join(temporary, name));
       const pulled = await resolveBase(new RegistrySource(target.publication!.reference, { insecure: [host], credentials: async () => undefined }), parsePlatform(platform), store);
       const tag = `bunko.local/${name}:smoke`, archive = join(temporary, `${name}.tar`);

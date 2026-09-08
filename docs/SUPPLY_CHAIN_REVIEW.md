@@ -1,4 +1,4 @@
-# M3 validation and review
+# Supply-chain and compile validation and review
 
 Validated on 2026-09-08 with Bun 1.3.11 and cosign 3.1.3. Repository visibility remains private.
 

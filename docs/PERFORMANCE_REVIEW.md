@@ -1,4 +1,4 @@
-# M5 review and validation
+# Performance review and validation
 
 Claude Code 2.1.263 reviewed the cache, concurrency, syntax, build and toolchain changes with read-only tools. Findings were evaluated against the actual contracts.
 

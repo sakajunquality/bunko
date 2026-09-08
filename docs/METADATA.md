@@ -42,6 +42,6 @@ The opt-in `ci` profile requires reproducible mode and a signing key, enables SB
 
 ## Interoperability validation
 
-`bun run test:metadata -- /absolute/new/output` uses a disposable Distribution registry and cosign keys. Set `BUNKO_COSIGN_PATH` to cosign v3.1.3. It checks unsigned and wrong-key rejection, accepted prepared dependencies, image/attachment signing, and metadata discovery. The fixture is synthetic and does not establish native runtime or OS scanner coverage.
+`bun run test:metadata /absolute/new/output` uses a disposable Distribution registry and cosign keys. Set `BUNKO_COSIGN_PATH` to cosign v3.1.3. It checks unsigned and wrong-key rejection, accepted prepared dependencies, image/attachment signing, and metadata discovery. The fixture is synthetic and does not establish native runtime or OS scanner coverage.
 
 The exported fixture was also checked with the [official SPDX 2.3 JSON schema](https://github.com/spdx/spdx-spec/blob/v2.3/schemas/spdx-schema.json) using jsonschema 4.26.0, and the [in-toto attestation Python bindings](https://github.com/in-toto/attestation/tree/main/python) 0.9.3 for Statement validation and SLSA v1 protobuf parsing. `scripts/validate-metadata.py` reproduces those independent consumer checks given the export directory and downloaded schema. These checks verify interoperability, not the factual correctness of package claims.

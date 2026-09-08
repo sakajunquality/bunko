@@ -1,4 +1,4 @@
-# bunko implementation specification — M7
+# Bunko implementation specification
 
 2026-09-08. This document describes the implemented contract. See [DESIGN.md](DESIGN.md) for future design, [the archived v0.1 proposal](archive/SPEC-v0.1.md) for the original concept, and [VALIDATION.md](VALIDATION.md) for measurements and unverified behavior.
 
@@ -8,7 +8,7 @@ Bundle standalone and workspace Bun applications, compose them with base images,
 
 A build can target `linux/amd64` and `linux/arm64` together. An omitted arm64 variant means v8. Platforms have a stable index order. Building never executes target binaries or emulators. Docker archives, local/kind loading, and `--no-index` require one platform.
 
-Supported dependencies are registry npm packages, constrained workspace references, and explicit production runtime externals. Opt-in SBOM/provenance, private key signing, base checks, and constrained Linux compile mode are implemented in M3; see [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md). M4 adds explicit apply, prepared dependency artifacts, layout publication, and preview-first pruning; see [OPERATIONS.md](OPERATIONS.md). Bytecode remains unsupported.
+Supported dependencies are registry npm packages, constrained workspace references, and explicit production runtime externals. Opt-in SBOM/provenance, private key signing, base checks, and constrained Linux compile mode are implemented; see [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md). Bunko provides explicit apply, prepared dependency artifacts, layout publication, and preview-first pruning; see [OPERATIONS.md](OPERATIONS.md). Bytecode remains unsupported.
 
 ## 2. CLI and results
 
@@ -137,17 +137,17 @@ Production dependency keys include dependency manifest fields, the full lock, pa
 
 Lookup order is local, Registry metadata, then miss. Local blobs are checked by compressed digest and DiffID. Registry cache bodies are fetched and verified during preparation, with bounded compressed/decompressed sizes. Invalid metadata, unavailable caches, and corrupt bodies cause a diagnostic and miss before publication. Base-image bodies remain lazy and are separate from cache validation.
 
-New records are saved after independent construction/determinism checks succeed. Registry cache publication follows successful image publication. Cache write failure does not undo image success. Application caching, cross-process locks, explicit pruning, and bounded target preparation with `--jobs` are implemented; see the M5 contract below.
+New records are saved after independent construction/determinism checks succeed. Registry cache publication follows successful image publication. Cache write failure does not undo image success. Application caching, cross-process locks, explicit pruning, and bounded target preparation with `--jobs` are implemented; see the performance contract below.
 
 Determinism verification bypasses persistent layer caches on both runs and compares layers/configs/platform manifests and inventory. Bun's download cache may still be reused. Dry-run may use local caches and download packages and may write its report, but performs no Registry writes, export, or loading.
 
 ## 7. Validation
 
-`bun run check` runs typechecking and offline unit/integration tests. Python tarfile independently checks tar/PAX and Docker archive output. `test:m1-smoke` uses real Distribution, public npm/base images, and Docker to verify both build platforms, determinism, dependency/asset reuse after source edits, verified pull/run, and local loading.
+`bun run check` runs typechecking and offline unit/integration tests. Python tarfile independently checks tar/PAX and Docker archive output. `test:build-smoke` uses real Distribution, public npm/base images, and Docker to verify both build platforms, determinism, dependency/asset reuse after source edits, verified pull/run, and local loading.
 
 Cloud Registry coverage is recorded per provider in the [Registry matrix](REGISTRIES.md). Arbitrary native ABIs, musl runtime, live HTML serving, other Bun versions, and repeated comparative performance measurements remain unverified. [Validation records](VALIDATION.md) distinguish measurements from limitations.
 
-## 8. Workspaces and multiple targets (M2a)
+## 8. Workspaces and multiple targets
 
 An ancestor becomes the workspace root only if its workspaces declaration matches the selected package. Unrelated or malformed ancestor manifests do not capture standalone projects. The root `package.json.workspaces` must be an array of positive relative globs. Leading `./` segments and trailing slashes are normalized consistently for discovery and ancestor membership checks; `./packages/*` and `packages/*` select the same members. Member names are unique. Declared and discovered membership is cross-checked against the root lock, including root/member names, versions, dependency declarations, and optional peers. Manifest or membership changes during snapshotting fail.
 
@@ -171,7 +171,7 @@ Multi-target reports use `{schemaVersion:3,status,targets:[BuildResult...]}`, wi
 
 Unsupported workspace forms: nested members, object/catalog declarations, negative globs, file/link packages, and member-local npmrc/overrides/resolutions/patchedDependencies. Put the latter at the root. Project bunfig and install-script restrictions are unchanged.
 
-## 9. Dependency closure and sharedDeps (M2b)
+## 9. Dependency closure and sharedDeps
 
 `bunko.deps.strategy` / `--deps-strategy` accepts production (default) or closure. Closure installs the original manifests/lock for Linux without rewriting them, then follows dependencies, optionalDependencies, and peerDependencies from explicit externals using installed node_modules resolution. Missing optional/optional-peer edges are allowed; missing required edges fail. There is no independent semver resolver.
 
@@ -183,7 +183,7 @@ File hashing is limited to 16 concurrent reads and preserves input order. Closur
 
 Projection checks escaping links, special files, install-script requirements, and native ELF/platform compatibility. App/assets cannot overwrite .bunko-deps or node_modules. Determinism verification constructs graphs from separate installs.
 
-## 10. Resolve (M2c)
+## 10. Resolve
 
 `bunko resolve -f FILE|DIR|- --repo PREFIX [--context DIR]` accepts repeated inputs. Input paths are cwd-relative; URI paths are cwd- or context-relative, or absolute. Directories read regular .yaml/.yml/.json files by name; only --recursive visits children. Child symlinks are not followed. Explicit files are deduplicated by canonical path, and repeated stdin is read once.
 
@@ -205,19 +205,19 @@ Reports use schemaVersion 4, command=resolve, status, and targets. Success adds 
 
 The [correctness review follow-up](REVIEW_FIXES.md) records transfer deadlines, normalized Registry origins, upload-status compatibility, cache-key invalidation, and validation of these fixes.
 
-## 11. Supply-chain metadata and compile (M3)
+## 11. Supply-chain metadata and compile
 
 [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md) defines the implemented metadata, private signing, compile, and check-base contract, including coverage limits and validation commands. Metadata is opt-in and is attached by subject without changing runnable image identity. Required attachment/signing failures fail publication as a whole and withhold stdout, even if the image itself has already been published.
 
-## 12. Operations (M4)
+## 12. Operations
 
 [OPERATIONS.md](OPERATIONS.md) defines prepared dependency artifact validation, apply ordering, and local/remote pruning. Mutation requires explicit commands. Ordinary build/resolve behavior does not implicitly apply resources or delete caches.
 
-## M5 performance contract
+## performance performance contract
 
 Target preparation accepts bounded `--jobs` (1–32, default 1). All targets prepare before publication; output/report target ordering is stable. Application cache hits reuse verified packed output and skip build-only installation/bundling. Keys include source, toolchain executable, host/target, base, dependency/alias and build inputs. `--no-app-cache` disables this cache; `--verify-deterministic` bypasses every layer cache. Syntax validation is content-keyed within an invocation, rereading bytes on every check. Local writers serialize with prune; conflicting valid outputs under a key are rejected. Registry hits are verified during preparation, with a 2 GiB compressed/decompressed limit. See PERFORMANCE.md.
 
-## M6 diagnostics
+## diagnostics diagnostics
 
 `check-config [path]` validates manifests, workspace/target selection and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
 
@@ -227,7 +227,7 @@ Repeated `--image-label`, `--image-annotation` and `--image-user` override match
 
 `resolve`/`apply --selector` filter top-level documents by metadata.labels using equality, inequality, existence and nonempty set requirements. No matches produce no output or Kubernetes operation. Selector mode may normalize YAML formatting; ordinary resolution preserves source text. A real target `bunkodata/` directory is included as assets and sets BUNKO_DATA_PATH under the workdir, subject to existing source/symlink exclusions. See KO_GAPS.md for exact syntax, researched ko differences and limits.
 
-## M7 input and progress contract
+## input and progress input and progress contract
 
 A root `.bunkoignore` accepts positive root-relative Bun globs, blank lines and `#` comments. Matching directories are pruned; use `**/name` for matches at arbitrary depths. Negation, absolute paths, backslashes and parent traversal are rejected. The ignore file itself always participates in source identity. Required manifests, imports and explicit assets must still be present; ignored conventional data is an error. This is not gitignore syntax.
 
