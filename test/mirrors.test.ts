@@ -8,7 +8,7 @@ const bytes = Buffer.from(JSON.stringify({ schemaVersion: 2, mediaType: media.ma
 const digest = sha256(bytes);
 
 test("mirror inputs normalize hosts, preserve order and reject path or credential injection", () => {
-  expect(registryMirrors(["docker.io=mirror.example:443", "index.docker.io=second.example"])).toEqual({ "registry-1.docker.io": ["mirror.example", "second.example"] });
+  expect(registryMirrors(["docker.io=mirror.example:443", "index.docker.io=second.example"])).toEqual({ "registry-1.docker.io": ["mirror.example:443", "second.example"] });
   for (const input of ["origin.example", "origin.example=https://mirror.example", "origin.example=user@mirror.example", "origin.example=mirror.example/path", "origin.example=origin.example:443", "origin.example=mirror.example=extra"]) expect(() => registryMirrors([input])).toThrow();
   expect(() => registryMirrors(["origin.example=mirror.example", "origin.example:443=mirror.example:443"])).toThrow("Duplicate");
 });
@@ -51,4 +51,12 @@ test("publisher transports never redirect writes to configured mirrors", async (
   const client = new RegistryClient("origin.example", { mirrors: { "origin.example": ["mirror.example"] }, fetcher: async (value, init) => { expect(new URL(value).host).toBe("origin.example"); methods.push(init!.method!); return new Response(null, { status: 202 }); } });
   for (const method of ["POST", "PATCH", "PUT", "DELETE"]) await client.request("/v2/team/app/blobs/uploads/test", { method }, ["repository:team/app:pull,push"]);
   expect(methods).toEqual(["POST", "PATCH", "PUT", "DELETE"]);
+});
+
+
+test("explicit mirror port 443 retains HTTP opt-in and credential identity", async () => {
+  const source = new RegistrySource(`origin.example/app@${digest}`, { mirrors: registryMirrors(["origin.example=mirror.example:443"]), insecure: ["mirror.example:443"],
+    credentials: async (host) => { expect(host).toBe("mirror.example:443"); return { username: "mirror", password: "test" }; },
+    fetcher: async (value, init) => { expect(new URL(value).origin).toBe("http://mirror.example:443"); return new Headers(init?.headers).has("authorization") ? new Response(bytes) : new Response(null, {status:401,headers:{"www-authenticate":'Basic realm="fixture"'}}); } });
+  expect((await source.root()).descriptor.digest).toBe(digest);
 });

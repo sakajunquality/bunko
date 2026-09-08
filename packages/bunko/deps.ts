@@ -227,8 +227,8 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   const network = installNetworkEnvironment();
   try {
     if (plan.npmCertificate) {
-      const extra = network.NODE_EXTRA_CA_CERTS ? await certificatePEM(network.NODE_EXTRA_CA_CERTS) : "";
-      await writeFile(certificateFile, plan.npmCertificate.pem + "\n" + extra, { mode: 0o600 });
+      const extra = network.NODE_EXTRA_CA_CERTS ? await certificatePEM(network.NODE_EXTRA_CA_CERTS, "NODE_EXTRA_CA_CERTS") : "";
+      await writeFile(certificateFile, plan.npmCertificate.pem + "\n" + extra, { mode: 0o600, flag: "wx" });
       // Bun 1.3.11 also needs process-level trust for TLS inside CONNECT tunnels.
       network.NODE_EXTRA_CA_CERTS = certificateFile;
       args.push(`--cafile=${certificateFile}`);

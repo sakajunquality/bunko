@@ -268,7 +268,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
     validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
-    const registry = { mirrors: registryMirrors(values["registry-mirror"]), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
+    const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: registryMirrors(values["registry-mirror"]), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const options = { path, define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };

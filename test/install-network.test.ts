@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { installNetworkEnvironment, npmCertificate } from "../packages/bunko/install-network.ts";
+import { certificatePEM, installNetworkEnvironment, npmCertificate } from "../packages/bunko/install-network.ts";
 import { dependencyInputs, dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
@@ -25,6 +25,11 @@ test("npm cafile uses original project paths, remains outside cache metadata, an
   await writeFile(join(fixture.source, ".npmrc"), "cafile=ca.pem\n");
   const project = await loadProject({ path: fixture.source }), plan = await dependencyPlan(project, fixture.source), toolchain = await selectToolchain();
   expect(plan.npmCertificate!.pem).toBe(await readFile(certificate, "utf8"));
+  const annotated = join(root, "annotated.pem");
+  await writeFile(annotated, "# Corporate CA bundle\nSubject: localhost\n" + plan.npmCertificate!.pem);
+  expect(await certificatePEM(annotated)).toBe(plan.npmCertificate!.pem);
+  await writeFile(annotated, plan.npmCertificate!.pem + await readFile(join(root, "key.pem"), "utf8"));
+  await expect(certificatePEM(annotated)).rejects.toThrow("PEM certificate");
   expect(plan.npmrc).not.toContain("cafile");
   const inputs = JSON.stringify(dependencyInputs(plan, toolchain, { os: "linux", architecture: "amd64" }, "base", project));
   expect(inputs).not.toContain(certificate); expect(inputs).not.toContain("BEGIN CERTIFICATE");
@@ -52,13 +57,16 @@ test("real Bun installs trust a private npm CA through a CONNECT proxy and honor
   await mkdir(packageDirectory);
   await writeFile(join(packageDirectory, "package.json"), JSON.stringify({ name: "private-ca-fixture", version: "1.0.0", main: "index.js" }));
   await writeFile(join(packageDirectory, "index.js"), 'module.exports="private CA works";');
+  const extraCertificate = join(root, "extra-ca.pem"), extraKey = join(root, "extra-key.pem");
+  await command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=extra-ca", "-addext", "subjectAltName=DNS:localhost", "-keyout", extraKey, "-out", extraCertificate]);
   const archive = join(root, "package.tgz"); await command(["tar", "-czf", archive, "-C", root, "package"]);
   const tarball = await readFile(archive), integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
-  let registryURL = "", connections = 0;
+  let registryURL = "", tarballURL = "", connections = 0;
+  const tarballServer = httpsServer({ cert: await readFile(extraCertificate), key: await readFile(extraKey) }, (_request, response) => response.end(tarball));
   const registry = httpsServer({ cert: await readFile(certificate), key: await readFile(key) }, (request, response) => {
     if (request.url === "/package.tgz") { response.end(tarball); return; }
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({ name: "private-ca-fixture", "dist-tags": { latest: "1.0.0" }, versions: { "1.0.0": { name: "private-ca-fixture", version: "1.0.0", dist: { tarball: `${registryURL}/package.tgz`, integrity } } } }));
+    response.end(JSON.stringify({ name: "private-ca-fixture", "dist-tags": { latest: "1.0.0" }, versions: { "1.0.0": { name: "private-ca-fixture", version: "1.0.0", dist: { tarball: `${tarballURL}/package.tgz`, integrity } } } }));
   });
   const proxy = httpServer((_request, response) => { response.writeHead(502); response.end(); });
   proxy.on("connect", (request, socket, head) => {
@@ -69,12 +77,17 @@ test("real Bun installs trust a private npm CA through a CONNECT proxy and honor
   });
   await new Promise<void>((done) => registry.listen(0, "127.0.0.1", done));
   await new Promise<void>((done) => proxy.listen(0, "127.0.0.1", done));
+  await new Promise<void>((done) => tarballServer.listen(0, "127.0.0.1", done));
+  tarballURL = `https://localhost:${(tarballServer.address() as { port: number }).port}`;
   registryURL = `https://localhost:${(registry.address() as { port: number }).port}`;
   const proxyURL = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`;
   const keys = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
+    const lockTrust = join(root, "lock-trust.pem");
+    await writeFile(lockTrust, await readFile(certificate, "utf8") + await readFile(extraCertificate, "utf8"));
+    process.env.NODE_EXTRA_CA_CERTS = lockTrust;
     process.env.HTTPS_PROXY = proxyURL; process.env.NO_PROXY = "localhost";
     const source = join(root, "source"); await mkdir(source);
     await writeFile(join(source, "package.json"), JSON.stringify({ name: "tls-app", module: "index.ts", dependencies: { "private-ca-fixture": "1.0.0" } }));
@@ -83,6 +96,7 @@ test("real Bun installs trust a private npm CA through a CONNECT proxy and honor
     const child = Bun.spawn([process.execPath, "install", "--ignore-scripts", "--lockfile-only", `--cafile=${certificate}`, `--registry=${registryURL}`, `--cache-dir=${join(root, "lock-cache")}`], { cwd: source, env: { HOME: root, PATH: process.env.PATH!, ...installNetworkEnvironment() }, stdout: "pipe", stderr: "pipe" });
     const [, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (code) throw new Error(error);
+    process.env.NODE_EXTRA_CA_CERTS = extraCertificate;
     const plan = await dependencyPlan(await loadProject({ path: source }), source), toolchain = await selectToolchain();
     process.env.NO_PROXY = "";
     const before = connections;
@@ -96,6 +110,7 @@ test("real Bun installs trust a private npm CA through a CONNECT proxy and honor
     expect(connections).toBe(bypass);
   } finally {
     for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }
+    tarballServer.closeAllConnections(); tarballServer.close();
     registry.closeAllConnections(); registry.close(); proxy.closeAllConnections(); proxy.close();
   }
 }, 15000);

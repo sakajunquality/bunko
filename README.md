@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="bunko logo" width="200">
+</p>
+
 # bunko
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).

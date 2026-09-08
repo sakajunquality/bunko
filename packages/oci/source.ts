@@ -66,12 +66,14 @@ export { type Fetcher } from "./registry.ts";
 export class RegistrySource implements ImageSource {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
+  private readonly onMirrorFallback?: RegistryOptions["onMirrorFallback"];
   private readonly mirrors: RegistryClient[];
   constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
     const settings = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
+    this.onMirrorFallback = settings.onMirrorFallback;
     this.client = new RegistryClient(this.ref.registry, settings);
-    const hosts = settings.mirrors?.[registryHost(this.ref.registry)] ?? [];
+    const hosts = settings.mirrors?.[registryHost(this.ref.registry, true)] ?? [];
     if (!Array.isArray(hosts) || hosts.length > 8) throw new Error("At most eight mirrors are allowed per registry");
     this.mirrors = hosts.map((host) => new RegistryClient(registryHost(host), settings));
   }
@@ -81,6 +83,7 @@ export class RegistrySource implements ImageSource {
       try { return await mirror.request(path, {}, scopes); }
       catch (error) {
         if (!(error instanceof RegistryConnectionError) && !(error instanceof RegistryError && (error.status === 404 || error.status === 429 || error.status >= 500))) throw error;
+        this.onMirrorFallback?.({ registry: this.ref.registry, mirror: mirror.registry, reason: error instanceof RegistryError ? `HTTP ${error.status}` : "connection failed" });
       }
     }
     return this.client.request(path, {}, scopes);
