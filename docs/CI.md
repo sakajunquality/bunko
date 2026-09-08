@@ -40,3 +40,14 @@ To export telemetry, set `otel: 'true'` and configure the supported `OTEL_*` env
 Persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
 
 The setup default is rc.3 after its published bytes were verified against the tested candidate. Attestation verification is opt-in and applies only to future attested releases; see [release provenance](RELEASE_PROVENANCE.md).
+
+## Invocation constants
+
+Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
+
+```sh
+bunko build . --define 'BUILD_VERSION="1.2.3"' \
+  --define 'process.env.FEATURE_ENABLED=true' --repo registry.example/team
+```
+
+Values use Bun's define expression syntax; quote strings as JavaScript literals and quote the whole argument for your shell. Effective values enter application cache keys and change the embedded application. Reports and telemetry do not include a define-value field; offline diagnostics list only keys. Defines are not a secret channel: their values are intentionally embedded in artifacts and build diagnostics may describe invalid expressions. Keep runtime secrets in runtime configuration instead. The immutable rc.3 CLI does not include this option.
