@@ -28,7 +28,7 @@ export async function exportDockerArchive(store: BlobStore, manifest: Descriptor
     const layers: string[] = [];
     for (const [i, layer] of image.layers.entries()) {
       const file = join(temporary, `layer-${i}.tar`);
-      await decodeLayer(store, layer, config.rootfs.diff_ids[i]!, file);
+      await decodeLayer(store, layer, config.rootfs.diff_ids[i]!, file, 2 * 1024 ** 3);
       const path = `${i}-${layer.digest.slice(7)}/layer.tar`;
       entries.push({ path, type: "file", source: file, size: (await stat(file)).size });
       layers.push(path);

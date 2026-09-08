@@ -1,5 +1,6 @@
+import { canonicalDependencyMap } from "./dependency-map.ts";
 import { labelSelector, selectDocuments } from "./selector.ts";
-import { referenceOutput, writeReferences } from "./references.ts";
+import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
 /*! yaml 2.9.0 — https://github.com/eemeli/yaml
 Copyright Eemeli Aro <eemeli@gmail.com>
 
@@ -163,13 +164,16 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
 }
 
 export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+  if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   if (options.jobs !== undefined && (!Number.isSafeInteger(options.jobs) || options.jobs < 1 || options.jobs > 32)) throw new Error("--jobs must be an integer from 1 to 32");
   if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
   if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
   const configuredRepo = options.repo ?? process.env.BUNKO_REPO;
   if (configuredRepo !== undefined) repository(options.bare ? configuredRepo : `${configuredRepo}/bunko-validation`);
   if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");
-  if (options.push === false || options.local || options.kind || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication; export/local/kind/dry-run/--target are not supported");
+  const local = Boolean(options.local || options.kind);
+  if (local && options.imageRefs) throw new Error("--image-refs requires Registry publication");
+  if (options.push === false && !local || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication or local/kind loading; export/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (report) await assertFileAvailable(report, "Report");
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.cacheDir, options.installCache]);
@@ -189,13 +193,14 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     if (!groups.has(found.directory)) groups.set(found.directory, { directory: found.directory, paths: new Set(), workspace: Boolean(found.workspace) });
     groups.get(found.directory)!.paths.add(found.targets[0]!.path || ".");
   }
+  if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => ![...names.values()].includes(path))) throw new Error("Dependency map contains an unselected target");
   if (options.bare && names.size > 1) throw new Error("--bare requires a single resolved target");
   const batches: PreparedTargets[] = [], references = new Map<string, string>();
   const paths = [...new Set(uriTargets.values())].sort(), completed = new Set<string>();
   const sources: Parameters<typeof prepareTargets>[2] = new Map();
   try {
     for (const group of [...groups.values()].sort((a, b) => a.directory < b.directory ? -1 : 1)) {
-      const batch = await prepareTargets({ ...options, path: group.directory, targets: group.workspace ? [...group.paths] : undefined, report: undefined, imageRefs: undefined, push: true }, false, sources);
+      const batch = await prepareTargets({ ...options, externalDepsByTarget: options.externalDepsByTarget ? Object.fromEntries(Object.entries(options.externalDepsByTarget).filter(([path]) => [...group.paths].some((member) => join(group.directory, member) === path))) : undefined, path: group.directory, targets: group.workspace ? [...group.paths] : undefined, report: undefined, imageRefs: undefined, push: !local }, false, sources);
       batches.push(batch);
       for (const target of batch.results) if (names.get(target.target) !== join(group.directory, target.targetPath ?? ".")) throw new Error("Target identity changed during resolve; retry the invocation");
     }
@@ -203,7 +208,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     for (const target of targets) {
       const path = names.get(target.target)!;
       const repo = options.repo ?? process.env.BUNKO_REPO!;
-      const ref = `${repositoryName(repository(options.bare ? repo : `${repo}/${target.target}`))}@${target.root.digest}`;
+      const ref = local ? localImageReference(target.target, target.root.digest, options.kind) : `${repositoryName(repository(options.bare ? repo : `${repo}/${target.target}`))}@${target.root.digest}`;
       for (const [uri, selected] of uriTargets) if (selected === path) references.set(uri, ref);
     }
     // Validate complete rendered output before any publication. Only the caller
@@ -217,7 +222,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "success", references: Object.fromEntries(references), targets });
     return { output, targets };
   } catch (error) {
-    for (const batch of batches) for (const target of batch.results) if (target.publication?.published && !target.publication.pendingTags.length && (!target.supplyChain || target.supplyChain.status === "complete")) completed.add(names.get(target.target)!);
+    for (const batch of batches) for (const target of batch.results) if (target.localReference || target.publication?.published && !target.publication.pendingTags.length && (!target.supplyChain || target.supplyChain.status === "complete")) completed.add(names.get(target.target)!);
     if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) });
     throw error;
   } finally { await Promise.all(batches.map((batch) => batch.dispose())); }

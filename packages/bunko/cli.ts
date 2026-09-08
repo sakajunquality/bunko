@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { dependencyMap } from "./dependency-map.ts";
+import { registryTLS } from "../oci/tls.ts";
 /*! bunko — MIT License
 
 Copyright (c) 2026 sakajunquality
@@ -112,6 +114,9 @@ Options:
   --provenance             Attach SLSA provenance to the image root
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
   --cosign-path <file>     cosign executable (default: PATH)
+  --deps-map <file>         Per-target, per-platform prepared dependency artifacts
+  --artifact-target <path>  Bind pack-deps output to a workspace member
+  --registry-config <file>  Host-scoped CA/client certificate configuration
   --progress <plain|json>   Stage events on stderr (default: plain)
   --report <file>          Write a JSON result, including transfers/cache/partial publication
   --help                   Show this help
@@ -179,6 +184,9 @@ export async function main(argv: string[]): Promise<number> {
       "older-than": { type: "string" },
       lockfile: { type: "string" },
       workdir: { type: "string" },
+      "deps-map": { type: "string" },
+      "artifact-target": { type: "string" },
+      "registry-config": { type: "string" },
       progress: { type: "string" },
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
@@ -223,6 +231,8 @@ export async function main(argv: string[]): Promise<number> {
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
     validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
+    const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
+    const registry = { insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const options = { path, targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
@@ -230,7 +240,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === "push-layout") {
       if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");
-      const result = await pushLayout(path, values.repo, values.tag, { insecure: values["insecure-registry"] }, values.report);
+      const result = await pushLayout(path, values.repo, values.tag, registry, values.report);
       process.stdout.write(`${result.reference}\n`); return 0;
     }
     if (command === "prune") {
@@ -239,20 +249,20 @@ export async function main(argv: string[]): Promise<number> {
       if (positionals.length !== 1 || values.execute && values["dry-run"]) throw new Error("prune accepts no positional path; --execute and --dry-run cannot be combined");
       if (values["cache-repo"] && (values["cache-dir"] || values["older-than"])) throw new Error("Remote prune cannot be combined with local cache/age options");
       if (values["older-than"] !== undefined && !/^\d+$/.test(values["older-than"])) throw new Error("--older-than must be non-negative integer seconds");
-      const result = values["cache-repo"] ? await pruneRegistry(values["cache-repo"], values.execute, { insecure: values["insecure-registry"] })
+      const result = values["cache-repo"] ? await pruneRegistry(values["cache-repo"], values.execute, registry)
         : await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), values.execute, values["older-than"] === undefined ? undefined : Number(values["older-than"]));
       process.stdout.write(JSON.stringify(result) + "\n"); return 0;
     }
     if (values.execute || values["older-than"]) throw new Error("--execute/--older-than require prune");
     if (command === "pack-deps") {
       if (positionals.length !== 2 || !values.lockfile || !values["oci-layout"]) throw new Error("pack-deps requires a prepared directory, --lockfile and --oci-layout");
-      const result = await packDependencies(path, values.lockfile, parsePlatform(values.platform ?? "linux/amd64"), values["oci-layout"], values.workdir);
+      const result = await packDependencies(path, values.lockfile, parsePlatform(values.platform ?? "linux/amd64"), values["oci-layout"], values.workdir, values["artifact-target"]);
       process.stdout.write(JSON.stringify(result) + "\n"); return 0;
     }
     if (values.lockfile || values.workdir) throw new Error("--lockfile/--workdir require pack-deps");
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
-      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], registry: { insecure: values["insecure-registry"] } });
+      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], registry: registry });
       process.stdout.write(JSON.stringify(result) + "\n");
       return 0;
     }
@@ -288,6 +298,7 @@ export async function main(argv: string[]): Promise<number> {
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
       jobs: jobsText === undefined ? undefined : Number(jobsText),
+      externalDepsByTarget: values["deps-map"] ? await dependencyMap(values["deps-map"]) : undefined,
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
       mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
@@ -296,7 +307,7 @@ export async function main(argv: string[]): Promise<number> {
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"],
       localCache: values.cache && values["local-cache"], registryCache: values.cache && values["registry-cache"],
-      installCache: values["install-cache"], registry: { insecure: values["insecure-registry"] }, dryRun: values["dry-run"],
+      installCache: values["install-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,
       baseLayout: values["base-layout"], platform: values.platform,
       bunPath: values["bun-path"], report: values.report,

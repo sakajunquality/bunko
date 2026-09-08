@@ -10,14 +10,15 @@ import { LayoutSource, RegistrySource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { media, type Platform } from "../oci/types.ts";
 import { packLayer } from "../oci/tar.ts";
-import { absolutePath } from "./config.ts";
+import { absolutePath, relativePath } from "./config.ts";
 import { runtimeEntries } from "./deps.ts";
 
 const configType = "application/vnd.bunko.dependencies.config.v1+json";
 const artifactType = "application/vnd.bunko.dependencies.v1";
 const lockDigest = (value: unknown) => sha256(canonicalJSON(value));
 
-export async function packDependencies(directory: string, lockfile: string, platform: Platform, output: string, workdir = "/app") {
+export async function packDependencies(directory: string, lockfile: string, platform: Platform, output: string, workdir = "/app", targetPath = "") {
+  if (targetPath) targetPath = relativePath(targetPath.replace(/\/+$/, ""), "artifact target");
   absolutePath(workdir, "dependency destination workdir");
   const temporary = await mkdtemp(join(tmpdir(), "bunko-pack-deps-"));
   try {
@@ -29,14 +30,14 @@ export async function packDependencies(directory: string, lockfile: string, plat
     const layer = await packLayer(store, content.entries, "deps", 0);
     if (!layer) throw new Error("Dependency artifact cannot be empty");
     const lock = Bun.JSONC.parse(await readFile(lockfile, "utf8"));
-    const config = await store.put(canonicalJSON({ schemaVersion: 1, platform, workdir, lockDigest: lockDigest(lock), layer }), configType);
+    const config = await store.put(canonicalJSON({ schemaVersion: targetPath ? 2 : 1, targetPath: targetPath || undefined, platform, workdir, lockDigest: lockDigest(lock), layer }), configType);
     const root = { ...await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType, config, layers: [layer.descriptor] }), media.manifest), artifactType };
     await exportLayout(store, output, root, [config, layer.descriptor], "bunko-dependencies");
     return { schemaVersion: 1, digest: root.digest, platform, workdir, inventory: content.inventory, native: content.native, layout: output };
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-export async function importDependencies(reference: string, platform: Platform, workdir: string, lock: unknown, directory: string, registry: RegistryOptions) {
+export async function importDependencies(reference: string, platform: Platform, workdir: string, lock: unknown, directory: string, registry: RegistryOptions, targetPath = "") {
   if (!reference.startsWith("layout:") && !/@sha256:[a-f0-9]{64}$/.test(reference)) throw new Error("External dependency registry artifacts require a digest-pinned reference");
   const source = reference.startsWith("layout:") ? new LayoutSource(resolve(reference.slice(7))) : new RegistrySource(reference, registry);
   const store = new BlobStore(join(directory, "store"));
@@ -54,7 +55,8 @@ export async function importDependencies(reference: string, platform: Platform, 
   if (configDescriptor.mediaType !== configType || configDescriptor.size > 8 * 1024 ** 2 || layerDescriptor.mediaType !== media.gzip || layerDescriptor.size > 2 * 1024 ** 3) throw new Error("Unsupported dependency artifact media type or size");
   await store.putStream(await source.blob(configDescriptor), configDescriptor.mediaType, configDescriptor);
   const config = object(JSON.parse(Buffer.from(await store.read(configDescriptor)).toString()), "Dependency config");
-  if (config.schemaVersion !== 1 || config.workdir !== workdir || Buffer.compare(Buffer.from(canonicalJSON(config.platform)), Buffer.from(canonicalJSON(platform))) !== 0 || config.lockDigest !== lockDigest(lock)) throw new Error("Dependency artifact platform, destination or lock mismatch");
+  if (targetPath ? config.schemaVersion !== 2 || config.targetPath !== targetPath : config.schemaVersion !== 1) throw new Error("Dependency artifact target mismatch");
+  if (config.workdir !== workdir || Buffer.compare(Buffer.from(canonicalJSON(config.platform)), Buffer.from(canonicalJSON(platform))) !== 0 || config.lockDigest !== lockDigest(lock)) throw new Error("Dependency artifact platform, destination or lock mismatch");
   const layer = object(config.layer, "Dependency layer");
   if (layer.kind !== "deps" || Buffer.compare(Buffer.from(canonicalJSON(layer.descriptor)), Buffer.from(canonicalJSON(layerDescriptor)))) throw new Error("Dependency layer mismatch");
   const diffId = descriptor({ mediaType: media.tar, size: 0, digest: layer.diffId }).digest;

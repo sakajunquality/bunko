@@ -17,6 +17,8 @@ import { baseLayout, project, temporary } from "./helpers.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { runImage } from "./run-image.ts";
 import { MockRegistry } from "./mock-registry.ts";
+import { resolveDocuments } from "../packages/bunko/resolve.ts";
+import { workspaceFixture } from "./workspace-fixture.ts";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
@@ -45,6 +47,24 @@ test("external dependency artifacts preserve prepared packages, enforce lock/pla
   expect(await runImage(result, join(root, "runtime"))).toBe("fixture-msg works");
   await expect(importDependencies(`layout:${output}`, platform, "/app", {}, join(root, "bad-lock"), {})).rejects.toThrow("lock mismatch");
   await expect(importDependencies(`layout:${output}`, { os: "linux", architecture: "arm64", variant: "v8" }, "/app", plan.lock, join(root, "bad-arch"), {})).rejects.toThrow("platform");
+});
+
+test("target-bound workspace dependencies resolve through a per-target map", async () => {
+  const root = await fixture(), f = await dependencyFixture(root), workspace = await workspaceFixture(root);
+  const source = join(workspace.source, "services/api"), manifest = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
+  manifest.bunko.external = ["fixture-msg"];
+  await writeFile(join(source, "package.json"), JSON.stringify(manifest));
+  const selected = await loadProject({ path: f.source }), plan = await dependencyPlan(selected, f.source);
+  await installDependencies(f.source, plan, await selectToolchain(), platform, f.cache);
+  const output = join(root, "bound-deps");
+  const packed = await packDependencies(f.source, join(workspace.source, "bun.lock"), platform, output, "/app", "services/api");
+  await expect(importDependencies(`layout:${output}`, platform, "/app", workspace.lock, join(root, "wrong-target"), {}, "services/worker")).rejects.toThrow("mismatch");
+  const mock = new MockRegistry(), registry = { fetcher: mock.fetch, credentials: async () => undefined };
+  const yaml = join(root, "pod.yaml"); await writeFile(yaml, `image: bunko://${source}\n`);
+  const result = await resolveDocuments({ files: [yaml], repo: "registry.test/map", baseLayout: await baseLayout(join(root, "base")), localCache: false,
+    registry, installCache: workspace.cache, externalDepsByTarget: { [source]: { "linux/amd64": `layout:${output}` } } });
+  expect(result.targets[0]!.images[0]!.dependencyArtifact).toBe(packed.digest);
+  expect(result.output).toContain("registry.test/map/fixture-api@sha256:");
 });
 
 test("dependency extraction accepts PAX paths and internal links but rejects traversal through links", async () => {

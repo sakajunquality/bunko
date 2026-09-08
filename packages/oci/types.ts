@@ -5,6 +5,7 @@ export const media = {
   manifest: "application/vnd.oci.image.manifest.v1+json",
   config: "application/vnd.oci.image.config.v1+json",
   tar: "application/vnd.oci.image.layer.v1.tar",
+  zstd: "application/vnd.oci.image.layer.v1.tar+zstd",
   gzip: "application/vnd.oci.image.layer.v1.tar+gzip",
   dockerIndex: "application/vnd.docker.distribution.manifest.list.v2+json",
   dockerManifest: "application/vnd.docker.distribution.manifest.v2+json",

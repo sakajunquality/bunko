@@ -1,0 +1,12 @@
+[
+  {
+    "platform": "linux/amd64",
+    "layers": 16,
+    "result": "PASS"
+  },
+  {
+    "platform": "linux/arm64",
+    "layers": 16,
+    "result": "PASS"
+  }
+]

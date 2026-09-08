@@ -159,7 +159,8 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
   const config = validateImageConfig(await metadata(selected.manifest.config), platform, selected.manifest.layers.length);
   const layers: Descriptor[] = [];
   for (const original of selected.manifest.layers) {
-    if (![media.tar, media.gzip, media.dockerGzip].includes(original.mediaType as typeof media.tar)) throw new Error(`Unsupported base layer type: ${original.mediaType}`);
+    if (original.mediaType === media.zstd && original.size > 2 * 1024 ** 3) throw new Error("Zstd base layer exceeds compressed size limit");
+    if (![media.tar, media.gzip, media.dockerGzip, media.zstd].includes(original.mediaType as typeof media.tar)) throw new Error(`Unsupported base layer type: ${original.mediaType}`);
     if (lazy) store.defer(original, () => source.blob(original), source instanceof RegistrySource ? source.ref : undefined);
     else await store.putStream(await source.blob(original), original.mediaType, original);
     layers.push({ mediaType: original.mediaType === media.dockerGzip ? media.gzip : original.mediaType, digest: original.digest, size: original.size });

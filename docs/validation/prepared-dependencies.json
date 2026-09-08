@@ -1,0 +1,24 @@
+[
+  {
+    "platform": "linux/amd64",
+    "native": [
+      {
+        "path": "app/node_modules/is-number/addon.node",
+        "architecture": "amd64",
+        "needed": []
+      }
+    ],
+    "result": "PASS"
+  },
+  {
+    "platform": "linux/arm64",
+    "native": [
+      {
+        "path": "app/node_modules/is-number/addon.node",
+        "architecture": "arm64",
+        "needed": []
+      }
+    ],
+    "result": "PASS"
+  }
+]
