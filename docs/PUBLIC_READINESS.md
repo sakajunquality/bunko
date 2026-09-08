@@ -39,3 +39,7 @@ CI runs on GitHub-hosted Linux/macOS runners with `contents:read`. It uses `pull
 Registry publication is an explicit `workflow_dispatch` operation. Release publication requires a matching version tag whose commit is reachable from main; its write token belongs only to the publish job. There is no `workflow_run` path that consumes artifacts from untrusted PR runs.
 
 The repository's default workflow token permissions are read-only, and Actions cannot approve PRs. GitHub rejected the fork-contributor approval-settings read while this repository was private, so that setting could not be verified in advance. Check external-contributor workflow approval and secret-scanning/push-protection settings when making the repository public. No settings were bypassed or changed by this review.
+
+## Alpha.2 distribution follow-up
+
+The updated source, all reachable Git history, unique historical blob contents and prepared distribution were scanned again with Gitleaks 8.30.1; no credentials were detected. A separate byte inspection found that Bun had embedded TypeScript's absolute build-time directory/file globals in candidate bundles. The shared bundler now resolves those globals at runtime, and release regressions reject checkout paths in the CLI. Those earlier candidates are superseded. This distinction matters: a secret scanner alone does not detect every identifying build path. The [current candidate evidence](validation/alpha2-release.json) records exact artifact hashes and runtime results.

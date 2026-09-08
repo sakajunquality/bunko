@@ -5,13 +5,12 @@
   "bunVersion": "1.3.11",
   "tests": {
     "passed": 233,
-    "failed": 0,
-    "assertions": 904
+    "failed": 0
   },
   "assets": {
     "bunko.js": {
-      "sha256": "2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
-      "bytes": 3984235
+      "sha256": "fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
+      "bytes": 3983988
     },
     "LICENSE": {
       "sha256": "b7663a9c157de4777007ead4215c427420f8ebfb89a243598454c7a6e91a923d",
@@ -26,9 +25,9 @@
     {
       "platform": "linux/amd64",
       "mode": "bundle",
-      "digest": "sha256:2cefc0dbfaff76d4bb37a99f07c70e3a680a9cb55add500a93f072bda962b94a",
+      "digest": "sha256:71b39d63aaad2d2c56ba1aeb7233a32b27df569e1f8fea46878ec8e2914d9d55",
       "builder": {
-        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "digest": "sha256:fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
         "kind": "bundle",
         "version": "0.1.0-alpha.2"
       },
@@ -37,9 +36,9 @@
     {
       "platform": "linux/amd64",
       "mode": "compile",
-      "digest": "sha256:502a5b2ed965abf3f800e6f892e6e5dbfc9dc3656c64b7aef9423c224f9ea855",
+      "digest": "sha256:90995552a8133adda319f3d0beb39837e70f1c5b87dbfc588237fc1884007b59",
       "builder": {
-        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "digest": "sha256:fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
         "kind": "bundle",
         "version": "0.1.0-alpha.2"
       },
@@ -48,9 +47,9 @@
     {
       "platform": "linux/arm64",
       "mode": "bundle",
-      "digest": "sha256:d921f7661423f4f4841c3f77f6c4ddf2dcb46458db9cb6abb93293a125423271",
+      "digest": "sha256:553dbd4f9da6389474fe19b873efbedb160e3f7b182e3c6be27fe78574c2a659",
       "builder": {
-        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "digest": "sha256:fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
         "kind": "bundle",
         "version": "0.1.0-alpha.2"
       },
@@ -59,9 +58,9 @@
     {
       "platform": "linux/arm64",
       "mode": "compile",
-      "digest": "sha256:442a563b7736d241235bf1a9cd8b3db5190e20239015cf441af0eb098beac725",
+      "digest": "sha256:861279d4459537112c0f7437d80d76aa0bcc658062054d3f758da9f498d40ac0",
       "builder": {
-        "digest": "sha256:2f37fd040e043a6ffa57dc2626f05aacb00856d497a097b50a9f410f015c0693",
+        "digest": "sha256:fc6af0500637623df354ebe983004447acade1abd4117fd41b25d7b3456241e6",
         "kind": "bundle",
         "version": "0.1.0-alpha.2"
       },
@@ -78,5 +77,6 @@
     "SQLite read/write checks use a non-root read-only container with writable temporary state.",
     "Metadata and provider checkpoints are linked separately; runtime checks do not imply scanner completeness or every native package ABI.",
     "Candidate preparation only; no version tag or release publication."
-  ]
+  ],
+  "buildPathEmbedding": false
 }

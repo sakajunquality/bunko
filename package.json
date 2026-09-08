@@ -13,7 +13,7 @@
   },
   "scripts": {
     "dev": "bun packages/bunko/cli.ts",
-    "build": "bun build packages/bunko/cli.ts --target=bun --minify --outfile=dist/bunko.js",
+    "build": "bun scripts/bundle.ts",
     "test": "bun test --timeout 15000",
     "bench:syntax": "bun test/syntax-benchmark.ts",
     "release:prepare": "bun scripts/release.ts",

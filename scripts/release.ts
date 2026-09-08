@@ -1,3 +1,4 @@
+import { bundleCLI } from "./bundle.ts";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,7 @@ export async function prepareRelease(output = resolve("dist/release"), tag = `v$
   // Refuse to reuse an existing destination, including empty directories.
   await mkdir(output, { recursive: false });
   try {
-    const result = await Bun.build({ entrypoints: [fileURLToPath(new URL("../packages/bunko/cli.ts", import.meta.url))], target: "bun", naming: "bunko.js", outdir: output, minify: true });
+    const result = await bundleCLI(output);
     if (!result.success) throw new Error("Release bundle failed");
     for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
       await copyFile(fileURLToPath(new URL(`../${name}`, import.meta.url)), join(output, name));
