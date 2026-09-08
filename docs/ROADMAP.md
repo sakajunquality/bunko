@@ -4,7 +4,7 @@ This is a delivery plan, not a promise of release dates or complete ko/BuildKit 
 
 ## Public launch and the next alpha
 
-- Finish release-first installation instructions, reader-accessible evidence, security reporting, and public contribution settings.
+- Finish release-first installation instructions, reader-accessible evidence, security reporting, and public contribution settings. At the visibility transition, enable GitHub private vulnerability reporting and verify the reporting form, outside-contributor workflow approval, main/tag protection, secret scanning, and push protection.
 - Preserve published alpha.2 assets. Its help text predates the public launch; updated wording belongs in the next release.
 - Verify a fresh installation without preexisting repository credentials and the setup Action from a separate consumer repository.
 - Prepare alpha.3 only after its exact artifact passes checksums, both-platform runtime tests, and the existing registry matrix.

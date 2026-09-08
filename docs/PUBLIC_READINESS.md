@@ -1,6 +1,6 @@
 # Public repository readiness review
 
-Reviewed on 2026-09-08 (Asia/Tokyo), starting from main commit `87b7fffafa39f5a38afe2fbe5d43fd5055b902e8`. GitHub visibility is still private. This review and its changes do not change repository visibility, cloud IAM, or package visibility.
+Reviewed on 2026-09-08 (Asia/Tokyo), starting from main commit `87b7fffafa39f5a38afe2fbe5d43fd5055b902e8`. GitHub visibility was private at that audit cutoff. This review and its changes do not change repository visibility, cloud IAM, or package visibility.
 
 ## Findings
 
@@ -42,7 +42,7 @@ The repository's default workflow token permissions are read-only, and Actions c
 
 ## Alpha.2 distribution follow-up
 
-The updated source, all reachable Git history, unique historical blob contents and prepared distribution were scanned again with Gitleaks 8.30.1; no credentials were detected. A separate byte inspection found that Bun had embedded TypeScript's absolute build-time directory/file globals in candidate bundles. The shared bundler now resolves those globals at runtime, and release regressions reject checkout paths in the CLI. Those earlier candidates are superseded. This distinction matters: a secret scanner alone does not detect every identifying build path. The [current candidate evidence](validation/alpha2-release.json) records exact artifact hashes and runtime results.
+The updated source, all reachable Git history, unique historical blob contents and prepared distribution were scanned again with Gitleaks 8.30.1; no credentials were detected. A separate byte inspection found that Bun had embedded TypeScript's absolute build-time directory/file globals in candidate bundles. The shared bundler now resolves those globals at runtime, and release regressions reject checkout paths in the CLI. Those earlier candidates are superseded. This distinction matters: a secret scanner alone does not detect every identifying build path. The [reviewed candidate evidence](validation/alpha2-release.json) records exact artifact hashes and runtime results.
 
 
 ## Post-release publication review
