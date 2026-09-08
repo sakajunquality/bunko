@@ -43,7 +43,7 @@ The setup default is rc.3 after its published bytes were verified against the te
 
 ## Invocation constants
 
-Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
+Source builds after rc.3 accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
 
 ```sh
 bunko build . --define 'BUILD_VERSION="1.2.3"' \
