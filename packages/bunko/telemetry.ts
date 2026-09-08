@@ -15,7 +15,8 @@ export interface TelemetryConfig { traces?: URL; metrics?: URL; headers: Record<
 
 /** An explicit Bunko opt-in is required even when standard OTel variables exist. */
 export function telemetryConfig(enabled: boolean | undefined, env: Record<string, string | undefined> = process.env): TelemetryConfig | undefined {
-  if (!enabled || env.OTEL_SDK_DISABLED === "true") return;
+  if (!enabled || env.OTEL_SDK_DISABLED?.toLowerCase() === "true") return;
+  env = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));
   const headers: Record<string, string> = {};
   try {
     for (const entry of (env.OTEL_EXPORTER_OTLP_HEADERS ?? "").split(",").filter(Boolean)) {
@@ -37,13 +38,14 @@ export function telemetryConfig(enabled: boolean | undefined, env: Record<string
     let url: URL;
     try {
       const specific = env[`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`];
-      url = new URL(specific ?? env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318");
+      url = new URL(specific ?? env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://127.0.0.1:4318");
       if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
       if (!specific) url.pathname = `${url.pathname.replace(/\/$/, "")}/v1/${signal.toLowerCase()}`;
     } catch { throw new Error(`Invalid OTLP ${signal.toLowerCase()} endpoint`); }
     return url;
   };
-  return { traces: endpoint("TRACES"), metrics: endpoint("METRICS"), headers, timeout };
+  const traces = endpoint("TRACES"), metrics = endpoint("METRICS");
+  return traces || metrics ? { traces, metrics, headers, timeout } : undefined;
 }
 
 /** A bounded, invocation-local OTLP/HTTP JSON exporter; no global SDK or resource detection. */

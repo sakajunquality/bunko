@@ -22,6 +22,8 @@ function metrics(received: ReturnType<typeof receiver>["received"]) { return rec
 test("telemetry requires explicit opt-in and validates only its supported configuration", () => {
   expect(telemetryConfig(false, { OTEL_EXPORTER_OTLP_ENDPOINT: "secret invalid" })).toBeUndefined();
   expect(telemetryConfig(true, { OTEL_SDK_DISABLED: "true" })).toBeUndefined();
+  expect(telemetryConfig(true, { OTEL_TRACES_EXPORTER: "none", OTEL_METRICS_EXPORTER: "none" })).toBeUndefined();
+  expect(telemetryConfig(true, { OTEL_TRACES_EXPORTER: "", OTEL_EXPORTER_OTLP_ENDPOINT: "", OTEL_EXPORTER_OTLP_PROTOCOL: "", OTEL_EXPORTER_OTLP_TIMEOUT: "" })!.traces!.href).toBe("http://127.0.0.1:4318/v1/traces");
   const config = telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: "https://example.test/prefix/", OTEL_EXPORTER_OTLP_HEADERS: "authorization=Bearer%20test" })!;
   expect(config.traces!.href).toBe("https://example.test/prefix/v1/traces");
   expect(config.headers.authorization).toBe("Bearer test");
@@ -158,4 +160,18 @@ test("a returned nonzero command exit is a failure and a session cannot be reuse
   expect(await session.run("apply", async () => 7, (code) => code !== 0)).toBe(7);
   expect(spans(r.received).find((s) => s.name === "bunko.build").status.code).toBe(2);
   await expect(session.run("apply", async () => 0)).rejects.toThrow("only run once");
+});
+
+test("failed image publication retains acknowledged transfer metrics", async () => {
+  const { build } = await import("../packages/bunko/build.ts");
+  const { MockRegistry } = await import("./mock-registry.ts");
+  const r = receiver(), root = await temporary(); clean.push(() => rm(root, { recursive: true, force: true }));
+  const app = await project(join(root, "app")), base = await baseLayout(join(root, "base"));
+  const registry = new MockRegistry(); registry.failTag = "denied";
+  const session = new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: r.endpoint })!);
+  await expect(session.run("build", () => build({ path: app, baseLayout: base, repo: "registry.test/private", tags: ["denied"], localCache: false, registryCache: false, gitMetadata: false, registry: { fetcher: registry.fetch, credentials: async () => undefined } }))).rejects.toThrow();
+  const transfers = metrics(r.received).find((m) => m.name === "bunko.image.transfer.bytes");
+  expect(transfers.sum.dataPoints.reduce((n: number, p: any) => n + p.asDouble, 0)).toBeGreaterThan(0);
+  expect(spans(r.received).find((s) => s.name === "bunko.push").status.code).toBe(2);
+  expect(JSON.stringify(r.received)).not.toContain("registry.test");
 });

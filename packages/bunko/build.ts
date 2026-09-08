@@ -162,7 +162,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-")));
   try {
     const basePlatforms = new Map<Digest, Platform>();
-    const store = new BlobStore(join(temporary, "store"), (descriptor, task) => stage("base-pull", async () => {
+    const store = new BlobStore(join(temporary, "store"), (descriptor, task) => !basePlatforms.has(descriptor.digest) ? task() : stage("base-pull", async () => {
       await task();
       metric("bunko.base.read.bytes", "By", descriptor.size, { "bunko.source": options.baseLayout ? "layout" : "registry" });
     }, basePlatforms.get(descriptor.digest)));

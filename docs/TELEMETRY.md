@@ -15,20 +15,22 @@ The initial implementation uses [OTLP/HTTP JSON](https://opentelemetry.io/docs/s
 | --- | --- |
 | `--otel` / `--otel=false` | Explicitly enable/disable telemetry for this invocation |
 | `OTEL_SDK_DISABLED=true` | Disable even when `--otel` is present |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; default `http://localhost:4318`; append `/v1/traces` and `/v1/metrics` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; default `http://127.0.0.1:4318`; append `/v1/traces` and `/v1/metrics` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Exact per-signal URL, without automatic path suffix |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER` | `otlp` (default) or `none` |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` and signal-specific protocol settings | Only `http/json` is supported; this is Bunko's default |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `name=value` headers with percent-encoded values; keep credentials in the environment |
 | `OTEL_EXPORTER_OTLP_TIMEOUT` | Total flush deadline across both concurrent exports, 1–10000 milliseconds; default 2000 |
 
+Empty environment values are treated as unset. Setting both signal exporters to `none` disables telemetry.
+
 This is a deliberately limited configuration surface, not full OpenTelemetry SDK environment compatibility. Resource detection, resource environment attributes, service-name overrides, propagation/baggage, sampling, per-signal headers/timeouts, gRPC, protobuf, TLS client certificates, logs, CPU and memory metrics are not implemented. Use a local Collector to handle backend authentication, buffering and protocol conversion. HTTP is supported for local Collectors; use HTTPS for remote endpoints.
 
-Invalid supported settings fail before the build starts. URLs cannot contain embedded credentials, query strings or fragments. Exports never follow redirects or reuse registry credentials. Export failure or partial rejection emits one fixed warning on stderr, with JSON framing under `--progress=json`; it never changes the build result or stdout. Connection failures and HTTP 429/502/503/504 receive at most one retry after at least 100 ms within the same deadline, honoring Retry-After when supplied. Other errors, malformed responses and partial rejection are not retried. Delivery is best effort within the flush deadline, not durable storage.
+Invalid supported settings fail before the build starts. URLs cannot contain embedded credentials, query strings or fragments. Exports never follow redirects or reuse registry credentials. Export failure or partial rejection emits one fixed warning on stderr, with JSON framing under `--progress=json`; it never changes the build result or stdout. Connection failures and HTTP 429/502/503/504 receive at most one retry after at least 100 ms within the same deadline, honoring Retry-After when supplied. A retried request can be delivered twice if the previous acknowledgement was lost. Other errors, malformed responses and partial rejection are not retried. Delivery is best effort within the flush deadline, not durable storage.
 
 ## Signals
 
-Resource attributes are fixed to `service.name=bunko` and the CLI `service.version`. Traces contain a `bunko.build` root and anonymous target/platform grouping spans. Stage spans share the same boundaries as JSON progress events. Target numbers are invocation-local and are not metric attributes. Raw target names remain available in existing local progress output but are not exported to the Collector.
+Resource attributes are fixed to `service.name=bunko` and the CLI `service.version`. Traces contain a `bunko.build` root and anonymous target/platform grouping spans. Stage spans share the same boundaries as JSON progress events. Progress schema version 1 is extended additively with new phase names and an optional platform field; consumers should tolerate unknown phases/fields. Target numbers are invocation-local and are not metric attributes. Raw target names remain available in existing local progress output but are not exported to the Collector.
 
 Stages include snapshot, prepare, base-resolve, base-pull, runtime, assemble, install, bundle, pack, publish and push. `base-resolve` reads base metadata; `base-pull` covers deferred layer materialization through digest verification, including local-layout reads. A shared base blob is attributed to the first selected platform owning it. `runtime` covers signed release download/cache verification; runtime layer construction is included in assemble. `assemble` includes its nested install/bundle/pack work; do not sum parent and child durations. Shared bundle work is recorded once, on the platform that performs it. Skipped stages on cache hits emit no duration. Target/platform grouping spans cover their observed work, including gaps between preparation and publication.
 
@@ -41,7 +43,7 @@ Stages include snapshot, prepare, base-resolve, base-pull, runtime, assemble, in
 | `bunko.base.read.bytes` | Monotonic sum / `By` | source: layout or registry |
 | `bunko.image.transfer.bytes` | Monotonic sum / `By` | transfer action |
 
-Attribute keys use the `bunko.` prefix. Cache results are local, registry, miss or bypass. Transfer actions are uploaded, reused, mounted or would-upload. Uploaded values count acknowledged image-publication payload bytes; other actions count logical descriptor sizes. They are not network wire-byte counters and exclude retransmissions, failed unacknowledged uploads, registry cache publication and manifest requests. Dry-run estimates use would-upload, never uploaded. Failed publication exports whatever transfer evidence is available in the existing publication report.
+Attribute keys use the `bunko.` prefix. Cache results are local, registry, miss or bypass. Transfer actions are uploaded, reused, mounted or would-upload. Uploaded values count acknowledged image-publication payload bytes (including attached SBOM/provenance payloads); other actions count logical descriptor sizes. They are not network wire-byte counters and exclude retransmissions, failed unacknowledged uploads, registry cache publication and manifest requests. Dry-run estimates use would-upload, never uploaded. Failed publication exports whatever transfer evidence is available in the existing publication report.
 
 All metric exports use delta temporality. Duration histogram bounds in seconds are 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60 and 300, plus the overflow bucket. The Collector can aggregate successive CLI invocations for dashboards.
 
