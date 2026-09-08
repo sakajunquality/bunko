@@ -14,7 +14,7 @@ BUNKO_SMOKE_PLATFORMS=linux/amd64 bun run test:application-validation
 
 Docker must be running. The independently authored fixture in `examples/application-validation` uses Hono, PostgreSQL and `@node-rs/xxhash`. The runner builds the distributed CLI's image, verifies named migration/worker commands and persisted database rows, exercises HTTP/static files and exact mapped/local file contents, checks a known native hash, and verifies server SIGTERM exit. Containers use non-root, read-only roots; a disposable database lives on an internal Docker network with a generated password and tmpfs data. HTTP assertions run inside the server container; no host port is published. Only fixed check names and booleans are printed. Owned containers, images, network and temporary files are removed on completion; an externally killed runner may require manual cleanup of its `bunko-acceptance-*` resources.
 
-The fixture defaults to amd64 and arm64. Cross-architecture execution requires Docker emulation or a matching native runner. It is a static web fixture and a database task worker, not a React Router/Temporal/Snowflake compatibility test. Service credentials and application source are not used in public CI.
+The [local candidate result](validation/rc1-candidate.json) records the exact CLI checksum and tested scope. The fixture defaults to amd64 and arm64. Cross-architecture execution requires Docker emulation or a matching native runner. It is a static web fixture and a database task worker, not a React Router/Temporal/Snowflake compatibility test. Service credentials and application source are not used in public CI.
 
 ## Prepare a private workload locally
 

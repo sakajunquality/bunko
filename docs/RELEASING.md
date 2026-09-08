@@ -1,6 +1,6 @@
-# Alpha distribution and setup Action
+# Release distribution and setup Action
 
-The release candidate version is **0.1.0-rc.1**. See [published release validation](PUBLISHED_RELEASE_VALIDATION.md) for installation and registry evidence. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
+The release candidate version is **0.1.0-rc.1**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11, 1.3.12 and 1.3.13. Native standalone executables and npm publication remain future work.
 
 ## Prepare and inspect artifacts
 
