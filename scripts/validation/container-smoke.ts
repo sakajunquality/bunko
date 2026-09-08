@@ -11,9 +11,12 @@ try {
   const source = join(root, "source"); await mkdir(source);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "container-fixture", module: "index.ts", dependencies: { "is-number": "7.0.0" } }));
   await writeFile(join(source, "index.ts"), 'import isNumber from "is-number"; console.log(JSON.stringify({dependency:isNumber("123"),message:"container builder works",arch:process.arch,revision:Bun.revision}));');
-  const install = Bun.spawn([process.execPath, "install", "--ignore-scripts", "--lockfile-only"], { cwd: source, env: { HOME: root, PATH: process.env.PATH ?? "" }, stdout: "ignore", stderr: "pipe" });
+  const installEnv: Record<string, string> = { HOME: root, PATH: process.env.PATH ?? "" };
+  for (const key of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"]) {
+    if (process.env[key]) installEnv[key] = process.env[key]!;
+  }
+  const install = Bun.spawn([process.execPath, "install", "--ignore-scripts", "--lockfile-only"], { cwd: source, env: installEnv, stdout: "ignore", stderr: "pipe" });
   const installError = await new Response(install.stderr).text(); if (await install.exited) throw new Error(installError);
-  await command(["git", "-C", source, "init", "--quiet"]);
   for (const platform of platforms) {
     if (!["linux/amd64", "linux/arm64"].includes(platform)) throw new Error("Unsupported container validation platform");
     const architecture = platform.split("/")[1]!, image = process.env.BUNKO_CONTAINER_IMAGE ?? `bunko.local/cli-candidate:${architecture}`;
@@ -22,7 +25,7 @@ try {
     if (config.User !== "65532:65532") throw new Error("Builder image must default to nonroot");
     if (await command(["docker", "run", "--rm", "--platform", platform, "--network=none", "--read-only", "--cap-drop=ALL", image, "version"]) !== version) throw new Error("Unexpected container CLI version");
     await command(["docker", "run", "--rm", "--platform", platform, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", "--env", "XDG_CACHE_HOME=/tmp/cache", "--mount", `type=bind,source=${source},target=/work,readonly`, "--mount", `type=bind,source=${output},target=/out`, image,
-      "build", "/work", "--mode", "compile", "--platform", platform, "--push=false", "--tarball", "/out/app.tar", "--report", "/out/report.json", "--no-cache"]);
+      "build", "/work", "--mode", "compile", "--platform", platform, "--push=false", "--tarball", "/out/app.tar", "--report", "/out/report.json", "--no-cache", "--git-metadata=false"]);
     const report = JSON.parse(await readFile(join(output, "report.json"), "utf8"));
     if (!report.images[0].compileRuntime) throw new Error("Container compile omitted authenticated runtime input");
     const loaded = await command(["docker", "load", "--input", join(output, "app.tar")]);

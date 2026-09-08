@@ -25,7 +25,7 @@ Examples:
 
 These YAML files are configuration examples, not claims of live execution on every CI provider. The repeated container smoke test runs the builder as nonroot with a read-only root filesystem, without a Docker socket, then executes its compiled application separately on Linux amd64 and arm64.
 
-The release workflow explicitly dispatches container packaging after uploading all assets; it does not rely on a release event created by `GITHUB_TOKEN` triggering another workflow. Manual dispatch is also supported on main.
+The release workflow explicitly dispatches container packaging after uploading all assets; it does not rely on a release event created by `GITHUB_TOKEN` triggering another workflow. Manual dispatch is also supported on main. Dispatch runs in a separate job so it can be retried without recreating a release. A successful release workflow confirms dispatch, not container publication; check the linked CLI container workflow before using the image. The container uses the reviewed recipe at the dispatched main commit, even when packaging an older CLI release; its attestation records that recipe commit separately from the verified CLI release.
 
 The publication workflow refuses to replace an existing version tag. It validates both platform builders and their compiled applications before pushing, publishes BuildKit SBOM/provenance metadata, generates a GitHub attestation for the image index and verifies the repository, container workflow, source ref and source commit. rc.3's CLI is pinned to its independently verified checksum; later CLI releases require their release provenance bundle.
 
