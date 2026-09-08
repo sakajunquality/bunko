@@ -1,3 +1,4 @@
+import { MockRegistry } from "./mock-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -101,7 +102,7 @@ test("base metadata handles whiteouts and links without extracting host files", 
   tree.delete("usr/local"); tree.delete("lib/loader"); expect(()=>runtimeEntries(metadata,elf(),tree)).toThrow("loader");
 });
 
-test("runtime layer records survive local cache serialization", async () => {
+test("runtime layer records survive local and registry cache serialization", async () => {
   const root=await temp(),store=new BlobStore(join(root,"store")),directory=join(root,"cache");
   const layer=(await packLayer(store,[{path:"usr/local/bin/bun",type:"file",content:elf(),executable:true}],"runtime",0))!;
   const key=cacheKey({kind:"runtime",digest:sha256(elf())});
@@ -109,6 +110,12 @@ test("runtime layer records survive local cache serialization", async () => {
   const cache=new LayerCache(store,{directory,log:()=>{}}); await cache.remember(record);
   const next=new LayerCache(new BlobStore(join(root,"next")),{directory,log:()=>{}});
   expect((await next.get(key,"runtime",false,{destination:record.destination,platform}))!.layer).toEqual(layer);
+  const mock = new MockRegistry(), registry = { credentials: async () => undefined, fetcher: mock.fetch };
+  const producer = new LayerCache(store,{repository:"registry.test/runtime",registry,log:()=>{}});
+  await producer.remember(record); await producer.publish();
+  const consumer = new LayerCache(new BlobStore(join(root,"remote")),{readRepositories:["registry.test/runtime"],registry,log:()=>{}});
+  expect((await consumer.get(key,"runtime",false,{destination:record.destination,platform}))!.layer).toEqual(layer);
+  expect(consumer.events[0]!.status).toBe("registry");
 });
 
 
