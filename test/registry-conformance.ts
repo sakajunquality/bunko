@@ -78,7 +78,7 @@ export async function registryConformance(options: ConformanceOptions) {
   await assertFileAvailable(options.report, "Report");
   const temporary = await mkdtemp(join(tmpdir(), "bunko-conformance-"));
   const runId = randomUUID(), containers = new Set<string>(), localImages = new Set<string>();
-  const base = "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
+  const base = process.env.BUNKO_TEST_BASE ?? "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
   const tags = [`bunko-smoke-${runId}-first`, `bunko-smoke-${runId}-warm`];
   const results: BuildResult[] = [], runtime: unknown[] = [];
   const report = { schemaVersion: 1, vendor: options.vendor, repository: options.repo, cacheRepository: options.cacheRepo ?? options.repo,
@@ -93,10 +93,22 @@ export async function registryConformance(options: ConformanceOptions) {
     const common = { path: source, base, platform: "linux/amd64,linux/arm64", push: true, repo: options.repo, bare: true,
       cacheRepo: options.cacheRepo, gitMetadata: false, localCache: false, registryCache: true, installCache,
       registry: { insecure: options.insecure }, log: (message: string) => process.stderr.write(message) };
-    results.push(await build({ ...common, tags: [tags[0]!], verifyDeterministic: true }));
+    const runBuild = async (tag: string, deterministic = false): Promise<BuildResult> => {
+      if (!process.env.BUNKO_TEST_CLI) return build({ ...common, tags: [tag], verifyDeterministic: deterministic });
+      const output = join(temporary, `${tag}.json`);
+      const args = [process.execPath, resolve(process.env.BUNKO_TEST_CLI), "build", source, "--base", base,
+        "--platform", common.platform, "--repo", options.repo, "--bare", "--tag", tag,
+        "--no-git-metadata", "--no-local-cache", "--install-cache", installCache, "--report", output];
+      if (options.cacheRepo) args.push("--cache-repo", options.cacheRepo);
+      if (deterministic) args.push("--verify-deterministic");
+      for (const host of options.insecure ?? []) args.push("--insecure-registry", host);
+      await command(args);
+      return Bun.file(output).json();
+    };
+    results.push(await runBuild(tags[0]!, true));
     const expected = `bunko conformance ${runId} warm`;
     await writeFile(app, original.replace("Hello from bunko dependencies!", expected));
-    results.push(await build({ ...common, tags: [tags[1]!] }));
+    results.push(await runBuild(tags[1]!));
     report.cacheVerified = verifyWarm(results[0]!, results[1]!, options.requireCache);
     const reference = results[1]!.publication!.reference;
     for (const [index, platform] of options.runtimePlatforms.entries()) {

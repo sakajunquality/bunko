@@ -38,6 +38,14 @@ jobs:
         with:
           distribution-directory: dist/release
       - run: bunko version
+      - name: Verify installation from the published release
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./
+        with:
+          version: v0.1.0-alpha.2
+      - name: Verify installed release version
+        if: github.event_name == 'workflow_dispatch'
+        run: test "$(bunko version)" = "0.1.0-alpha.2"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bunko-release
