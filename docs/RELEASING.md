@@ -1,6 +1,6 @@
 # Alpha distribution and setup Action
 
-The prepared distribution version is **0.1.0-alpha.2**. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11 and 1.3.12. Native standalone executables and npm publication remain future work.
+The published prerelease version is **0.1.0-alpha.2**. See [published release validation](PUBLISHED_RELEASE_VALIDATION.md) for installation and registry evidence. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.4, validated with 1.3.11 and 1.3.12. Native standalone executables and npm publication remain future work.
 
 ## Prepare and inspect artifacts
 
@@ -20,7 +20,7 @@ CI exercises the local Action on Linux and macOS using these exact prepared file
 
 The **Release** workflow can be run manually on a branch to build and upload a candidate artifact without publishing a release. Pushing a `v*` tag triggers preparation and publication. Before publishing, the workflow requires the tag to equal `v` plus package.json's version and the tagged commit to be reachable from main. Prerelease versions create GitHub prereleases.
 
-For this candidate, merge reviewed changes and verify the recorded CI/runtime results before creating `v0.1.0-alpha.2` on the reviewed main commit. A manually dispatched candidate build prepares downloadable artifacts without creating the version tag or release. No release is published merely by merging the PR. Creating the tag is the explicit release trigger.
+For a new version, merge reviewed changes and verify the recorded CI/runtime results before creating its matching version tag on the reviewed main commit. The existing `v0.1.0-alpha.2` tag and assets must not be replaced. A manually dispatched candidate build prepares downloadable artifacts without creating the version tag or release. No release is published merely by merging the PR. Creating the tag is the explicit release trigger. To additionally test network installation of an existing release during a manual dispatch, set the optional `published-version` input (for example, `v0.1.0-alpha.2`). This check uses the exact executable path returned by the setup action.
 
 Publication uploads the previously tested artifact, verifies SHA256SUMS again, and uses [RELEASE_NOTES.md](RELEASE_NOTES.md). It does not overwrite existing release assets. If publication is interrupted, inspect the release and its asset list before deciding how to recover it.
 

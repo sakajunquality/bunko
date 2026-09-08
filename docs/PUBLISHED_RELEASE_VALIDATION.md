@@ -19,7 +19,7 @@ The downloaded `bunko.js` SHA-256 is `fc6af0500637623df354ebe983004447acade1abd4
 | Artifact Registry | `asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance` | Passed locally with the existing gcloud helper and private configuration |
 | Docker Hub | `docker.io/sakajunquality/test-bunko` | Passed locally with the existing Docker Desktop credential store |
 
-Each run built both platforms, verified deterministic output, published a source-only update, verified registry dependency/asset cache reuse without reuploading those layers, independently pulled and checked digests, and directly pulled through Docker. Both amd64 and arm64 containers returned the expected native dependency result, ran as `65532:65532` with a read-only filesystem, and exited 0 on SIGTERM. Test image and cache tags are retained in the owner-selected repositories.
+Each run built both platforms, verified deterministic output, published a source-only update, verified registry dependency/asset cache reuse without reuploading those layers, independently pulled and checked digests, and directly pulled through Docker. Both amd64 and arm64 containers returned the expected native dependency result, ran as `65532:65532` with a read-only filesystem, and exited 0 on SIGTERM. Test image and cache tags are retained in the owner-selected repositories. These three initial reports used the earlier subprocess wrapper; their recorded builder digests identify the exact release bytes. The reviewed harness subsequently passed a separate Docker Hub rerun, recorded as `reviewedHarnessDockerHubRepeat` in the evidence.
 
 ## Authentication-required upstream
 
