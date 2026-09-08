@@ -15,6 +15,7 @@ export const VERSION = packageMetadata.version;
 export interface BuildOptions {
   path: string;
   assetContexts?: Record<string, string>;
+  define?: Record<string, string>;
   progress?: (event: import("./progress.ts").ProgressEvent) => void;
   imageLabels?: Record<string, string>;
   imageAnnotations?: Record<string, string>;
@@ -287,6 +288,6 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     args: strings(config.args, "args"),
     assetMappings: assetMappings(config.assetMappings),
     assets: [...new Set([...strings(config.assets, "assets").map((p) => relativePath(p, "assets pattern")), ...(dataPath ? ["bunkodata"] : [])])],
-    build: { allowUnresolved: build.allowUnresolved as string[] | undefined, minify: build.minify as boolean | undefined ?? true, sourcemap: build.sourcemap as "none" | "external" | undefined ?? "none", define: stringMap(build.define, "build.define") },
+    build: { allowUnresolved: build.allowUnresolved as string[] | undefined, minify: build.minify as boolean | undefined ?? true, sourcemap: build.sourcemap as "none" | "external" | undefined ?? "none", define: { ...stringMap(build.define, "build.define"), ...stringMap(options.define, "define") } },
   };
 }

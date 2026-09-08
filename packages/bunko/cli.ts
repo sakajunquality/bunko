@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { parseDefines } from "./defines.ts";
 import { Telemetry, telemetryConfig } from "./telemetry.ts";
 import { parseAssetContexts } from "./asset-contexts.ts";
 import { exportMetadata } from "./metadata.ts";
@@ -62,6 +63,7 @@ Usage:
 
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
+  --define <KEY=VALUE>     Override a build constant; repeatable, explicit values only
   --asset-context <NAME=DIR>  Named local asset input; repeatable
   --context <dir>         Base directory for bunko:// references (default: cwd)
   -l, --selector <query>  Select manifest documents by metadata.labels
@@ -219,6 +221,7 @@ export async function main(argv: string[]): Promise<number> {
       target: { type: "string", multiple: true },
       bare: { type: "boolean" },
       tag: { type: "string", multiple: true },
+      define: { type: "string", multiple: true },
       tarball: { type: "string" },
       local: { type: "boolean" },
       kind: { type: "boolean" },
@@ -260,7 +263,7 @@ export async function main(argv: string[]): Promise<number> {
     const registry = { insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
-      const options = { path, assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      const options = { path, define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
     }
     if (command === "metadata") {
@@ -337,7 +340,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
       baseSBOMs: Object.keys(baseSBOMs).length ? baseSBOMs : undefined, depsVerifyKey: values["deps-verify-key"], supplyChainPolicy: values["supply-chain-policy"] as "ci" | undefined,
-      assetContexts: parseAssetContexts(values["asset-context"]),
+      define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]),
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
       jobs: jobsText === undefined ? undefined : Number(jobsText),
