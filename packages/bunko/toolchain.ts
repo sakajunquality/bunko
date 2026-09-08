@@ -1,3 +1,4 @@
+import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -27,12 +28,12 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   return { path: executable, version: match[1]!, revision: match[3]! };
 }
 
-export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
+export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ locations: LocationDiagnostics; outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
   const home = join(root, OUTPUT_DIRECTORY, "home");
   await mkdir(join(home, "config"), { recursive: true, mode: 0o700 });
-  for (const file of ["errors.json", "meta.json", "validation.json"]) await rm(join(root, OUTPUT_DIRECTORY, file), { force: true });
+  for (const file of ["errors.json", "meta.json", "validation.json", "locations.json"]) await rm(join(root, OUTPUT_DIRECTORY, file), { force: true });
   const worker = join(root, OUTPUT_DIRECTORY, "worker.js");
   const settings = join(root, OUTPUT_DIRECTORY, "worker.json");
   await writeFile(worker, await workerCode(), { mode: 0o600 });
@@ -61,6 +62,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (![stats.parsed, stats.bytes].every((value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) throw new Error("Invalid worker validation statistics");
     syntax.stats.parsed += stats.parsed as number; syntax.stats.bytes += stats.bytes as number;
   }
+  const locations = validateLocations(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "locations.json"), "utf8")));
   const meta = object(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "meta.json"), "utf8")), "Bun metafile");
   const outputs = object(meta.outputs, "Bun metafile outputs");
   const inputs = new Set(Object.keys(object(meta.inputs, "Bun metafile inputs")).map((path) => resolve(root, path)));
@@ -141,7 +143,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
-    return { outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: executable };
+    return { locations, outdir, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: executable };
   }
-  return { outdir, entrypoints, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
+  return { locations, outdir, entrypoints, inventory, inputs: [...inputs].map((path) => relative(contextRoot, path)), entry: relative(outdir, resolve(outdir, candidates[0]![0])) };
 }

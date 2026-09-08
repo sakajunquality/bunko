@@ -22,7 +22,7 @@ export async function checkConfig(options: BuildOptions) {
   }
   if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
   return { schemaVersion: 1, status: "valid", bunko: VERSION, workspace: Boolean(discovery.workspace), targets: projects,
-    unchecked: ["project asset availability and generated build outputs", "asset collisions with bundled output and runtime dependencies", "source syntax and bundling", "dependency installation and native compatibility", "base image runtime", "registry credentials and connectivity"] };
+    unchecked: ["project asset availability and generated build outputs", "asset collisions with bundled output and runtime dependencies", "source syntax, bundling and module-relative runtime file access", "dependency installation and native compatibility", "base image runtime", "registry credentials and connectivity"] };
 }
 
 export async function doctor(options: BuildOptions) {

@@ -1,3 +1,4 @@
+import { moduleLocations, diagnosticLimit, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { rejectApplicationImports, rejectMacroSyntax } from "./syntax.ts";
@@ -29,6 +30,8 @@ export async function guardedBuild(options: WorkerOptions) {
     if (isAbsolute(local) || local === ".." || local.startsWith("../")) throw new Error("Build input escaped the project snapshot");
     return local;
   }
+  const locations: LocationDiagnostics = { total: 0, warnings: [] };
+  const warned = new Set<string>();
   const validation = { parsed: 0, reused: 0, bytes: 0 };
   const result = await Bun.build({
     throw: false, entrypoints, splitting: options.entrypoints !== undefined, root: options.root,
@@ -46,6 +49,14 @@ export async function guardedBuild(options: WorkerOptions) {
         const contents = await readFile(path);
         if (["js", "jsx", "ts", "tsx"].includes(loader)) {
           const code = contents.toString("utf8");
+          if (!warned.has(path)) {
+            warned.add(path);
+            const warnings = moduleLocations(code, local);
+            locations.total += warnings.length;
+            locations.warnings.push(...warnings);
+            locations.warnings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line || a.column - b.column);
+            locations.warnings.length = Math.min(locations.warnings.length, diagnosticLimit);
+          }
           const imports = rejectMacroSyntax(code, path);
           dataImports.set(path, new Map(imports.map((item) => [item.specifier, item.loader])));
           validation.parsed++; validation.bytes += contents.length;
@@ -80,7 +91,7 @@ export async function guardedBuild(options: WorkerOptions) {
       }
     }
   }
-  return Object.assign(result, { validation });
+  return Object.assign(result, { validation, locations });
 }
 
 if (import.meta.main) {
@@ -91,6 +102,7 @@ if (import.meta.main) {
     if (!result.success) throw new Error(result.logs.map((error) => error.message).join("; "));
     await Bun.write(resolve(directory, "meta.json"), JSON.stringify(result.metafile));
     await Bun.write(resolve(directory, "validation.json"), JSON.stringify(result.validation));
+    await Bun.write(resolve(directory, "locations.json"), JSON.stringify(result.locations));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Build worker failed";
     await Bun.write(resolve(directory, "errors.json"), JSON.stringify([message]));

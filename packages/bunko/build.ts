@@ -1,3 +1,4 @@
+import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
@@ -38,6 +39,7 @@ import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  locations?: LocationDiagnostics;
   baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
   entrypoints?: Record<string, string>;
   bundledInventory?: InventoryEntry[];
@@ -244,13 +246,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
         const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, path.replace(/\.[^.]+$/, ".js")])) : undefined;
         const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform, ...(namedOutputs ? { application: { entry: namedOutputs[project.defaultEntrypoint!]!, entrypoints: namedOutputs } } : {}) });
-        let application: { entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[] };
+        let application: { locations?: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[] };
         let app: Awaited<ReturnType<typeof fileEntries>>;
         let applicationMetadata: CacheRecord["application"];
         let cacheable = true;
         if (appHit) {
           applicationMetadata = appHit.application!;
-          application = { entry: applicationMetadata.entry, entrypoints: applicationMetadata.entrypoints, inventory: appHit.inventory };
+          application = { locations: applicationMetadata.locations, entry: applicationMetadata.entry, entrypoints: applicationMetadata.entrypoints, inventory: appHit.inventory };
           app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
@@ -263,7 +265,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
           application = built;
           app = await fileEntries(built.outdir, prefix);
-          applicationMetadata = { entry: built.entry, entrypoints: built.entrypoints, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
+          applicationMetadata = { locations: built.locations, entry: built.entry, entrypoints: built.entrypoints, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
+        }
+        if (iteration === 1 && application.locations) {
+          for (const warning of application.locations.warnings) log(`${warning.code} ${warning.file}:${warning.line}:${warning.column} (${warning.expression}): ${locationMessage}\n`);
+          if (application.locations.total > application.locations.warnings.length) log(`BUNKO_MODULE_LOCATION: ${application.locations.total - application.locations.warnings.length} additional warnings omitted\n`);
         }
         // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
@@ -281,7 +287,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }, true);
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
-        result.push({ entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
       }
       return result;
     }
