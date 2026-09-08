@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock } from "../packages/bunko/deps.ts";
+import { classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock } from "../packages/bunko/deps.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
@@ -119,5 +119,24 @@ describe("isolated Bun dependency preparation", () => {
     await writeFile(path, bytes);
     expect((await inspectELF(path, { os: "linux", architecture: "arm64" }))?.architecture).toBe("arm64");
     await expect(inspectELF(path, { os: "linux", architecture: "amd64" })).rejects.toThrow("architecture mismatch");
+  });
+
+  test("omits prebuilt addons for other platforms and requires one for the target", async () => {
+    const root = await dir(), pkg = join(root, "node_modules/multi"), releases = join(pkg, "releases");
+    await mkdir(releases, { recursive: true });
+    await writeFile(join(pkg, "package.json"), JSON.stringify({ name: "multi", version: "1.0.0" }));
+    const elf = (machine: number) => { const bytes = Buffer.alloc(64); Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]).copy(bytes); bytes.writeUInt16LE(3, 16); bytes.writeUInt16LE(machine, 18); bytes.writeUInt16LE(56, 54); return bytes; };
+    await writeFile(join(releases, "linux-arm64.node"), elf(183));
+    await writeFile(join(releases, "linux-x64.node"), elf(62));
+    await writeFile(join(releases, "darwin-arm64.node"), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    const arm64 = { os: "linux", architecture: "arm64" } as const;
+    expect(await classifyAddon(join(releases, "darwin-arm64.node"), arm64)).toEqual({ omit: "foreign-format" });
+    expect(await classifyAddon(join(releases, "linux-x64.node"), arm64)).toEqual({ omit: "foreign-architecture" });
+    const content = await runtimeEntries(root, "app", arm64);
+    expect(content.entries.map((e) => e.path).filter((p) => p.endsWith(".node"))).toEqual(["app/node_modules/multi/releases/linux-arm64.node"]);
+    expect(content.native.map((n) => n.path)).toEqual(["app/node_modules/multi/releases/linux-arm64.node"]);
+    expect(content.omitted).toEqual([{ path: "multi/releases/darwin-arm64.node", reason: "foreign-format" }, { path: "multi/releases/linux-x64.node", reason: "foreign-architecture" }]);
+    await rm(join(releases, "linux-arm64.node"));
+    await expect(runtimeEntries(root, "app", arm64)).rejects.toThrow("no linux/arm64 build: multi");
   });
 });

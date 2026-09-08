@@ -1,7 +1,7 @@
 {
   "candidate": "v0.1.0-rc.1",
   "date": "2026-09-08",
-  "cliSha256": "bd53d6bf9f7ebf7ff064c64cbe83829db171e7fb33e6340bdde741a499e83d44",
+  "cliSha256": "5897ad2aac8512391b2c95930c051151e6043894cf83fadb0094154bd8102381",
   "bun": "1.3.11",
   "scope": "Local distributed CLI candidate; independently authored Hono/PostgreSQL/xxhash fixture. Shutdown checks include an in-flight request drained to an independent client container. The release workflow must independently verify its published assets.",
   "architectures": {

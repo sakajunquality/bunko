@@ -12,7 +12,7 @@
 <table><thead><tr><th>Request</th><th>Candidate behavior / remaining adaptation</th></tr></thead><tbody>
 <tr><td>R1</td><td>Restricted install-only bunfig settings are supported. Only minimumReleaseAge and minimumReleaseAgeExcludes are forwarded; test settings are ignored. Other unsupported keys still fail.</td></tr>
 <tr><td>R2–R3</td><td>Executable checks follow loaded bundle inputs. Copy-only frontend assets and unreachable dependencies are not scanned as executable code. Real macros remain rejected before execution. Relative JSON/text/file/TOML data imports are supported.</td></tr>
-<tr><td>R4–R5</td><td>Explicit unresolved dependency allowances and allowIgnoredScripts are available. Hooks never run. You must prove required dynamic packages and native binaries are present and functional.</td></tr>
+<tr><td>R4–R5</td><td>Explicit unresolved dependency allowances and allowIgnoredScripts are available. Hooks never run. Recognized foreign native variants and their aliases are pruned; corrupt or unknown addons still fail. You must prove required dynamic packages and target native binaries are present and functional.</td></tr>
 <tr><td>R6</td><td>Named entries share an image with a default command. Use emitted paths from the build report to select worker, bot or migrate.</td></tr>
 <tr><td>R7</td><td>Named local asset contexts map selected files to absolute image destinations such as /repo. All bindings are explicit.</td></tr>
 <tr><td>R8</td><td>Source-preserving mode and automatic Bun injection are not implemented. Use bundle mode, explicit assets and a prepared Bun-containing base with native shared libraries. Record a blocker if those adaptations cannot preserve behavior.</td></tr>

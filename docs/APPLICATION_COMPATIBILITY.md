@@ -54,11 +54,15 @@ Only the two listed install settings are forwarded to the controlled frozen inst
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 
+Packages that ship one prebuilt `.node` per platform in a single tree, such as Temporal's core bridge or Snowflake's minicore, are supported: only the target's little-endian ELF64 shared-object addons with System V/GNU OSABI are packaged. Recognized foreign signatures/architectures and links to those addons are omitted. Unknown content, truncated ELF headers and target non-shared objects remain errors. The nearest named package manifest owns each addon; unnamed module-scope manifests do not split ownership, and lookup stays inside the frozen runtime tree. A package whose addons include none for the target still fails; the runtime selection logic inside the package is not inspected. Fresh runtime walks log omission counts, prepared packing reports omitted paths, and cache hits reuse already filtered layers without recounting. Directory-enumerating loaders see the pruned tree; libc and actual addon loading still require runtime validation.
+
 `inheritBaseOciLabels: false` omits inherited `org.opencontainers.image.*` labels. Explicit application labels and Bunko-generated labels remain; other base labels retain their existing behavior. This option alone does not anonymize image metadata, provenance, inventories, or sourcemaps.
 
 ## Validation and remaining work
 
 Generic fixtures cover catalog frozen installs, pre-execution macro rejection, copy-only assets, imported sibling configuration, data loaders, script-free allowances, unresolved imports, and label inheritance. The CI matrix includes Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS. The distributed CLI smoke test runs outside the checkout without external npm dependencies.
+
+[PR #27](https://github.com/sakajunquality/bunko/pull/27) reports Temporal workflow completion and Snowflake minicore loading on amd64/arm64 at a source checkpoint. Those author-reported checks do not certify the exact released RC or complete application behavior.
 
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 

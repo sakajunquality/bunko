@@ -6,7 +6,7 @@ import { object } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
-import { inspectELF, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
 
 export const workspaceDirectory = ".bunko-workspace";
 
@@ -16,6 +16,7 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
   root = await realpath(root);
   const workspace = plan.workspace!;
   const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
+  const ledger = new AddonLedger(platform, root);
   const seen = new Set<string>();
   const sourcePaths = Object.keys(plan.workspaceSources ?? {});
   const modulePaths = workspace.packages.map((pkg) => pkg.path ? `${pkg.path}/node_modules` : "node_modules");
@@ -29,6 +30,7 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
     if (info.isSymbolicLink()) {
       const target = await realpath(file), local = relative(root, target);
       if (!admitted(local) || isAbsolute(local) || local === ".." || local.startsWith("../")) throw new Error(`Workspace dependency symlink escapes the packaged runtime: ${path}`);
+      if (!await includeRuntimeLink(file, path, target, platform, ledger)) return;
       entries.push({ type: "symlink", path: destination, target: relative(dirname(file), target) });
     } else if (info.isDirectory()) {
       entries.push({ type: "directory", path: destination });
@@ -42,8 +44,8 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
           if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
         }
       }
-      const elf = await inspectELF(file, platform);
-      if (path.endsWith(".node") && !elf) throw new Error(`Native addon is not Linux ELF64: ${path}`);
+      const elf = await inspectRuntimeFile(file, path, platform, ledger);
+      if (elf === null) return;
       if (elf) native.push({ ...elf, path: destination });
       entries.push({ type: "file", path: destination, source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported runtime file: ${path}`);
@@ -66,5 +68,5 @@ export async function workspaceRuntime(root: string, prefix: string, platform: P
   }
   inventory.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   native.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  return { entries, inventory, native };
+  return { entries, inventory, native, omitted: ledger.finish() };
 }
