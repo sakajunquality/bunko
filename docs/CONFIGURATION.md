@@ -39,7 +39,7 @@ bunko build . --mode source --runtime-arg=--smol \
 
 ## Toolchain declarations
 
-Bunko selects an already installed Bun binary using the existing PATH or `--bun-path` behavior. `bunko.toolchain.version` can require an exact supported Bun 1.3 version; `bunko.toolchain.revision` can additionally require the exact revision string printed by that binary's `bun --revision` command. No version declaration downloads or provisions a toolchain.
+Bunko selects an already installed Bun binary using the existing PATH or `--bun-path` behavior. `bunko.toolchain.version` can require an exact supported Bun version; `bunko.toolchain.revision` can additionally require the exact revision string printed by that binary's `bun --revision` command. No version declaration downloads or provisions a toolchain.
 
 An exact `packageManager: "bun@1.3.11"` also constrains the selection. Current source accepts stable Bun >=1.3.11 <1.5 declarations, including Bun 1.4; compile/injection support additionally requires an exact verified runtime pin. Bun packageManager ranges, aliases and integrity suffixes are not supported. Other package-manager names do not select Bun. Workspace-root and member Bun packageManager pins must agree with the effective Bunko version requirement. Both root and member `engines.bun` ranges must accept the selected version.
 

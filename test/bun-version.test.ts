@@ -51,3 +51,9 @@ test("Bun 1.4 frozen v2 installs produce deterministic dependency images", async
   expect(result.images[0]!.inventory.map((entry) => entry.name)).toEqual(["fixture-msg"]);
   expect(await readFile(join(fixture.source, "bun.lock"), "utf8")).toBe(text);
 });
+
+test("the unmodified Bun 1.4.2 generated lock schema is accepted", async () => {
+  const manifest = await Bun.file(new URL("./fixtures/lock-v2/package.json", import.meta.url)).json();
+  const lock = Bun.JSONC.parse(await Bun.file(new URL("./fixtures/lock-v2/bun.lock", import.meta.url)).text());
+  expect(validateLock(manifest, lock).lockfileVersion).toBe(2);
+});
