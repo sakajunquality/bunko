@@ -89,3 +89,10 @@ test("mapped assets reject internal and application output collisions", async ()
   await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { assetMappings: [{ ...f.mapping, from: "config/settings.json", to: "/app/src/server.js" }] } }));
   await expect(build({ path: f.source, baseLayout: await baseLayout(join(f.root, "base")), assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false })).rejects.toThrow("overlap");
 });
+
+
+test("asset mappings cannot replace a custom runtime", async () => {
+  const f = await fixture();
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { bunPath: "/repo/config/bun" }, assetMappings: [f.mapping] } }));
+  await expect(build({ path: f.source, assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false })).rejects.toThrow("overlaps the configured Bun runtime");
+});
