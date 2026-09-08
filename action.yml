@@ -13,6 +13,8 @@ inputs:
   token:
     description: Token with read access to the release repository
     default: ${{ github.token }}
+  source-commit:
+    description: Optional full source commit digest to constrain attestation verification
   verify-attestation:
     description: Verify signed provenance and version-tag identity before executing the CLI (requires gh and an attested release)
     default: 'false'
@@ -35,6 +37,7 @@ runs:
       shell: bash
       env:
         BUNKO_ACTION_PATH: ${{ github.action_path }}
+        INPUT_SOURCE_COMMIT: ${{ inputs.source-commit }}
         INPUT_VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_REPOSITORY: ${{ inputs.repository }}

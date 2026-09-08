@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { assetNames, localAsset, maxAssetBytes, releaseTag, verifyAssets } from "./distribution.ts";
 
 type Fetcher = (url: URL, init?: RequestInit) => Promise<Response>;
-interface SetupOptions { verifyAttestation?: boolean; version: string; repository?: string; token?: string; distribution?: string; temporary?: string; fetcher?: Fetcher }
+interface SetupOptions { verifyAttestation?: boolean; sourceCommit?: string; version: string; repository?: string; token?: string; distribution?: string; temporary?: string; fetcher?: Fetcher }
 
 /** Follow HTTPS asset redirects without forwarding the GitHub token off-origin. */
 export async function githubBytes(url: URL, token: string | undefined, accept: string, fetcher: Fetcher = fetch): Promise<Uint8Array> {
@@ -44,6 +44,7 @@ const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 
 export async function setup(options: SetupOptions) {
   if (!["linux", "darwin"].includes(process.platform)) throw new Error("setup-bunko currently supports Linux and macOS runners");
+  if (options.sourceCommit && (!options.verifyAttestation || !/^[a-f0-9]{40,64}$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
   const tag = releaseTag(options.version), repository = options.repository ?? "sakajunquality/bunko";
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.split("/").some((part) => part === "." || part === "..")) throw new Error("Invalid release repository");
   let load: (name: string) => Promise<Uint8Array>;
@@ -69,7 +70,7 @@ export async function setup(options: SetupOptions) {
     if (options.verifyAttestation) {
       await writeFile(join(root, "SHA256SUMS"), hashes, { flag: "wx" });
       await writeFile(join(root, "PROVENANCE.jsonl"), await load("PROVENANCE.jsonl"), { flag: "wx" });
-      await verifyRelease(root, repository, `refs/tags/${tag}`);
+      await verifyRelease(root, repository, `refs/tags/${tag}`, options.sourceCommit, options.token);
     }
     const child = Bun.spawn([process.execPath, join(root, "bunko.js"), "version"], { cwd: root, env: { PATH: process.env.PATH ?? "" }, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -84,7 +85,7 @@ export async function setup(options: SetupOptions) {
 
 if (import.meta.main) {
   if (process.env.INPUT_VERIFY_ATTESTATION && !["true", "false"].includes(process.env.INPUT_VERIFY_ATTESTATION)) throw new Error("verify-attestation must be true or false");
-  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", version: process.env.INPUT_VERSION ?? "v0.1.0-rc.3", repository: process.env.INPUT_REPOSITORY,
+  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", sourceCommit: process.env.INPUT_SOURCE_COMMIT || undefined, version: process.env.INPUT_VERSION ?? "v0.1.0-rc.3", repository: process.env.INPUT_REPOSITORY,
     token: process.env.INPUT_TOKEN, distribution: process.env.INPUT_DISTRIBUTION_DIRECTORY || undefined, temporary: process.env.RUNNER_TEMP });
   if (process.env.GITHUB_PATH) await appendFile(process.env.GITHUB_PATH, `${result.bin}\n`);
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `version=${result.version}\nbunko-path=${result.executable}\n`);
