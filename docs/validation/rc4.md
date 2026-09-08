@@ -39,3 +39,15 @@ The target platforms are Linux amd64 and arm64. Compile validation compares inde
 The tag workflow verifies signed provenance in a separate job against the exact release ref and source commit, including rejection of the wrong source identity, before uploading immutable assets. The container workflow separately verifies the published CLI's provenance, validates both builders and applications, then publishes and attests its image index. After publication, compare the anonymous download to the candidate hash above and verify the exact tag/commit provenance before execution.
 
 No cloud registry interoperability results from earlier releases are attributed to rc.4. The generic application and font fixtures do not certify external workloads. Private ECR and application-machine acceptance remain separate, explicitly unverified items. See [registry coverage](../REGISTRIES.md) and [remote acceptance](../validation-request.html).
+
+## Published CLI verification
+
+[Release workflow 34286224253](https://github.com/sakajunquality/bunko/actions/runs/34286224253) published rc.4 from `d89fecd854135500e994724573dc58226cae0cdf` on 2026-09-09. All four jobs succeeded, including the separate provenance consumer and container dispatch.
+
+An independent setup run with Bun 1.4.2 downloaded the public release without a download token, verified all payload attestations against `refs/tags/v0.1.0-rc.4` and the exact source commit, and executed the installed version command. Its 7,832,229-byte CLI exactly matched the candidate SHA256 above. A negative verification using `refs/heads/main` was rejected. Container publication and verification are recorded below.
+
+## Published container verification
+
+[Container workflow 34286476774](https://github.com/sakajunquality/bunko/actions/runs/34286476774) published `ghcr.io/sakajunquality/bunko:v0.1.0-rc.4` with index `sha256:54d571385dd58d03f17606aa33f9020847fbb35357ddd8293d90c2c05decd174`. Its recipe ref was `refs/heads/main` at `d89fecd854135500e994724573dc58226cae0cdf`, independently recorded from the CLI's release-tag source. Both platform builders validated fresh Bun 1.4.2 lock generation, frozen installation, signed compile runtime identity and application execution before pushing. The workflow verified the published index attestation against the exact recipe identity.
+
+An independent consumer used an empty Docker credential directory to pull the published index for Linux amd64 and arm64. Both images returned `0.1.0-rc.4` with nonroot defaults, network disabled, a read-only root filesystem and all capabilities dropped. These results validate the official builder distribution; they do not add cloud application-registry conformance claims.
