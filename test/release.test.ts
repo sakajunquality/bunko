@@ -93,3 +93,27 @@ test("failed downloads redact credentials and reject insecure redirect targets",
   await expect(githubBytes(new URL("https://api.github.com/repos/owner/repo"), "secret", "application/json", (async () => new Response(null, { status: 404 })))).rejects.toThrow("404");
   await expect(githubBytes(new URL("https://api.github.com/repos/owner/repo"), "secret", "application/json", (async () => new Response(null, { status: 302, headers: { Location: "http://storage.example/asset" } })))).rejects.toThrow("Invalid release download URL");
 });
+
+test("attestation opt-in rejects an unattested artifact before executing checksummed code", async () => {
+  const { chmod } = await import("node:fs/promises"), { checksum } = await import("../scripts/distribution.ts");
+  const directory = join(root, "unattested"); await cp(distribution, directory, { recursive: true });
+  const marker = join(root, "unattested-executed");
+  await writeFile(join(directory, "bunko.js"), `await Bun.write(${JSON.stringify(marker)}, "executed");`);
+  const hashes = await Promise.all(assetNames.map(async (name) => `${checksum(await readFile(join(directory, name)))}  ${name}`));
+  await writeFile(join(directory, "SHA256SUMS"), hashes.join("\n") + "\n");
+  await writeFile(join(directory, "PROVENANCE.jsonl"), "invalid attestation");
+  const bin = join(root, "rejecting-gh"); await mkdir(bin);
+  await writeFile(join(bin, "gh"), "#!/bin/sh\nexit 1\n"); await chmod(join(bin, "gh"), 0o755);
+  const previous = process.env.PATH; process.env.PATH = bin;
+  try { await expect(setup({ version: metadata.version, distribution: directory, temporary: root, verifyAttestation: true })).rejects.toThrow("attestation verification failed"); }
+  finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test("attestation verification pins repository, workflow, ref and optional commit", async () => {
+  const { verificationArguments } = await import("../scripts/verify-release.ts");
+  const commit = "a".repeat(40);
+  const args = verificationArguments("/a path/bunko.js", "/a path/PROVENANCE.jsonl", "owner/repo", "refs/tags/v1.2.3", commit);
+  expect(args).toEqual(["attestation", "verify", "/a path/bunko.js", "--bundle", "/a path/PROVENANCE.jsonl", "--repo", "owner/repo", "--signer-workflow", "owner/repo/.github/workflows/release.yml", "--source-ref", "refs/tags/v1.2.3", "--deny-self-hosted-runners", "--source-digest", commit]);
+  for (const [repository, ref, digest] of [["../repo", "refs/heads/main", commit], ["owner/repo", "refs/heads/untrusted", commit], ["owner/repo", "refs/heads/main", "short"]]) expect(() => verificationArguments("file", "bundle", repository!, ref!, digest)).toThrow();
+});
