@@ -1,0 +1,98 @@
+name: Build with bunko
+description: Build Bun applications with an installed bunko CLI and export all target results
+inputs:
+  path:
+    description: 'Application or workspace directory'
+    default: '.'
+  repo:
+    description: 'Registry repository prefix used by bunko'
+    default: ''
+  platforms:
+    description: 'Comma-separated Linux platforms'
+    default: 'linux/amd64'
+  targets:
+    description: 'Workspace targets, one per line'
+    default: ''
+  push:
+    description: 'Publish images using credentials configured by the workflow'
+    default: 'false'
+  export-layout:
+    description: 'Also export an OCI layout when publishing'
+    default: 'false'
+  mode:
+    description: 'Application mode: bundle or compile'
+    default: ''
+  base:
+    description: 'Base image reference'
+    default: ''
+  base-layout:
+    description: 'Local OCI base layout'
+    default: ''
+  runtime-inject:
+    description: 'Optional signed runtime injection: release'
+    default: ''
+  tags:
+    description: 'Publication tags, one per line'
+    default: ''
+  cache-dir:
+    description: 'Local managed cache directory'
+    default: ''
+  cache-repo:
+    description: 'Registry cache repository'
+    default: ''
+  cache-from:
+    description: 'Registry cache read repositories, one per line'
+    default: ''
+  cache-write:
+    description: 'Allow registry cache writes'
+    default: 'true'
+  asset-contexts:
+    description: 'Named asset bindings, NAME=DIR, one per line'
+    default: ''
+  otel:
+    description: 'Opt in to OpenTelemetry export configured by workflow environment'
+    default: 'false'
+outputs:
+  images:
+    description: 'JSON array with every target digest and optional published reference'
+    value: ${{ steps.build.outputs.images }}
+  digest:
+    description: 'Image digest for exactly one target; empty for multiple targets'
+    value: ${{ steps.build.outputs.digest }}
+  reference:
+    description: 'Published reference for exactly one target; otherwise empty'
+    value: ${{ steps.build.outputs.reference }}
+  report:
+    description: 'Path to the build report (may be absent on early failure)'
+    value: ${{ steps.build.outputs.report }}
+  layout:
+    description: 'Local OCI layout path; empty when publishing without export-layout'
+    value: ${{ steps.build.outputs.layout }}
+  image-refs:
+    description: 'Published immutable reference file; empty for local-only builds'
+    value: ${{ steps.build.outputs.image-refs }}
+runs:
+  using: composite
+  steps:
+    - id: build
+      shell: bash
+      env:
+        BUNKO_ACTION_PATH: ${{ github.action_path }}
+        BUNKO_INPUT_PATH: ${{ inputs.path }}
+        BUNKO_INPUT_REPO: ${{ inputs.repo }}
+        BUNKO_INPUT_PLATFORMS: ${{ inputs.platforms }}
+        BUNKO_INPUT_TARGETS: ${{ inputs.targets }}
+        BUNKO_INPUT_PUSH: ${{ inputs.push }}
+        BUNKO_INPUT_EXPORT_LAYOUT: ${{ inputs.export-layout }}
+        BUNKO_INPUT_MODE: ${{ inputs.mode }}
+        BUNKO_INPUT_BASE: ${{ inputs.base }}
+        BUNKO_INPUT_BASE_LAYOUT: ${{ inputs.base-layout }}
+        BUNKO_INPUT_RUNTIME_INJECT: ${{ inputs.runtime-inject }}
+        BUNKO_INPUT_TAGS: ${{ inputs.tags }}
+        BUNKO_INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
+        BUNKO_INPUT_CACHE_REPO: ${{ inputs.cache-repo }}
+        BUNKO_INPUT_CACHE_FROM: ${{ inputs.cache-from }}
+        BUNKO_INPUT_CACHE_WRITE: ${{ inputs.cache-write }}
+        BUNKO_INPUT_ASSET_CONTEXTS: ${{ inputs.asset-contexts }}
+        BUNKO_INPUT_OTEL: ${{ inputs.otel }}
+      run: bun "$BUNKO_ACTION_PATH/run.ts"

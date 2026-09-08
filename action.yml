@@ -3,7 +3,7 @@ description: Install Bun and a checksum-verified bunko release on Linux or macOS
 inputs:
   version:
     description: Explicit bunko release version
-    default: v0.1.0-alpha.2
+    default: v0.1.0-rc.3
   bun-version:
     description: Bun runtime version (bunko supports >=1.3.11 <1.4)
     default: 1.3.11
@@ -13,6 +13,11 @@ inputs:
   token:
     description: Token with read access to the release repository
     default: ${{ github.token }}
+  source-commit:
+    description: Optional full source commit digest to constrain attestation verification
+  verify-attestation:
+    description: Verify signed provenance and version-tag identity before executing the CLI (requires gh and an attested release)
+    default: 'false'
   distribution-directory:
     description: Optional pre-downloaded directory containing bunko.js, notices, and SHA256SUMS
 outputs:
@@ -32,6 +37,8 @@ runs:
       shell: bash
       env:
         BUNKO_ACTION_PATH: ${{ github.action_path }}
+        INPUT_SOURCE_COMMIT: ${{ inputs.source-commit }}
+        INPUT_VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
         INPUT_TOKEN: ${{ inputs.token }}

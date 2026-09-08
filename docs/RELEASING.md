@@ -71,4 +71,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The setup default intentionally remains alpha.2; publishing rc.1 did not promote it. Select `version: v0.1.0-rc.3` explicitly after publication. Any later default promotion is a separate change made only after the selected assets are available; this prevents a download gap for unversioned development-branch consumers.
+The setup default is rc.3 following publication and anonymous exact-candidate verification. Future default promotions must follow publication and verification of the selected immutable release.
