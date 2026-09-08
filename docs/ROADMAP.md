@@ -37,3 +37,14 @@ Completion means a consumer can identify the artifact's origin, and automation c
 - Stabilize CLI, configuration, report formats, cache migration, and recovery instructions before a stable release. Exercise installation, upgrade, and rollback from a fresh consumer environment.
 
 General Dockerfile/LLB execution, arbitrary RUN steps, remote workers, and broad platform expansion remain outside this plan. Rebase work first requires explicit Bun/libc/native compatibility gates.
+
+## Ordered implementation queue
+
+Proceed in this order, with reviewed PRs, CI and representative runtime validation before merging each change:
+
+1. Compile correctness and verified runtime selection, followed by rc.3 preparation and exact published-artifact validation. Reject unsupported emitted assets until compilation can preserve their runtime behavior.
+2. Release attestations with consumer verification; a build GitHub Action and CI guide; an official multiarchitecture nonroot CLI container and container-based CI examples.
+3. Invocation-level defines; consistent proxy and npm CA handling; pull-only registry mirrors with origin-scoped authentication; persistent base preparation and bounded offline operation.
+4. Source-preserving application packaging; runtime arguments, asset exclusions and modes, extra CA configuration, workspace defaults and toolchain declarations.
+
+Source-preserving mode precedes rebase. Rebase requires a separate image compatibility and configuration ownership design. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
