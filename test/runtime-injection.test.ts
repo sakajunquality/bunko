@@ -1,3 +1,5 @@
+import { runtimePins } from "../packages/bunko/runtime-pins.ts";
+import { runtimeNotices } from "../packages/bunko/runtime-notices.ts";
 import { spdx, provenance } from "../packages/bunko/attest.ts";
 import type { BuildResult, PlatformResult } from "../packages/bunko/build.ts";
 import { validateCacheOptions } from "../packages/bunko/cache-options.ts";
@@ -28,7 +30,7 @@ test("runtime injection rejects unsupported modes, libc, versions and destinatio
     await project(root, { bunko: config }); await expect(loadProject({ path: root })).rejects.toThrow();
   }
   expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
-  expect(() => runtimeAsset({ ...toolchain, version: "1.4.0" }, platform)).toThrow("supports official Bun");
+  expect(() => runtimeAsset({ ...toolchain, version: "1.5.0" }, platform)).toThrow("supports official Bun");
   expect(() => validateCacheOptions({localCache:false,runtimeCache:"cache"})).toThrow("requires local caching");
 });
 
@@ -172,7 +174,9 @@ test("SBOM separates release archive and executable hashes; provenance includes 
 });
 
 test.skipIf(!Bun.which("gpgv"))("every supported Linux asset pin matches the official signed fixture", async () => {
-  for(const version of ["1.3.11","1.3.12","1.3.13"]) {
+  expect(Object.keys(runtimeNotices).sort()).toEqual(Object.keys(runtimePins).sort());
+  for(const version of Object.keys(runtimePins)) {
+    expect(runtimeNotices[version]).toContain("MIT License");
     const signed=await readFile(new URL(`./fixtures/runtime/bun-${version}-checksums.asc`,import.meta.url));
     const text=await verifiedChecksums(signed);
     for(const asset of ["bun-linux-x64-baseline","bun-linux-aarch64"]) expect(pinnedArchiveChecksum(version,asset,text)).toMatch(/^sha256:[a-f0-9]{64}$/);

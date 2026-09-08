@@ -36,7 +36,7 @@ import { media, type BaseImage, type Descriptor, type Digest, type Layer, type P
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
-import { dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
+import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
 import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
@@ -548,6 +548,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const mapped = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
     for (const [index, project] of projects.entries()) mapped.set(project.directory, await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index)), [...exclusions, temporary]));
     const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
+    assertLockToolchain(plan, toolchain);
     for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);

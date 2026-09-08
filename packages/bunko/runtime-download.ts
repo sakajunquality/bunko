@@ -22,7 +22,7 @@ export interface InjectedRuntime {
   interpreter: string; needed: string[]; glibcSymbols: string[];
 }
 export function runtimeAsset(toolchain: Toolchain, platform: Platform) {
-  if (!/^1\.3\.(11|12|13)$/.test(toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error("Verified runtime selection supports official Bun 1.3.11, 1.3.12 and 1.3.13 releases");
+  if (!Object.hasOwn(runtimePins, toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error(`Verified runtime selection supports official Bun releases: ${Object.keys(runtimePins).join(", ")}`);
   if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported verified runtime platform");
   return `bun-linux-${platform.architecture === "amd64" ? "x64-baseline" : "aarch64"}`;
 }

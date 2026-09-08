@@ -11,7 +11,7 @@ This feature is included in v0.1.0-rc.2; the immutable rc.1 release does not inc
 }
 ```
 
-Use a digest-pinned base for reproducible builds. An explicit base (configuration, CLI, BUNKO_DEFAULT_BASE, or local OCI layout) is required. The initial implementation supports bundle mode, Linux amd64/arm64, and official Bun 1.3.11, 1.3.12 and 1.3.13 toolchains. It uses x64-baseline for amd64 and aarch64 for arm64. Compile mode, musl, unsupported versions and custom revisions that cannot be matched to the release are rejected. Injection does not change the default base, install native-addon libraries, add Node.js/shell tools, or run package hooks.
+Use a digest-pinned base for reproducible builds. An explicit base (configuration, CLI, BUNKO_DEFAULT_BASE, or local OCI layout) is required. Current source supports bundle/source modes, Linux amd64/arm64, and official Bun 1.3.11–1.3.13 and 1.4.0–1.4.2 toolchains. Bun 1.4 support is not included in the immutable rc.3 release. It uses x64-baseline for amd64 and aarch64 for arm64. Compile mode, musl, unsupported versions and custom revisions that cannot be matched to the release are rejected. Injection does not change the default base, install native-addon libraries, add Node.js/shell tools, or run package hooks.
 
 ## Trust and downloads
 

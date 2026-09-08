@@ -1,6 +1,6 @@
 # Compatibility and diagnostics
 
-The accepted bundling toolchain range is Bun >=1.3.11 <1.4. The CI matrix pins Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bun 1.3.12 and 1.3.13 are additional compatibility points, not claims about the latest release.
+The accepted bundling toolchain range is Bun >=1.3.11 <1.5. The CI matrix pins Bun 1.3.11, 1.3.12, 1.3.13, 1.4.0, and 1.4.2 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bun 1.3.12 and 1.3.13 are additional compatibility points, not claims about the latest release.
 
 Linux images support amd64 and arm64 with glibc bases. Bundle mode requires the selected Bun runtime in the image, either already in the base or added with opt-in [signed runtime injection](RUNTIME_INJECTION.md). Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
 
@@ -40,7 +40,7 @@ Application `--mode compile` is separate from distributing the CLI as a native e
 
 ## Verified compile runtime
 
-rc.3 and later require GnuPG's `gpgv` for compile mode as well as runtime injection. Compilation embeds the signature-verified, pinned official Linux Bun runtime through `--compile-executable-path`; it does not delegate runtime downloads to Bun. The output is checked for the target Linux ELF architecture and authenticated release revision marker; runtime smoke tests also execute it and compare the full revision. Bun 1.3.12 and later rewrite ELF sections, so the compiled output is not a byte-identical copy of the runtime input. The selected compiler remains part of the build trust boundary. Supported compile releases are 1.3.11, 1.3.12 and 1.3.13, using x64-baseline or aarch64 glibc assets. Custom or unpinned compiler revisions fail verification. The host Bun executable remains selected by `--bun-path` and its digest remains an input to application caching.
+rc.3 and later require GnuPG's `gpgv` for compile mode as well as runtime injection. Compilation embeds the signature-verified, pinned official Linux Bun runtime through `--compile-executable-path`; it does not delegate runtime downloads to Bun. The output is checked for the target Linux ELF architecture and authenticated release revision marker; runtime smoke tests also execute it and compare the full revision. Bun 1.3.12 and later rewrite ELF sections, so the compiled output is not a byte-identical copy of the runtime input. The selected compiler remains part of the build trust boundary. Supported compile releases are 1.3.11–1.3.13 and 1.4.0–1.4.2, using x64-baseline or aarch64 glibc assets. Custom or unpinned compiler revisions fail verification. The host Bun executable remains selected by `--bun-path` and its digest remains an input to application caching.
 
 `--runtime-cache` and `--no-cache` apply to these authenticated runtime inputs. Every build verifies cached signature and archive bytes before application-cache lookup. Compile input metadata appears as `images[].compileRuntime` in reports, enters the application cache key, and contributes release archive and signed-checksum dependencies to provenance. SBOMs identify the embedded runtime using the archive checksum; the unmodified Bun executable checksum is not presented as the compiled application's file checksum. Runtime execution is only verified by a separate runtime test. Runtime notices and release source information are packaged under `.bunko-runtime` in the application directory.
 
@@ -49,3 +49,11 @@ The compile stage honors `build.minify`; external sourcemaps and bytecode remain
 ## Runtime cache defaults
 
 In every mode, Bunko defaults `BUN_RUNTIME_TRANSPILER_CACHE_PATH` to `0` in generated image configuration when the base has no explicit setting. Base and application environment overrides remain supported. This follows [Bun's container guidance](https://bun.com/docs/runtime/environment-variables) and avoids unnecessary implicit transpiler-cache writes; it is not a claim that every unset-cache application fails on a read-only filesystem.
+
+## Bun 1.4 migration (source after rc.3)
+
+Bun 1.4 support is available in source builds after rc.3; the immutable rc.3 CLI accepts only the previous range. Stable host versions `>=1.3.11 <1.5` are accepted, with the CI points listed above. Canaries, prereleases and Bun 1.5 are rejected. Official compile/injection archives are separately pinned for 1.3.11–1.3.13 and 1.4.0–1.4.2, and every archive still requires the embedded trusted GPG signature policy.
+
+Bun 1.4 generates text lockfile version 2. Bunko accepts lock versions 1 and 2 with config version 1, preserving registry-only resolution and integrity requirements. Version 2 requires a selected Bun >=1.4.0; builds and `doctor` reject an older compiler before dependency installation or registry access. `check-config` reports the lock version without executing Bun. Existing version 1 locks remain supported and are not automatically rewritten by Bunko. To adopt version 2, regenerate with the selected Bun 1.4 binary in your project and commit the resulting lockfile.
+
+Update exact `packageManager`/`bunko.toolchain.version` declarations and `engines.bun` constraints deliberately. An explicit base that already contains Bun is not upgraded when the host toolchain changes; choose and test a compatible base, or use signed runtime injection. Native-addon ABI requirements remain unchanged as a validation responsibility.

@@ -23,11 +23,11 @@ bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
 
 See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Existing release assets remain immutable.
 
-Compile mode and runtime injection additionally require `gpgv` and an official Bun 1.3.11–1.3.13 revision.
+Compile mode and runtime injection additionally require `gpgv` and an official Bun 1.3.11–1.3.13 revision (source builds also support 1.4.0–1.4.2).
 
 ## Quick start from source
 
-Requires Bun `>=1.3.11 <1.4`; the tested CI matrix covers Bun 1.3.11, 1.3.12 and 1.3.13. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
+Requires Bun `>=1.3.11 <1.5`; the tested CI matrix covers Bun 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts

@@ -1,3 +1,4 @@
+import { supportedBunVersion } from "./bun-version.ts";
 import { releaseRevision, type downloadRuntime } from "./runtime-download.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
@@ -25,9 +26,9 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   const child = Bun.spawn([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Cannot run Bun: ${stderr.trim()}`);
-  const match = /^(1\.3\.(\d+))\+([a-f0-9]+)$/.exec(stdout.trim());
-  if (!match || Number(match[2]) < 11) throw new Error(`Supported toolchain: Bun >=1.3.11 <1.4 (received ${stdout.trim()})`);
-  return { path: executable, version: match[1]!, revision: match[3]! };
+  const match = /^(1\.\d+\.\d+)\+([a-f0-9]+)$/.exec(stdout.trim());
+  if (!match || !supportedBunVersion(match[1])) throw new Error(`Supported toolchain: Bun >=1.3.11 <1.5 (received ${stdout.trim()})`);
+  return { path: executable, version: match[1]!, revision: match[2]! };
 }
 
 export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache, compileRuntime?: Awaited<ReturnType<typeof downloadRuntime>>): Promise<{ locations: LocationDiagnostics; outdir: string; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[]; inputs: string[] }> {

@@ -16,7 +16,7 @@ test("offline diagnostics validate configuration without exposing configured val
   const result = await doctor({ path: source });
   expect(result.targets[0]!.environmentKeys).toEqual(["SECRET"]);
   expect(JSON.stringify(result)).not.toContain("do-not-print"); expect(JSON.stringify(result)).not.toContain("another-secret");
-  expect(result.toolchain.version).toMatch(/^1\.3\./); expect(result.unchecked).toContain("registry credentials and connectivity");
+  expect(result.toolchain.version).toMatch(/^1\.[34]\./); expect(result.unchecked).toContain("registry credentials and connectivity");
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "app", module: "src/server.ts", dependencies: { example: "1.0.0" } }));
   await expect(checkConfig({ path: source })).rejects.toThrow("text bun.lock");
 });
