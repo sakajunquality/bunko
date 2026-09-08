@@ -161,6 +161,14 @@ test("SBOM separates release archive and executable hashes; provenance includes 
   expect(document.files![0]!.checksums[0]!.checksumValue).toBe(executableDigest.slice(7));
   const record=provenance({target:"fixture",root:image.manifest,sourceDigest:sha256("source"),toolchain:{version:runtime.version,revision:runtime.expectedRevision},images:[image]} as BuildResult);
   expect(JSON.stringify(record)).toContain(checksumDocumentDigest.slice(7)); expect(JSON.stringify(record)).toContain(runtime.signer);
+  const { path, ...compileRuntime } = runtime;
+  const compiledImage = { ...image, runtime: undefined, compileRuntime };
+  const compiledDocument = spdx("compiled", compiledImage, 0, { version: runtime.version, revision: runtime.expectedRevision, embedded: true });
+  expect(compiledDocument.files).toBeUndefined();
+  const compiledPackage = compiledDocument.packages.find((p) => p.SPDXID === "SPDXRef-Bun-Runtime") as { checksums: { checksumValue: string }[]; comment: string };
+  expect(compiledPackage.checksums[0]!.checksumValue).toBe(archiveDigest.slice(7));
+  expect(compiledPackage.comment).toContain("Embedded signed release");
+  expect(JSON.stringify(provenance({ target: "compiled", root: image.manifest, sourceDigest: sha256("source"), toolchain: { version: runtime.version, revision: runtime.expectedRevision }, images: [compiledImage] } as BuildResult))).toContain(checksumDocumentDigest.slice(7));
 });
 
 test.skipIf(!Bun.which("gpgv"))("every supported Linux asset pin matches the official signed fixture", async () => {
