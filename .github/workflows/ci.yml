@@ -38,6 +38,20 @@ jobs:
           distribution-directory: dist/release
           bun-version: ${{ matrix.bun }}
       - run: bunko version
+      - name: Prepare local Action base
+        run: bun -e 'import {baseLayout} from "./test/helpers.ts"; await baseLayout(process.env.RUNNER_TEMP + "/action-base");'
+      - uses: ./build
+        id: action-build
+        with:
+          path: examples/hello
+          base-layout: ${{ runner.temp }}/action-base
+          push: 'false'
+      - name: Check Action outputs
+        env:
+          ACTION_DIGEST: ${{ steps.action-build.outputs.digest }}
+          ACTION_IMAGES: ${{ steps.action-build.outputs.images }}
+          ACTION_LAYOUT: ${{ steps.action-build.outputs.layout }}
+        run: bun -e 'const images = JSON.parse(process.env.ACTION_IMAGES!); if (images.length !== 1 || images[0].digest !== process.env.ACTION_DIGEST || !await Bun.file(process.env.ACTION_LAYOUT + "/index.json").exists()) throw new Error("Invalid build Action outputs");'
 
   integration:
     runs-on: ubuntu-latest
