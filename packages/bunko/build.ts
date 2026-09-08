@@ -1,3 +1,4 @@
+import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
 import { baseInventory } from "./metadata.ts";
@@ -220,7 +221,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             const runtime = join(temporary, `runtime-${iteration}-${platform.architecture}`);
             await cp(snapshotRoot, runtime, { recursive: true });
             await installDependencies(runtime, plan, toolchain, platform, options.installCache);
-            const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform);
+            const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             depsLayer = await packLayer(store, depsEntries, "deps", timestamp);
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
@@ -262,7 +263,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
-          annotations: project.annotations, args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.args, workdir: project.workdir, user: project.user, env: project.env, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
@@ -397,12 +398,14 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
   }
   if (sharedDeps && (!discovered.workspace || projects.some((p) => p.depsStrategy !== "closure"))) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
+  if (sharedDeps && new Set(projects.map((p) => JSON.stringify(p.allowIgnoredScripts ?? []))).size !== 1) throw new Error("sharedDeps requires matching deps.allowIgnoredScripts policies");
   if (sharedDeps && new Set(projects.map((p) => JSON.stringify([p.workdir, p.base, p.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
   if (new Set(projects.map((project) => project.name.toLowerCase())).size !== projects.length) throw new Error("Workspace image name collision; set distinct bunko.imageName values");
   if (discovered.workspace) for (const pkg of discovered.workspace.packages) {
     validateDependencySpecs(pkg.manifest, discovered.workspace);
     if (pkg.path && ["overrides", "resolutions", "patchedDependencies"].some((key) => pkg.manifest[key] !== undefined)) throw new Error("Workspace overrides/resolutions/patchedDependencies must be configured at the root");
-    if (await Bun.file(join(discovered.directory, pkg.path, "bunfig.toml")).exists()) throw new Error("Workspace bunfig.toml is not supported");
+    const installPolicy = await readBunfig(join(discovered.directory, pkg.path));
+    if (pkg.path && Object.keys(installPolicy).length) throw new Error("Workspace bunfig install settings must be configured at the root");
     if (pkg.path && await Bun.file(join(discovered.directory, pkg.path, ".npmrc")).exists()) throw new Error("Workspace npm configuration must be in the root .npmrc");
   }
   const output = options.output ? await canonicalOutput(options.output) : undefined;

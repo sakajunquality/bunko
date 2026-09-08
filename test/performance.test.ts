@@ -70,7 +70,7 @@ test("parallel workspace builds preserve root order/digests and never publish af
   const serial = await buildTargets({ ...options, jobs: 1, output: join(root, "serial") });
   const parallel = await buildTargets({ ...options, jobs: 2, output: join(root, "parallel") });
   expect(parallel.map((r) => [r.target, r.root])).toEqual(serial.map((r) => [r.target, r.root]));
-  expect(parallel[0]!.syntaxValidation!.reused).toBeGreaterThan(0);
+  expect(parallel[0]!.syntaxValidation!.parsed).toBeGreaterThan(0);
   await writeFile(join(f.source, "services/worker/src/server.ts"), 'import "missing-package";');
   const registry = new MockRegistry();
   await expect(buildTargets({ ...options, push: true, repo: "registry.test/demo", jobs: 2, registry: { fetcher: registry.fetch, credentials: async () => undefined } })).rejects.toThrow("Bun build failed");

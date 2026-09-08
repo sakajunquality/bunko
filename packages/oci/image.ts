@@ -11,6 +11,7 @@ export interface ImageOptions {
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
+  inheritBaseOciLabels?: boolean;
   annotations?: Record<string, string>;
   ports?: number[];
 }
@@ -26,7 +27,7 @@ export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOp
   env.set("NODE_ENV", "production");
   for (const [key, value] of Object.entries(options.env)) env.set(key, value);
   const created = new Date(options.epoch * 1000).toISOString().replace(".000Z", "Z");
-  const baseLabels = Object.fromEntries(Object.entries(inherited.Labels ?? {}).filter(([key]) => !key.startsWith("org.bunko.") && key !== "org.opencontainers.image.revision"));
+  const baseLabels = Object.fromEntries(Object.entries(inherited.Labels ?? {}).filter(([key]) => (options.inheritBaseOciLabels !== false || !key.startsWith("org.opencontainers.image.")) && !key.startsWith("org.bunko.") && key !== "org.opencontainers.image.revision"));
   const config: RuntimeConfig = {
     User: options.user ?? (inherited.User || "65532:65532"),
     Env: [...env].sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b))).map(([k, v]) => `${k}=${v}`),

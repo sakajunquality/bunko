@@ -24,8 +24,17 @@ function workspacePattern(pattern: string): string {
   return pattern.replace(/^(?:\.\/+)+/, "").replace(/\/+$/, "") || ".";
 }
 
+function patternsOf(manifest: Record<string, unknown>): unknown {
+  const value = manifest.workspaces;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).packages : value;
+}
+
 export async function workspaceAt(directory: string, root: WorkspacePackage): Promise<Workspace> {
-  const patterns = root.manifest.workspaces;
+  const patterns = patternsOf(root.manifest);
+  if (!Array.isArray(root.manifest.workspaces)) {
+    const config = object(root.manifest.workspaces, "workspaces");
+    if (Object.keys(config).some((key) => !["packages", "catalog", "catalogs"].includes(key))) throw new Error("Unsupported workspaces option");
+  }
   if (!Array.isArray(patterns) || !patterns.length || !patterns.every((p) => typeof p === "string" && p && !isAbsolute(p) && !/[\\\0]/.test(p) && !p.split("/").includes("..") && !p.startsWith("!"))) throw new Error("Bunko requires a non-empty workspaces array of relative, positive glob patterns");
   const paths = new Set<string>();
   for (const pattern of patterns) {
@@ -44,6 +53,7 @@ export async function workspaceAt(directory: string, root: WorkspacePackage): Pr
     const pkg = await readPackage(directory, path);
     const name = pkg.manifest.name;
     if (typeof name !== "string" || !/^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_.-]+$/.test(name) || names.has(name)) throw new Error(`Workspace members require unique package names: ${path}`);
+    if (pkg.manifest.catalog !== undefined || pkg.manifest.catalogs !== undefined) throw new Error("Workspace catalogs must be configured at the root");
     if (pkg.manifest.workspaces !== undefined) throw new Error("Nested workspace roots are not supported");
     names.add(name);
     packages.push(pkg);
@@ -62,7 +72,7 @@ export async function discover(options: BuildOptions): Promise<{ directory: stri
     try { pkg = cursor === directory ? selected : await readPackage(cursor); }
     catch { /* An unreadable or malformed ancestor cannot establish membership. */ }
     const localPath = relative(cursor, directory);
-    const patterns = pkg?.manifest.workspaces;
+    const patterns = pkg && patternsOf(pkg.manifest);
     const declared = cursor === directory || Array.isArray(patterns) && patterns.some((pattern) => typeof pattern === "string" && new Bun.Glob(workspacePattern(pattern)).match(localPath));
     if (pkg?.manifest.workspaces !== undefined && declared) {
       const workspace = await workspaceAt(cursor, pkg);

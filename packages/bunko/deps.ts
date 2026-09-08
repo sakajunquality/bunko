@@ -1,3 +1,6 @@
+import { ignoredInstallScripts } from "./install-scripts.ts";
+import { readBunfig, installConfig, type InstallPolicy } from "./bunfig.ts";
+import { catalogs } from "./catalogs.ts";
 import { packageLicense } from "./inventory.ts";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -11,8 +14,8 @@ import { mapFiles } from "./concurrency.ts";
 import type { Toolchain } from "./toolchain.ts";
 
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
-export interface DependencyPlan { manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
-export interface InventoryEntry { path: string; name: string; version: string; license?: string }
+export interface DependencyPlan { installPolicy?: InstallPolicy; manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
+export interface InventoryEntry { path: string; name: string; version: string; license?: string; ignoredInstallScripts?: string[] }
 export interface NativeBinary { path: string; architecture: string; needed: string[] }
 
 export function packageRoot(value: string): string {
@@ -40,7 +43,8 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown, 
     validateDeclarations(pkg.manifest, record);
     if (workspace && (record.name !== pkg.manifest.name || record.version !== pkg.manifest.version)) throw new Error(`Workspace name/version and bun.lock disagree: ${pkg.path || "."}`);
   }
-  for (const [field, expected] of [["overrides", manifest.overrides ?? manifest.resolutions ?? {}], ["patchedDependencies", manifest.patchedDependencies ?? {}]] as const) {
+  const definitions = catalogs(manifest);
+  for (const [field, expected] of [["catalog", definitions.catalog], ["catalogs", definitions.catalogs], ["overrides", manifest.overrides ?? manifest.resolutions ?? {}], ["patchedDependencies", manifest.patchedDependencies ?? {}]] as const) {
     if (Buffer.compare(Buffer.from(canonicalJSON(expected)), Buffer.from(canonicalJSON(lock[field] ?? {})))) throw new Error(`package.json and bun.lock disagree on ${field}`);
   }
   for (const [id, record] of Object.entries(object(lock.packages, "bun.lock packages"))) {
@@ -114,25 +118,28 @@ export async function dependencyPlan(project: Project, root: string, validateCre
       workspaceSources[pkg.path] = sha256(canonicalJSON(await mapFiles(entries, async (entry) => entry.type === "file" ? { path: entry.path, executable: entry.executable, digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content) } : entry)));
     }
   }
-  return { manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
+  const installPolicy = await readBunfig(root);
+  return { installPolicy, manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
 }
 
 export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string): Promise<void> {
   if (!plan.lock) return;
   const config = join(root, OUTPUT_DIRECTORY, "install.toml");
   await mkdir(dirname(config), { recursive: true });
-  await writeFile(config, "[install]\nlinker = \"isolated\"\n");
+  await writeFile(config, installConfig(plan.installPolicy ?? {}));
+  const home = join(root, OUTPUT_DIRECTORY, "install-home");
+  await mkdir(join(home, "config"), { recursive: true, mode: 0o700 });
   const auth = join(root, ".npmrc");
   if (plan.npmrc) await writeFile(auth, plan.npmrc, { mode: 0o600 });
   const args = [toolchain.path, "install", "--frozen-lockfile", "--ignore-scripts", "--linker=isolated", "--backend=copyfile", "--no-progress", `--config=${config}`, `--registry=${plan.registry}`];
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
-  // Keep downloads outside node_modules even in the intentionally HOME-free environment.
+  // Keep downloads outside node_modules even in the isolated installer environment.
   args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   try {
     const child = Bun.spawn(args, { cwd: root, env: {
-      PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
+      HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
       BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
       ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
       ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),
@@ -195,7 +202,7 @@ export async function inspectELF(path: string, platform: Platform): Promise<Nati
   } finally { await file.close(); }
 }
 
-export async function runtimeEntries(root: string, prefix: string, platform: Platform, prepared = false): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[] }> {
+export async function runtimeEntries(root: string, prefix: string, platform: Platform, prepared = false, allowedScripts: string[] = []): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[] }> {
   const modules = await realpath(join(root, "node_modules"));
   const entries: TarEntry[] = [];
   const inventory: InventoryEntry[] = [];
@@ -219,8 +226,10 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
         const pkg = object(JSON.parse(await readFile(file, "utf8")), "Dependency package.json");
         if (typeof pkg.name === "string" && typeof pkg.version === "string") {
           inventory.push({ path: dirname(path), name: pkg.name, version: pkg.version, license: packageLicense(pkg.license) });
-          const scripts = object(pkg.scripts ?? {}, "Dependency scripts");
-          if (!prepared && ["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; Bunko requires packages that ship ready-to-run files`);
+          if (!prepared) {
+            const hooks = ignoredInstallScripts(pkg, allowedScripts);
+            if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
+          }
         }
       }
       const elf = await inspectELF(file, platform);
@@ -239,5 +248,6 @@ export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, pla
   const fields = [...dependencyFields, "peerDependenciesMeta", "overrides", "resolutions", "patchedDependencies", "trustedDependencies", "name", "version", "os", "cpu"];
   const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
-  return { manifests, workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, external: project.external };
+  const definitions = catalogs(plan.manifest);
+  return { manifests, ...(Object.keys(plan.installPolicy ?? {}).length ? { installPolicy: plan.installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: "glibc", strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
 }

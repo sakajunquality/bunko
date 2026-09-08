@@ -73,7 +73,7 @@ bun run dev build examples/workspace --repo ghcr.io/OWNER --shared-deps
 
 `--shared-deps` or root `bunko.sharedDeps:true` defaults to closure and shares a dependency layer across targets with matching workdir, base, and platforms. Target-specific external links live in the app layer, preserving different versions of the same package. Closure performs a Linux production install to verify the graph on every invocation. Unrelated lock or source changes can still reuse the layer when selected package bytes, modes, and links are unchanged.
 
-Workspace declarations must be arrays of positive relative globs. Nested workspaces, catalogs, and file/link dependencies are unsupported. Configure npm authentication, overrides, and patches at the root.
+Workspace declarations accept positive relative globs as an array or a `workspaces.packages` array. Default and named catalogs may be declared at the root or inside the workspaces object. Nested workspaces and file/link dependencies are unsupported. Configure npm authentication, overrides, and patches at the root.
 
 ## npm dependencies and native addons
 
@@ -134,7 +134,7 @@ See [Operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, l
 
 See [Supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
 
-Unsupported: nested workspaces, catalogs, file/link/git dependencies, bytecode, source symlinks, project `bunfig.toml`, import attributes/macros, computed application imports, runtime packages requiring install scripts without a prepared dependency artifact. Import attributes and macros are checked with a syntax parser. Computed-import detection remains conservative. Unknown or unsupported settings fail explicitly.
+Unsupported: nested workspaces, file/link/git dependencies, bytecode, source symlinks, unsupported `bunfig.toml` settings, macros, computed application imports, runtime packages requiring install scripts without an explicit ignored-script allowance or prepared dependency artifact. Executable build inputs are checked before Bun parses them; copied assets and unreachable modules do not undergo executable syntax validation. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md) for data imports and explicit dependency policies. Unknown or unsupported settings fail explicitly.
 
 ## Diagnostics
 
