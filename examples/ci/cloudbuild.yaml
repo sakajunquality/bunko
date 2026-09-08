@@ -1,0 +1,7 @@
+steps:
+  - name: ubuntu:24.04 # Pin the helper image digest for production use.
+    entrypoint: bash
+    args: [-c, 'mkdir -p /workspace/output && chown 65532:65532 /workspace/output']
+  - name: ghcr.io/sakajunquality/bunko:v0.1.0-rc.3
+    env: [HOME=/tmp/bunko-home, XDG_CACHE_HOME=/tmp/bunko-cache]
+    args: [build, /workspace, --push=false, --oci-layout, /workspace/output/image, --report, /workspace/output/report.json]

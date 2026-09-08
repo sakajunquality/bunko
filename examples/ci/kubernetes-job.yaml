@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bunko-build
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: build
+          image: ghcr.io/sakajunquality/bunko:v0.1.0-rc.3
+          args: [build, /work, --push=false, --oci-layout, /out/image]
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: source, mountPath: /work, readOnly: true }
+            - { name: output, mountPath: /out }
+            - { name: temporary, mountPath: /tmp }
+            - { name: cache, mountPath: /home/bunko/.cache }
+      volumes:
+        - name: source
+          persistentVolumeClaim:
+            claimName: bunko-source
+        - name: output
+          persistentVolumeClaim:
+            claimName: bunko-output
+        - name: temporary
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
