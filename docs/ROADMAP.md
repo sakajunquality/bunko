@@ -48,3 +48,5 @@ Proceed in this order, with reviewed PRs, CI and representative runtime validati
 4. Source-preserving application packaging; runtime arguments, asset exclusions and modes, extra CA configuration, workspace defaults and toolchain declarations.
 
 Source-preserving mode precedes rebase. Rebase requires a separate image compatibility and configuration ownership design. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
+
+After the ordered implementation queue, address [system font packaging (#37)](https://github.com/sakajunquality/bunko/issues/37). Integrate a narrow data-only font destination policy with asset collision/mode checks and document system fallback versus explicit font registration. General OS package-manager execution remains outside the request.

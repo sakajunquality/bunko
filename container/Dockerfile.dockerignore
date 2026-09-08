@@ -1,0 +1,9 @@
+**
+!dist/
+!dist/release/
+!dist/release/bunko.js
+!dist/release/SHA256SUMS
+!dist/release/LICENSE
+!dist/release/THIRD_PARTY_NOTICES.md
+!container/
+!container/Dockerfile

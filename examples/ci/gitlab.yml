@@ -1,0 +1,12 @@
+build-image:
+  image:
+    name: ghcr.io/sakajunquality/bunko:v0.1.0-rc.3
+    entrypoint: [""]
+  variables:
+    HOME: /tmp/bunko-home
+    XDG_CACHE_HOME: /tmp/bunko-cache
+  script:
+    - bunko build . --push=false --oci-layout image --report report.json
+  artifacts:
+    when: always
+    paths: [image/, report.json]
