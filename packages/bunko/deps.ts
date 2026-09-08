@@ -1,3 +1,4 @@
+import { certificatePEM, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
 import { readBunfig, installConfig, type InstallPolicy } from "./bunfig.ts";
 import { catalogs } from "./catalogs.ts";
@@ -14,7 +15,7 @@ import { mapFiles } from "./concurrency.ts";
 import type { Toolchain } from "./toolchain.ts";
 
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
-export interface DependencyPlan { installPolicy?: InstallPolicy; manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
+export interface DependencyPlan { npmCertificate?: NpmCertificate; installPolicy?: InstallPolicy; manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
 export interface InventoryEntry { path: string; name: string; version: string; license?: string; ignoredInstallScripts?: string[] }
 export interface NativeBinary { path: string; architecture: string; needed: string[] }
 export interface OmittedAddon { path: string; reason: "foreign-format" | "foreign-architecture" }
@@ -147,7 +148,7 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown, 
   return lock;
 }
 
-export async function dependencyPlan(project: Project, root: string, validateCredentials = true): Promise<DependencyPlan> {
+export async function dependencyPlan(project: Project, root: string, validateCredentials = true, certificate?: NpmCertificate): Promise<DependencyPlan> {
   const workspace = project.workspace;
   const manifest = workspace?.packages[0]!.manifest ?? object(JSON.parse(project.manifestText), "package.json");
   const hasDependencies = dependencyFields.some((field) => Object.keys(object(manifest[field] ?? {}, field)).length);
@@ -174,6 +175,7 @@ export async function dependencyPlan(project: Project, root: string, validateCre
       const equals = line.indexOf("=");
       if (equals < 1) throw new Error("Unsupported .npmrc line");
       const key = line.slice(0, equals).trim();
+      if (key === "cafile") continue;
       const value = line.slice(equals + 1).trim().replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
         if (!validateCredentials && !/^(?:@[^:]+:)?registry$/.test(key)) return "bunko-credential-placeholder";
         const value = process.env[name];
@@ -202,7 +204,7 @@ export async function dependencyPlan(project: Project, root: string, validateCre
     }
   }
   const installPolicy = await readBunfig(root);
-  return { installPolicy, manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
+  return { npmCertificate: certificate ?? await npmCertificate(workspace?.directory ?? project.directory, validateCredentials), installPolicy, manifest, workspace, workspaceSources, lock, npmrc, registry: resolution.registry ?? "https://registry.npmjs.org", resolution, patches };
 }
 
 export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string): Promise<void> {
@@ -218,14 +220,22 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
   // Keep downloads outside node_modules even in the isolated installer environment.
   args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
+  const certificateFile = join(home, "npm-ca.pem");
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
+  const network = installNetworkEnvironment();
   try {
+    if (plan.npmCertificate) {
+      const extra = network.NODE_EXTRA_CA_CERTS ? await certificatePEM(network.NODE_EXTRA_CA_CERTS) : "";
+      await writeFile(certificateFile, plan.npmCertificate.pem + "\n" + extra, { mode: 0o600 });
+      // Bun 1.3.11 also needs process-level trust for TLS inside CONNECT tunnels.
+      network.NODE_EXTRA_CA_CERTS = certificateFile;
+      args.push(`--cafile=${certificateFile}`);
+    }
     const child = Bun.spawn(args, { cwd: root, env: {
       HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
       BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
-      ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
-      ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),
+      ...network,
     }, stdout: "pipe", stderr: "pipe" });
     const [, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     // Installer diagnostics may contain private URLs or credentials. The caller
@@ -233,7 +243,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
     if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability`);
     if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
     for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
-  } finally { await rm(auth, { force: true }); }
+  } finally { await Promise.all([rm(auth, { force: true }), rm(certificateFile, { force: true })]); }
 }
 
 /** Read ELF64 metadata without loading or executing a target binary. */

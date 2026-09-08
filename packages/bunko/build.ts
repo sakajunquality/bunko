@@ -1,3 +1,4 @@
+import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
 import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
@@ -481,7 +482,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
-  const exclusions = [await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const installCertificate = await npmCertificate(discovered.directory);
+  const network = installNetworkEnvironment();
+  const exclusions = [...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
@@ -511,7 +514,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     }
     const mapped = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
     for (const [index, project] of projects.entries()) mapped.set(project.directory, await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index)), [...exclusions, temporary]));
-    const plan = await dependencyPlan(projects[0]!, source), toolchain = await selectToolchain(options.bunPath);
+    const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
