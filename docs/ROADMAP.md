@@ -5,13 +5,13 @@ This is a delivery plan, not a promise of release dates or complete ko/BuildKit 
 ## Release candidate and workload acceptance
 
 - v0.1.0-rc.2 is published with reviewed diagnostics/runtime injection; its anonymous installation and CLI checksum were verified. Preserve its immutable assets.
-- Prepare the next candidate, rc.3, with reviewed OpenTelemetry support and exact-artifact validation.
-- Verify checksums and installation of the exact published RC from a clean consumer environment.
+- v0.1.0-rc.3 is published with OpenTelemetry support, verified compile runtime selection and exact-artifact validation; preserve its immutable assets.
+- Anonymous installation and checksums of rc.3 were verified. The official amd64/arm64 CLI container was also published and anonymously executed.
 - Complete the [remote application acceptance matrix](validation-request.html) on the application machine. Generic fixture passes do not certify Temporal, Snowflake, bot or framework-specific behavior.
 - Re-run the registry matrix with the exact RC artifact before carrying forward alpha.2 interoperability claims. Record unavailable credentials or services as not-run.
 - Promote to a stable release only after applicable workload checks and migration/rollback instructions have an explicit disposition.
 
-Completion means a reader can install the candidate and distinguish verified behavior from remaining workload/provider checks. Runtime injection now has an opt-in implementation and separate ABI/runtime validation; source-preserving mode remains future work.
+Completion means a reader can install the candidate and distinguish verified behavior from remaining workload/provider checks. Runtime injection now has an opt-in implementation and separate ABI/runtime validation; source-preserving mode is implemented on main after rc.3.
 
 ## Real workload and registry stability
 
@@ -38,9 +38,9 @@ Completion means a consumer can identify the artifact's origin, and automation c
 
 General Dockerfile/LLB execution, arbitrary RUN steps, remote workers, and broad platform expansion remain outside this plan. Rebase work first requires explicit Bun/libc/native compatibility gates.
 
-## Ordered implementation queue
+## Completed implementation sequence (after rc.3 where applicable)
 
-Proceed in this order, with reviewed PRs, CI and representative runtime validation before merging each change:
+The following ordered work is implemented. Focused documentation records fixture coverage and limitations; additions after the rc.3 release require a source build:
 
 1. Compile correctness and verified runtime selection, followed by rc.3 preparation and exact published-artifact validation. Reject unsupported emitted assets until compilation can preserve their runtime behavior.
 2. Release attestations with consumer verification; a build GitHub Action and CI guide; an official multiarchitecture nonroot CLI container and container-based CI examples.
@@ -49,4 +49,4 @@ Proceed in this order, with reviewed PRs, CI and representative runtime validati
 
 Source-preserving mode precedes rebase. Rebase requires a separate image compatibility and configuration ownership design. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
 
-After the ordered implementation queue, address [system font packaging (#37)](https://github.com/sakajunquality/bunko/issues/37). Integrate a narrow data-only font destination policy with asset collision/mode checks and document system fallback versus explicit font registration. General OS package-manager execution remains outside the request.
+Next, address [system font packaging (#37)](https://github.com/sakajunquality/bunko/issues/37). Integrate a narrow data-only font destination policy with asset collision/mode checks and document system fallback versus explicit font registration. General OS package-manager execution remains outside the request.

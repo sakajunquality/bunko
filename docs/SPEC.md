@@ -271,3 +271,9 @@ Builder identity is an input to application caching and runnable image labels. D
 ### Compile output boundary
 
 Compile mode currently accepts a single emitted JavaScript server entrypoint. Literal dynamic imports that Bun includes in that output are supported. Builds that emit additional files, including HTML routes, browser JavaScript and CSS, fail before compilation with `Compile mode requires a single JavaScript output`. Use bundle mode for those applications. This avoids deleting assets that the recompiled server still references; compile mode does not yet compile HTML routes directly from source. External sourcemaps remain unsupported in compile mode.
+
+## Source builds after rc.3
+
+The current source contract additionally includes [source-preserving packaging](SOURCE_MODE.md), [explicit workspace defaults, local toolchain requirements, runtime arguments, asset exclusions/modes and application CA certificates](CONFIGURATION.md), and [prepared base layouts with bounded offline builds](OFFLINE.md). These focused specifications define the corresponding configuration and validation boundaries. The immutable rc.3 release does not include these additions.
+
+Source mode preserves the sanitized source tree and the production dependency topology, supports computed runtime imports, and invokes Bun with `--no-install`. It rejects bundler options, invocation defines, closure and shared dependency strategies. Runtime argument arrays precede the source entrypoint; compiled applications use ordinary application arguments instead.
