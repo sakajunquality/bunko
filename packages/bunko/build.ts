@@ -1,5 +1,5 @@
 import { downloadRuntime, type InjectedRuntime } from "./runtime-download.ts";
-import { baseFilesystem, injectedLayer } from "./runtime-layer.ts";
+import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
 import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
@@ -175,14 +175,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       if (source instanceof RegistrySource) for (const layer of base.manifest.layers) store.origins.set(layer.digest, source.ref);
       bases.push(base);
     }
-    const runtimes: (Awaited<ReturnType<typeof injectedLayer>> & { metadata: InjectedRuntime })[] = [];
+    const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
         const runtime = await downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache });
         runtime.metadata.path = project.bunPath;
         const tree = await baseFilesystem(store, bases[index]!, temporary);
-        const packed = await injectedLayer(store, runtime.metadata, runtime.executable, tree, timestamp);
-        runtimes.push({ ...packed, metadata: runtime.metadata });
+        runtimes.push({ ...runtime, tree });
       }
     }
     const baseInventories = await Promise.all(bases.map(async (base, i) => {
@@ -208,7 +207,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       }
       for (const [index, platform] of project.platforms.entries()) {
         const base = bases[index]!;
-        const runtime = runtimes[index];
+        const inputRuntime = runtimes[index];
+        const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {
           const key = cacheKey({ kind: "runtime", packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });

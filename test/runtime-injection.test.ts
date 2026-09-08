@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { archiveChecksum, extractRuntime, runtimeAsset, runtimeBytes, runtimeELF, verifiedChecksums, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
+import { archiveChecksum, downloadRuntime, extractRuntime, runtimeAsset, runtimeBytes, runtimeELF, verifiedChecksums, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
 import { baseFilesystem, baseNode, runtimeEntries } from "../packages/bunko/runtime-layer.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { project } from "./helpers.ts";
@@ -109,4 +109,16 @@ test("runtime layer records survive local cache serialization", async () => {
   const cache=new LayerCache(store,{directory,log:()=>{}}); await cache.remember(record);
   const next=new LayerCache(new BlobStore(join(root,"next")),{directory,log:()=>{}});
   expect((await next.get(key,"runtime",false,{destination:record.destination,platform}))!.layer).toEqual(layer);
+});
+
+
+test.skipIf(!Bun.which("gpgv"))("corrupt cached archives cannot bypass signed checksums or replace cache contents", async () => {
+  const root = await temp(), dir = join(root,"1.3.11-bun-linux-aarch64");
+  await mkdir(dir);
+  await writeFile(join(dir,"SHASUMS256.txt.asc"),await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc",import.meta.url)));
+  const archive=join(dir,"bun-linux-aarch64.zip"); await writeFile(archive,"corrupt cached bytes");
+  const requests:string[]=[];
+  await expect(downloadRuntime(toolchain,platform,{cache:root,fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
+  expect(requests.length).toBe(1); expect(requests[0]!.endsWith("/bun-linux-aarch64.zip")).toBe(true);
+  expect(await readFile(archive,"utf8")).toBe("corrupt cached bytes");
 });

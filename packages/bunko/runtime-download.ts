@@ -1,6 +1,7 @@
+import { constants } from "node:fs";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { fromBufferPromise } from "yauzl";
-import { mkdtemp, readFile, writeFile, rm, rename, lstat } from "node:fs/promises";
+import { mkdtemp, open, writeFile, rm, rename } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -162,9 +163,19 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
       async function cached(name: string, limit: number, verify: (b: Buffer) => Promise<void>) {
         const path = join(directory, name);
         try {
-          const stat = await lstat(path);
-          if (!stat.isFile() || stat.isSymbolicLink() || stat.size > limit) throw new Error("Invalid runtime cache entry");
-          const bytes = await readFile(path); if (bytes.length > limit) throw new Error("Invalid runtime cache entry");
+          const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+          let bytes: Buffer;
+          try {
+            const stat = await handle.stat();
+            if (!stat.isFile() || stat.size > limit) throw new Error("Invalid runtime cache entry");
+            const chunks: Buffer[] = []; let size = 0;
+            for (;;) {
+              const chunk = Buffer.alloc(64 * 1024), { bytesRead } = await handle.read(chunk);
+              if (!bytesRead) break;
+              size += bytesRead; if (size > limit) throw new Error("Invalid runtime cache entry"); chunks.push(chunk.subarray(0, bytesRead));
+            }
+            bytes = Buffer.concat(chunks);
+          } finally { await handle.close(); }
           await verify(bytes); return bytes;
         } catch { /* An invalid cached object is replaced only after verification succeeds. */ }
         const bytes = await runtimeBytes(`${base}/${name}`, limit, options.fetcher); await verify(bytes);
