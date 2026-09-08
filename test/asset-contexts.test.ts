@@ -1,0 +1,91 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { assetMappings, parseAssetContexts, stageAssetMappings } from "../packages/bunko/asset-contexts.ts";
+import { build } from "../packages/bunko/build.ts";
+import { provenance } from "../packages/bunko/attest.ts";
+import { BlobStore } from "../packages/oci/blob-store.ts";
+import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
+
+const roots: string[] = [];
+afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+async function fixture() {
+  const root = await temporary(); roots.push(root);
+  const context = join(root, "external-private-location");
+  await mkdir(join(context, "config"), { recursive: true });
+  await writeFile(join(context, "config/settings.json"), '{"message":"asset-data"}');
+  // Unselected source is never scanned or packaged.
+  await writeFile(join(context, ".env"), "unselected-secret");
+  await symlink("/nonexistent", join(context, "unselected-link"));
+  const mapping = { context: "repo", from: "config", to: "/repo/config" };
+  const source = await project(join(root, "app"), { bunko: { assetMappings: [mapping] } }, 'console.log("server");');
+  return { root, context, mapping, source };
+}
+
+test("mapped assets use exact image destinations and content-addressed metadata without host paths", async () => {
+  const f = await fixture();
+  const options = { path: f.source, baseLayout: await baseLayout(join(f.root, "base")), assetContexts: { repo: f.context }, gitMetadata: false, cacheDir: join(f.root, "cache") };
+  const first = await build({ ...options, output: join(f.root, "first"), verifyDeterministic: true });
+  const layer = first.layers.find((item) => item.kind === "assets")!;
+  const entries = await inspectTar(new BlobStore(first.layout!).path(layer.descriptor.digest));
+  expect(entries.find((item) => item.name === "repo/config/settings.json")?.content).toContain("asset-data");
+  expect(entries.some((item) => item.name.startsWith("app/repo"))).toBe(false);
+  expect(JSON.stringify(first)).not.toContain(f.context);
+  expect(JSON.stringify(provenance(first))).not.toContain(f.context);
+  expect(JSON.stringify(provenance(first))).toContain("urn:bunko:asset:repo:0");
+  const second = await build({ ...options, output: join(f.root, "second") });
+  expect(second.cache.some((event) => event.kind === "assets" && event.status === "local")).toBe(true);
+  expect(second.root.digest).toBe(first.root.digest);
+  await writeFile(join(f.context, "config/settings.json"), '{"message":"changed"}');
+  const changed = await build({ ...options, output: join(f.root, "changed") });
+  expect(changed.root.digest).not.toBe(first.root.digest);
+  expect(changed.assetMaterials![0]!.digest).not.toBe(first.assetMaterials![0]!.digest);
+  expect(changed.layers.find((item) => item.kind === "app")!.descriptor.digest).toBe(first.layers.find((item) => item.kind === "app")!.descriptor.digest);
+});
+
+test("asset snapshots are immutable and preserve file mappings", async () => {
+  const f = await fixture();
+  const staged = await stageAssetMappings([{ ...f.mapping, from: "config/settings.json", to: "/repo/settings.json" }], { repo: f.context }, join(f.root, "stage"));
+  await writeFile(join(f.context, "config/settings.json"), "changed");
+  const entry = staged.entries[0]!;
+  expect(entry.path).toBe("repo/settings.json");
+  if (entry.type !== "file" || !("source" in entry)) throw new Error("Expected staged file");
+  expect(await readFile(entry.source, "utf8")).toContain("asset-data");
+});
+
+test.each(["config/.env.production", "config/node_modules/package.json", "config/.npmrc"])("selected excluded files fail closed: %s", async (name) => {
+  const f = await fixture();
+  await mkdir(join(f.context, name, ".."), { recursive: true }); await writeFile(join(f.context, name), "private-value");
+  await expect(stageAssetMappings([f.mapping], { repo: f.context }, join(f.root, "stage"))).rejects.toThrow("Excluded asset input");
+});
+
+test("ignore rules, output exclusions, symlinks and missing contexts fail before packaging", async () => {
+  const f = await fixture(), stage = join(f.root, "stage");
+  await expect(stageAssetMappings([f.mapping], {}, stage)).rejects.toThrow("Missing asset context");
+  await expect(stageAssetMappings([f.mapping], { repo: f.context }, stage, [join(f.context, "config")])).rejects.toThrow("Excluded asset input");
+  await writeFile(join(f.context, ".bunkoignore"), "config/settings.json\n");
+  await expect(stageAssetMappings([f.mapping], { repo: f.context }, stage)).rejects.toThrow("Excluded asset input");
+  await rm(join(f.context, ".bunkoignore"));
+  await symlink("config", join(f.context, "linked"));
+  await expect(stageAssetMappings([{ ...f.mapping, from: "linked/settings.json" }], { repo: f.context }, stage)).rejects.toThrow("symlinks");
+  await symlink("../../app/src/server.ts", join(f.context, "config/source.ts"));
+  await expect(stageAssetMappings([f.mapping], { repo: f.context }, stage)).rejects.toThrow("symlinks");
+});
+
+test.each(["/usr/local/bin/bun", "/etc/config", "/app/node_modules/pkg", "/repo/../etc/config", "/repo/.wh.hidden", "/", "repo/config"])("unsafe image mappings are rejected: %s", (to) => {
+  expect(() => assetMappings([{ context: "repo", from: "config", to }])).toThrow();
+});
+
+test("mapping validation rejects traversal, globs, unknown keys and duplicate context names", () => {
+  for (const from of ["../config", "config/*", "./config", "/config"]) expect(() => assetMappings([{ context: "repo", from, to: "/repo/config" }])).toThrow();
+  expect(() => assetMappings([{ context: "repo", from: "config", to: "/repo/config", extra: true }])).toThrow();
+  expect(() => parseAssetContexts(["repo=/one", "repo=/two"])).toThrow();
+  expect(parseAssetContexts(["repo=/tmp/input"]).repo).toBe("/tmp/input");
+});
+
+test("mapped assets reject internal and application output collisions", async () => {
+  const f = await fixture();
+  await expect(stageAssetMappings([f.mapping, f.mapping], { repo: f.context }, join(f.root, "stage"))).rejects.toThrow("overlap");
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { assetMappings: [{ ...f.mapping, from: "config/settings.json", to: "/app/src/server.js" }] } }));
+  await expect(build({ path: f.source, baseLayout: await baseLayout(join(f.root, "base")), assetContexts: { repo: f.context }, output: join(f.root, "out"), localCache: false })).rejects.toThrow("overlap");
+});

@@ -41,8 +41,9 @@ export function provenance(result: BuildResult, lockDigest?: string) {
   return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: result.target, digest: { sha256: result.root.digest.slice(7) } }],
     predicateType: "https://slsa.dev/provenance/v1", predicate: {
       buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/build/v1",
-        externalParameters: { platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle" },
+        externalParameters: { platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => mapping) } : {}) },
         internalParameters: { builder: result.builder }, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
+          ...(result.assetMaterials ?? []).map((material, index) => dependency(`urn:bunko:asset:${material.context}:${index}`, material.digest)),
           ...(lockDigest ? [dependency("urn:bunko:lock", lockDigest)] : []),
           ...result.images.map((image) => dependency(`urn:bunko:base:${image.platform.architecture}`, image.baseDigest)),
           ...result.images.flatMap((image) => image.baseInventory ? [dependency(`oci://${image.baseInventory.reference}`, image.baseInventory.artifactDigest)] : []),

@@ -1,3 +1,4 @@
+import { assetMappings, type AssetMapping } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { catalogs, catalogSpecifier, registrySpecifier } from "./catalogs.ts";
 import packageMetadata from "../../package.json";
@@ -13,6 +14,7 @@ export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   path: string;
+  assetContexts?: Record<string, string>;
   progress?: (event: import("./progress.ts").ProgressEvent) => void;
   imageLabels?: Record<string, string>;
   imageAnnotations?: Record<string, string>;
@@ -89,6 +91,7 @@ export interface Project {
   ports?: number[];
   args: string[];
   assets: string[];
+  assetMappings: AssetMapping[];
   build: { allowUnresolved?: string[]; minify: boolean; sourcemap: "none" | "external"; define: Record<string, string> };
 }
 
@@ -167,7 +170,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
+  knownKeys(config, ["entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
   if (mode !== "bundle" && mode !== "compile") throw new Error("mode must be bundle or compile");
@@ -272,6 +275,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     bunPath: absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath"),
     user: optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user"), env, labels, ports,
     args: strings(config.args, "args"),
+    assetMappings: assetMappings(config.assetMappings),
     assets: [...new Set([...strings(config.assets, "assets").map((p) => relativePath(p, "assets pattern")), ...(dataPath ? ["bunkodata"] : [])])],
     build: { allowUnresolved: build.allowUnresolved as string[] | undefined, minify: build.minify as boolean | undefined ?? true, sourcemap: build.sourcemap as "none" | "external" | undefined ?? "none", define: stringMap(build.define, "build.define") },
   };

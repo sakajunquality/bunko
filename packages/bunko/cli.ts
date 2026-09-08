@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { parseAssetContexts } from "./asset-contexts.ts";
 import { exportMetadata } from "./metadata.ts";
 import { dependencyMap } from "./dependency-map.ts";
 import { registryTLS } from "../oci/tls.ts";
@@ -60,6 +61,7 @@ Usage:
 
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
+  --asset-context <NAME=DIR>  Named local asset input; repeatable
   --context <dir>         Base directory for bunko:// references (default: cwd)
   -l, --selector <query>  Select manifest documents by metadata.labels
   --recursive             Include nested input directories for resolve
@@ -170,6 +172,7 @@ export async function main(argv: string[]): Promise<number> {
       "image-refs": { type: "string" },
       filename: { type: "string", short: "f", multiple: true },
       context: { type: "string" },
+      "asset-context": { type: "string", multiple: true },
       selector: { type: "string", short: "l" },
       recursive: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -328,6 +331,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
       baseSBOMs: Object.keys(baseSBOMs).length ? baseSBOMs : undefined, depsVerifyKey: values["deps-verify-key"], supplyChainPolicy: values["supply-chain-policy"] as "ci" | undefined,
+      assetContexts: parseAssetContexts(values["asset-context"]),
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
       jobs: jobsText === undefined ? undefined : Number(jobsText),

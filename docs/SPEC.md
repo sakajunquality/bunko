@@ -254,3 +254,7 @@ Builder identity is an input to application caching and runnable image labels. D
 ## Cache distribution and managed retention
 
 `--cache-from` supplies ordered additional Registry read sources; `--cache-repo` remains the single write destination. `--cache-write=false` disables Registry cache writes independently of reads. `cache-info` reports validated local metadata and referenced blob bytes. `prune --keep-bytes N` previews oldest-metadata-first removal within that managed scope; `--execute` is required for deletion. Unknown and unreferenced files are untouched. See [CACHE_RETENTION.md](CACHE_RETENTION.md).
+
+### Named asset contexts
+
+`bunko.assetMappings` accepts `{context, from, to}` records. `--asset-context NAME=DIR` binds each logical context to a local directory. `from` selects an exact relative file or subtree; `to` is its exact absolute image destination. Only selected inputs are frozen. Exclusions, symlink rejection, protected destinations, cross-layer collisions, content-based caching, and logical material provenance follow the [application compatibility contract](APPLICATION_COMPATIBILITY.md#named-local-asset-contexts). Host context paths are not persisted in materials.
