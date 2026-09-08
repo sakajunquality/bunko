@@ -143,3 +143,15 @@ This starts a disposable Distribution 3 Registry with Basic authentication, reje
 Prerequisite Docker pulls retry transient 429/5xx and connection failures at most three times. Container creation is not retried. This addresses an observed Docker Hub 500 while starting the merged-main CI job; rerunning that original job succeeded.
 
 Local validation on 2026-09-08 passed with authenticated Distribution 3, separate image/cache repositories, and both amd64/arm64 runtime checks on macOS. Cache reuse was verified, both Docker-exported config digests matched, and both nonroot/read-only containers exited 0 on SIGTERM. This run used the archive path, not direct Docker pull. The Linux CI run exercises direct Docker pull separately.
+
+## Private CA and mutual TLS
+
+`--registry-config FILE` accepts a JSON object keyed by registry host, optionally including a port. Each value accepts `ca`, `cert` and `key` PEM file paths relative to that JSON file. Client authentication requires cert and key together. Default-port aliases are normalized and duplicate hosts fail. For example:
+
+```json
+{"registry.example.com:443":{"ca":"ca.pem","cert":"client.pem","key":"client-key.pem"}}
+```
+
+Certificates are scoped to exact HTTPS origins, including separately configured token-service origins. Redirects do not forward a client certificate to an unconfigured origin. TLS verification remains enabled. `--insecure-registry HOST:PORT` means explicit HTTP permission, not disabled HTTPS verification. Configuration and certificate files are excluded from application snapshots; keep them outside the project whenever possible.
+
+This config controls Bunko's OCI client. Combining it with integrated signing is rejected before publication; publish first and sign using a separately configured cosign client. Configure cosign's trust separately (for example with its supported SSL_CERT_FILE environment); it does not consume this JSON file. Registry mirrors are not implemented.

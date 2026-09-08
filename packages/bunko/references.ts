@@ -24,3 +24,7 @@ export async function writeReferences(path: string, references: string[]): Promi
     await link(file, path);
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
+
+export function localImageReference(name: string, digest: string, kind?: string): string {
+  return `${kind ? "kind.local" : "bunko.local"}/${name}:sha256-${digest.slice(7)}`;
+}

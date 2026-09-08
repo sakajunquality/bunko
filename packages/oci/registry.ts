@@ -4,6 +4,8 @@ import { media } from "./types.ts";
 
 export type Fetcher = (url: string | URL, init?: RequestInit) => Promise<Response>;
 export interface RegistryOptions {
+  sensitivePaths?: string[];
+  tls?: Record<string, import("./tls.ts").RegistryTLS>;
   fetcher?: Fetcher;
   credentials?: CredentialProvider;
   insecure?: string[];
@@ -61,7 +63,12 @@ export class RegistryClient {
     const http = new URL(`http://${registry}`).origin;
     this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
     if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
-    this.fetcher = options.fetcher ?? fetch;
+    const transport = options.fetcher ?? fetch;
+    this.fetcher = (url, init) => {
+      const origin = new URL(url).origin;
+      const tls = options.tls?.[origin];
+      return transport(url, { ...init, ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
+    };
     this.credentials = options.credentials ?? dockerCredentials();
   }
 

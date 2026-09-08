@@ -15,6 +15,12 @@ export interface ApplyOptions extends ResolveOptions {
 /** Resolve and publish all targets before starting kubectl. Kubernetes itself
  * does not provide an atomic multi-resource apply transaction. */
 export async function applyDocuments(options: ApplyOptions): Promise<{ exit: number; stdout: string; stderr: string }> {
+  if (options.local) throw new Error("apply requires --kind for local cluster loading; use resolve --local for Docker");
+  if (options.kind) {
+    const context = `kind-${options.kind}`;
+    if (options.kubeContext && options.kubeContext !== context) throw new Error("--kube-context must match the selected kind cluster");
+    options = { ...options, kubeContext: context };
+  }
   await referenceOutput(options.imageRefs, [options.report]);
   const kubectl = Bun.which(options.kubectlPath ?? "kubectl");
   if (!kubectl) throw new Error("apply requires kubectl on PATH or --kubectl-path");

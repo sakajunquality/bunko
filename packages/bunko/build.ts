@@ -1,7 +1,8 @@
+import { canonicalDependencyMap } from "./dependency-map.ts";
 import { requiredInputs } from "./ignore.ts";
 import { targetInputs } from "./inputs.ts";
 import { phase } from "./progress.ts";
-import { referenceOutput, writeReferences } from "./references.ts";
+import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
 import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -178,9 +179,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
         let aliases: Awaited<ReturnType<typeof dependencyClosure>>["entries"] = [];
         let dependencyArtifactDigest: Digest | undefined;
-        const dependencyArtifact = options.externalDeps?.[`${platform.os}/${platform.architecture}`];
+        const dependencyArtifact = (options.externalDepsByTarget?.[project.directory] ?? options.externalDeps)?.[`${platform.os}/${platform.architecture}`];
         if (dependencyArtifact) {
-          const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry);
+          const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
           for (const name of project.external) if (!inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
@@ -265,7 +266,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     for (const record of records) await cache.remember(record);
     const first = images[0]!;
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
-    const localReference = options.local || options.kind ? `${options.kind ? "kind.local" : "bunko.local"}/${project.name}:sha256-${root.digest.slice(7)}` : undefined;
+    const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
       schemaVersion: 2, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
@@ -346,11 +347,13 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
+  if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
   const jobs = options.jobs ?? 1;
   if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
   if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
+  if (options.signKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
   if (options.cosignPath && !options.signKey) throw new Error("cosignPath requires signKey");
   if (options.signKey && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing requires cosign on PATH or --cosign-path");
@@ -363,10 +366,14 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
-  if (options.externalDeps) {
-    if (discovered.workspace || sharedDeps || projects.some((p) => p.mode === "compile" || !p.external.length)) throw new Error("External dependency artifacts require a standalone bundle with explicit runtime externals");
-    const required = projects[0]!.platforms.map((p) => `${p.os}/${p.architecture}`);
-    if (Object.keys(options.externalDeps).length !== required.length || required.some((p) => !options.externalDeps![p])) throw new Error("Supply exactly one --deps-artifact for every selected platform");
+  if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");
+  if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => !projects.some((p) => p.directory === path))) throw new Error("Dependency map contains an unselected target");
+  for (const project of projects) {
+    const artifacts = options.externalDepsByTarget?.[project.directory] ?? options.externalDeps;
+    if (!artifacts) continue;
+    if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle target with explicit externals and no sharedDeps");
+    const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
+    if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
   }
   if (sharedDeps && (!discovered.workspace || projects.some((p) => p.depsStrategy !== "closure"))) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
   if (sharedDeps && new Set(projects.map((p) => JSON.stringify([p.workdir, p.base, p.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
@@ -386,7 +393,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
-  const exclusions = [output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDeps ?? {}).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
+  const exclusions = [...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];

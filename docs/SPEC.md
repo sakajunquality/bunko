@@ -234,3 +234,9 @@ A root `.bunkoignore` accepts positive root-relative Bun globs, blank lines and 
 Workspace application cache keys retain whole reachable member trees, every package/tsconfig manifest and root inputs. Unknown resolution, npm imports, escaped specifiers, HTML/CSS imports or tsconfig path aliases fall back to the complete snapshot. Source audit labels still represent the entire snapshot and can change the image digest even when app output is reused. Ordinary bundle output is shared across platforms within a single independent build iteration; compiled output remains platform-specific.
 
 `--progress=json` emits schema-versioned snapshot, prepare and publish events to stderr with start/completion/failure status and durations. Compiler/build logs use separate JSON log records and failures use JSON error records after progress configuration is parsed. Stdout retains its command-specific contract. Durations never participate in image identity.
+
+## Local resolution and OCI interoperability
+
+Resolve supports local Docker and kind loading in addition to Registry publication. Kind apply explicitly selects the matching kind context. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md). Per-target dependency maps support standalone and target-bound workspace artifacts; see the [preparation recipe](../examples/prepared-dependencies/README.md).
+
+Zstd-compressed OCI base layers are supported without recompression during composition. Zstd descriptors are limited to 2 GiB compressed; decoding defaults to 2 GiB output and a 128 MiB maximum decoder window. Docker export verifies decompressed DiffIDs. Generated application layers remain gzip. Custom CA and mutual TLS settings are host-scoped; see [REGISTRIES.md](REGISTRIES.md).

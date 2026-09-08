@@ -26,6 +26,7 @@ export interface BuildOptions {
   cosignPath?: string;
   depsStrategy?: string;
   externalDeps?: Record<string, string>;
+  externalDepsByTarget?: Record<string, Record<string, string>>;
   sharedDeps?: boolean;
   output?: string;
   push?: boolean;
