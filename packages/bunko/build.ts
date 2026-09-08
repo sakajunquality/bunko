@@ -218,6 +218,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
     }
     const prefix = project.workdir.slice(1);
+    const layerRoots = [prefix, ...context.mappedAssets.materials.map((material) => material.to.slice(1))];
     const originalAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix, project.assetExcludes.length > 0);
     const selectedAssets = assetPolicy(originalAssets, prefix, project.assetExcludes, project.assetMode);
     const assets = [...(project.mode === "source" ? [] : selectedAssets), ...context.mappedAssets.entries, ...context.runtimeCertificate ? [context.runtimeCertificate.entry] : []];
@@ -230,7 +231,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       let assetsLayer: Layer | undefined;
       if (assets.length) {
         const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
-        assetsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp));
+        assetsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp, layerRoots));
         if (!hit && iteration === 1 && assetsLayer) records.push({ schemaVersion: 1, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer: assetsLayer, inventory: [], native: [] });
       }
       for (const [index, platform] of project.platforms.entries()) {
@@ -268,7 +269,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           noteOmittedAddons(content.omitted);
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
           for (const name of project.external) if (!(project.mode === "source" && Object.hasOwn(JSON.parse(project.manifestText).optionalDependencies ?? {}, name)) && !inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
-          depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
+          depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, layerRoots));
         } else if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
           const content = await context.closure(context.closureProjects, platform, iteration);
           aliases = content.aliases.get(project.targetPath) ?? [];
@@ -279,7 +280,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
           depsEntries = content.entries;
-          depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
+          depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, layerRoots));
           if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
         } else if (project.external.length || project.mode === "source" && plan.lock) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
@@ -293,7 +294,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             noteOmittedAddons(content.omitted);
-            depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp));
+            depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, layerRoots));
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
           }
         }
@@ -344,7 +345,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
         app.push(...aliases);
         assertNoLayerCollision([runtime?.entries ?? [], depsEntries, assets, app]);
-        const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp));
+        const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, layerRoots));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
@@ -385,7 +386,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     if (attestations.length || options.signKey) result.supplyChain = { status: "prepared" };
     if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
     const descriptors = [...attestations.flatMap((item) => [item.manifest, ...item.blobs]), ...bases.flatMap((base) => base.manifest.layers), ...images.flatMap((image) => [...image.layers.map((l) => l.descriptor), image.config, image.manifest])];
-    const refName = `${destination ?? project.name}:latest`;
+    const refName = `${destination ?? `bunko.local/${project.name}`}:${tags[0] ?? "latest"}`;
     return { targetKey: project.directory, result, store, descriptors, refName,
       dispose: () => rm(temporary, { recursive: true, force: true }),
       finish: async () => {

@@ -82,3 +82,19 @@ describe("base image resolution", () => {
     expect(image.config.architecture).toBe("arm64");
   });
 });
+
+test("base layer descriptor annotations survive resolution and layout descriptor annotations survive export", async () => {
+  const root = await dir(), input = await baseLayout(join(root, "base"));
+  const store = new BlobStore(input), index = await Bun.file(join(input, "index.json")).json();
+  const original = index.manifests[0];
+  const manifest = await readJSON<ImageManifest>(input, original);
+  manifest.layers[0]!.annotations = { "org.example.layer": "retained" };
+  const descriptor = await store.put(canonicalJSON(manifest), media.manifest);
+  index.manifests[0] = { ...descriptor, annotations: { "org.example.descriptor": "retained" } };
+  await writeFile(join(input, "index.json"), canonicalJSON(index));
+  const base = await resolveBase(new LayoutSource(input), { os: "linux", architecture: "amd64" }, new BlobStore(join(root, "resolved")));
+  expect(base.manifest.layers[0]!.annotations).toEqual({ "org.example.layer": "retained" });
+  const { exportLayout } = await import("../packages/oci/layout.ts");
+  await exportLayout(store, join(root, "exported"), index.manifests[0], [manifest.config, ...manifest.layers], "bunko.local/base:test");
+  expect((await Bun.file(join(root, "exported/index.json")).json()).manifests[0].annotations).toEqual({ "org.example.descriptor": "retained", "org.opencontainers.image.ref.name": "bunko.local/base:test" });
+});

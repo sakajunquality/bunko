@@ -38,7 +38,7 @@ describe("deterministic OCI layers", () => {
 
   test("PAX handles long UTF-8 paths, long links and large timestamps", async () => {
     const blobs = await store();
-    const name = `app/${"文".repeat(110)}`;
+    const name = `app/${"文".repeat(60)}/${"文".repeat(50)}`;
     const target = "x".repeat(150);
     const layer = (await packLayer(blobs, [
       { path: name, type: "file", content: Buffer.from("unicode\n") },
@@ -78,4 +78,23 @@ describe("deterministic OCI layers", () => {
     await writeFile(source, "x");
     await expect(packLayer(blobs, [{ path: "app/file", type: "file", source, size: 100 }], "app", 0)).rejects.toThrow("File changed");
   });
+});
+
+
+test("owned layer roots preserve base ancestors without weakening collision validation", async () => {
+  const blobs = await store();
+  const entries: TarEntry[] = [
+    { path: "tmp/seed/data.txt", type: "file", content: Buffer.from("data") },
+    { path: "usr/local/share/fonts/custom/font.otf", type: "file", content: Buffer.from("font") },
+  ];
+  const layer = (await packLayer(blobs, entries, "assets", 0, ["tmp/seed", "usr/local/share/fonts/custom"]))!;
+  expect((await inspectTar(blobs.path(layer.descriptor.digest))).map((entry) => entry.name)).toEqual([
+    "tmp/seed", "tmp/seed/data.txt", "usr/local/share/fonts/custom", "usr/local/share/fonts/custom/font.otf",
+  ]);
+  for (const entries of [
+    [{ path: "tmp", type: "file", content: Buffer.from("x") }, { path: "tmp/seed/data", type: "file", content: Buffer.from("y") }],
+    [{ path: "TMP/file", type: "file", content: Buffer.from("x") }, { path: "tmp/seed/data", type: "file", content: Buffer.from("y") }],
+  ] as TarEntry[][]) await expect(packLayer(blobs, entries, "assets", 0, ["tmp/seed"])).rejects.toThrow();
+  expect(() => archivePath(`app/${"x".repeat(256)}`)).toThrow("Unsafe archive path");
+  expect(() => archivePath(`app/${"文".repeat(86)}`)).toThrow("Unsafe archive path");
 });

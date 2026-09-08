@@ -114,3 +114,11 @@ test("selector labels must be a mapping, including aliased and tagged scalar val
   expect(selectDocuments("aliased.yaml", "labels: &labels {app: api}\nmetadata: {labels: *labels}", labelSelector("app=api"))).toBeDefined();
   expect(selectDocuments("null.yaml", "metadata: {labels: null}", labelSelector("!app"))).toBeDefined();
 });
+
+
+test("OCI layout uses the first selected tag and a qualified local image name", async () => {
+  const f = await fixture(), output = join(f.root, "qualified");
+  await build({ path: f.source, baseLayout: f.base, output, push: false, tags: ["test-tag"], localCache: false, gitMetadata: false });
+  const index = await Bun.file(join(output, "index.json")).json();
+  expect(index.manifests[0].annotations["org.opencontainers.image.ref.name"]).toBe("bunko.local/hello:test-tag");
+});

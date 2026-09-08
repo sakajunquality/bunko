@@ -182,7 +182,7 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
     if (![media.tar, media.gzip, media.dockerGzip, media.zstd].includes(original.mediaType as typeof media.tar)) throw new Error(`Unsupported base layer type: ${original.mediaType}`);
     if (lazy) store.defer(original, () => source.blob(original), source instanceof RegistrySource ? source.ref : undefined);
     else await store.putStream(await source.blob(original), original.mediaType, original);
-    layers.push({ mediaType: original.mediaType === media.dockerGzip ? media.gzip : original.mediaType, digest: original.digest, size: original.size });
+    layers.push({ mediaType: original.mediaType === media.dockerGzip ? media.gzip : original.mediaType, digest: original.digest, size: original.size, ...(original.annotations ? { annotations: original.annotations } : {}) });
   }
   return {
     ...selected,

@@ -18,13 +18,14 @@ export type TarEntry =
 
 export function archivePath(path: string): string {
   if (!path || path.startsWith("/") || path.includes("\\") || /[\x00-\x1f\x7f]/.test(path)
-    || path.split("/").some((p) => !p || p === "." || p === ".." || p.startsWith(".wh."))) {
+    || path.split("/").some((p) => !p || p === "." || p === ".." || p.startsWith(".wh.") || Buffer.byteLength(p) > 255)) {
     throw new Error(`Unsafe archive path: ${JSON.stringify(path)}`);
   }
   return path;
 }
 
-function entriesWithParents(input: TarEntry[]): TarEntry[] {
+function entriesWithParents(input: TarEntry[], roots?: string[]): TarEntry[] {
+  const explicit = new Set(input.map((entry) => entry.path));
   const entries = new Map<string, TarEntry>();
   const caseNames = new Map<string, string>();
   function add(entry: TarEntry, implicit = false) {
@@ -55,7 +56,7 @@ function entriesWithParents(input: TarEntry[]): TarEntry[] {
       if (target === ".." || target.startsWith("../")) throw new Error(`Escaping symlink: ${entry.path}`);
     }
   }
-  return [...entries.values()].sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
+  return [...entries.values()].filter((entry) => !roots || explicit.has(entry.path) || roots.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))).sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
 }
 
 function octal(header: Buffer, start: number, width: number, value: number) {
@@ -102,9 +103,9 @@ function paxRecord(key: string, value: string): Buffer {
 
 const padding = (size: number) => Buffer.alloc((512 - size % 512) % 512);
 
-export async function* tar(input: TarEntry[], epoch: number): AsyncGenerator<Uint8Array> {
+export async function* tar(input: TarEntry[], epoch: number, roots?: string[]): AsyncGenerator<Uint8Array> {
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error("Invalid tar epoch");
-  for (const entry of entriesWithParents(input)) {
+  for (const entry of entriesWithParents(input, roots?.map(archivePath))) {
     const path = splitPath(entry.path);
     const size = entry.type === "file" ? ("content" in entry ? entry.content.byteLength : entry.size) : 0;
     const target = entry.type === "symlink" ? entry.target : "";
@@ -142,11 +143,12 @@ export async function* tar(input: TarEntry[], epoch: number): AsyncGenerator<Uin
   yield Buffer.alloc(1024);
 }
 
-export async function packLayer(store: BlobStore, entries: TarEntry[], kind: Layer["kind"], epoch: number): Promise<Layer | undefined> {
+/** Only synthesize directory metadata within owned roots; still validate every ancestor. */
+export async function packLayer(store: BlobStore, entries: TarEntry[], kind: Layer["kind"], epoch: number, roots?: string[]): Promise<Layer | undefined> {
   if (entries.length === 0) return undefined;
   const hash = createHash("sha256");
   async function* hashedTar() {
-    for await (const chunk of tar(entries, epoch)) { hash.update(chunk); yield chunk; }
+    for await (const chunk of tar(entries, epoch, roots)) { hash.update(chunk); yield chunk; }
   }
   // Fixed gzip envelope, including the portable OS=255 byte.
   const input = Readable.from(hashedTar());
