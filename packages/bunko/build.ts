@@ -1,3 +1,6 @@
+import { requiredInputs } from "./ignore.ts";
+import { targetInputs } from "./inputs.ts";
+import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences } from "./references.ts";
 import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -87,6 +90,8 @@ export async function writeReport(path: string, value: unknown) {
 interface BuildContext {
   syntax: SyntaxCache;
   toolchainDigest: Digest;
+  inputDigest: Digest;
+  inputPaths?: Set<string>;
   cachePersistence: { disabled?: boolean };
   project: Project; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
@@ -157,6 +162,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const records: CacheRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
       const result: PlatformResult[] = [];
+      let sharedBundle: Awaited<ReturnType<typeof bundle>> | undefined;
       let assetsLayer: Layer | undefined;
       if (assets.length) {
         const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
@@ -206,14 +212,15 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
-        const appKey = cacheKey({ kind: "app", format: "application-v1", packFormat, epoch: timestamp,
-          sourceDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, mode: project.mode, build: project.build,
+        const appKey = cacheKey({ kind: "app", format: "application-v2", packFormat, epoch: timestamp,
+          sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
         const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform });
         let application: { entry: string; inventory: InventoryEntry[] };
         let app: Awaited<ReturnType<typeof fileEntries>>;
         let applicationMetadata: CacheRecord["application"];
+        let cacheable = true;
         if (appHit) {
           applicationMetadata = appHit.application!;
           application = { entry: applicationMetadata.entry, inventory: appHit.inventory };
@@ -221,9 +228,12 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
           log(`Preparing build dependencies (${platform.architecture})\n`);
-          await installDependencies(root, plan, toolchain, undefined, options.installCache);
+          if (!sharedBundle) await installDependencies(root, plan, toolchain, undefined, options.installCache);
           log(`Bundling ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-          const built = await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax);
+          const built = sharedBundle ?? await bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax);
+          if (project.mode === "bundle") sharedBundle = built;
+          cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
+          if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");
           application = built;
           app = await fileEntries(built.outdir, prefix);
           applicationMetadata = { entry: built.entry, entries: app.map((entry) => ({ path: entry.path, type: entry.type as "file" | "directory" })) };
@@ -233,7 +243,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         app.push(...aliases);
         assertNoLayerCollision([depsEntries, assets, app]);
         const appLayer = appHit?.layer ?? await packLayer(store, app, "app", timestamp);
-        if (!appHit && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
+        if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : [project.bunPath, `${project.workdir}/${application.entry}`],
@@ -396,7 +406,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
-    const sourceDigest = await snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")));
+    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), await requiredInputs(discovered.directory, projects, exclusions)));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }
@@ -422,7 +432,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     };
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
-      const item = await prepareBuild({ ...options, registry }, { syntax, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] });
+      const input = await targetInputs(source, project, sourceDigest);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { syntax, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);
@@ -435,7 +446,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       try {
         // No target is exported or published until every selected build succeeds.
         if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
-        for (const item of prepared) { await item.finish(); finished.add(item.result.target); }
+        for (const item of prepared) { await phase(options.progress, "publish", () => item.finish(), item.result.target); finished.add(item.result.target); }
         if (imageRefs) await writeReferences(imageRefs, results.map((result) => result.publication!.reference));
         if (!multiple && report && imageRefs) await writeReport(report, results[0]);
         if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });

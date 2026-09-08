@@ -27,7 +27,7 @@ No repository/package visibility changes, public transparency-log submissions, p
 
 ## Delivered PR stack
 
-Merge in dependency order; repository visibility remains private.
+All five PRs were merged in dependency order on 2026-09-08 JST; repository visibility remains private.
 
 | Phase | PR | Main additions |
 | --- | --- | --- |
@@ -37,6 +37,6 @@ Merge in dependency order; repository visibility remains private.
 | M6 | [#14](https://github.com/sakajunquality/bunko/pull/14) | Diagnostics, strict option routing, compatibility matrix and SQLite examples |
 | ko gaps | [#15](https://github.com/sakajunquality/bunko/pull/15) | Metadata flags/annotations, reference files, selectors and conventional data |
 
-The private GHCR fixture update is [bunko-test #1](https://github.com/sakajunquality/bunko-test/pull/1). No PR was automatically merged and no public release was created.
+The private GHCR fixture update is [bunko-test #1](https://github.com/sakajunquality/bunko-test/pull/1). That PR and the five implementation PRs were merged after explicit owner authorization. Main CI and GHCR conformance passed. No public release was created.
 
 The final local suite has 213 passing tests. Docker checks covered both image architectures and bundle/compile modes; disposable kind validated selector apply and Distribution validated cache pruning without deleting the runnable image. GHCR/GAR each verified three OCI metadata attachments and six private signatures. Source and prepared-distribution secret scans found no findings. See KO_REVIEW.md, LIVE_REGISTRY_VALIDATION.md and the per-milestone review documents for evidence and limits. Docker Hub/ECR account-specific validation remains unverified; deliberate ko differences are listed in KO_GAPS.md.

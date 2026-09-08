@@ -112,6 +112,7 @@ Options:
   --provenance             Attach SLSA provenance to the image root
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
   --cosign-path <file>     cosign executable (default: PATH)
+  --progress <plain|json>   Stage events on stderr (default: plain)
   --report <file>          Write a JSON result, including transfers/cache/partial publication
   --help                   Show this help
 
@@ -146,6 +147,7 @@ export function booleanArguments(argv: string[], options: Record<string, { type:
 }
 
 export async function main(argv: string[]): Promise<number> {
+  let jsonProgress = false;
   try {
     const options = {
       "image-label": { type: "string", multiple: true },
@@ -177,6 +179,7 @@ export async function main(argv: string[]): Promise<number> {
       "older-than": { type: "string" },
       lockfile: { type: "string" },
       workdir: { type: "string" },
+      progress: { type: "string" },
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
       mode: { type: "string" },
@@ -215,6 +218,7 @@ export async function main(argv: string[]): Promise<number> {
       allowPositionals: true, strict: true, allowNegative: true, tokens: true, options,
     });
     const { values, positionals } = parsed;
+    jsonProgress = values.progress === "json";
     if (values.help || !argv.length) { process.stdout.write(help); return 0; }
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
@@ -279,6 +283,7 @@ export async function main(argv: string[]): Promise<number> {
       if (equal < 1) throw new Error("Image labels/annotations require KEY=VALUE");
       return [item.slice(0, equal), item.slice(equal + 1)];
     }));
+    if (values.progress !== undefined && !["plain", "json"].includes(values.progress)) throw new Error("--progress must be plain or json");
     const buildOptions: BuildOptions = {
       imageLabels: keyValues(values["image-label"]), imageAnnotations: keyValues(values["image-annotation"]), imageUser: values["image-user"], imageRefs: values["image-refs"],
       appCache: values.cache && values["app-cache"],
@@ -297,7 +302,8 @@ export async function main(argv: string[]): Promise<number> {
       bunPath: values["bun-path"], report: values.report,
       reproducible: values.reproducible, verifyDeterministic: values["verify-deterministic"],
       gitMetadata: values["git-metadata"], noIndex: !values.index,
-      log: (message) => process.stderr.write(message),
+      progress: values.progress === "json" ? (event) => { process.stderr.write(JSON.stringify(event) + "\n"); } : undefined,
+      log: (message) => process.stderr.write(values.progress === "json" ? JSON.stringify({ schemaVersion: 1, type: "log", message }) + "\n" : message),
     };
     if (command === "apply") {
       const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector,
@@ -318,7 +324,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     return 0;
   } catch (error) {
-    process.stderr.write(`bunko: ${error instanceof Error ? error.message : String(error)}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(jsonProgress ? JSON.stringify({ schemaVersion: 1, type: "error", message }) + "\n" : `bunko: ${message}\n`);
     return 1;
   }
 }

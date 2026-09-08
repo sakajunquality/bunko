@@ -1,3 +1,5 @@
+> Historical design and milestone notes: statements marked M1/M2 describe those stages, not current limitations. The implemented contract is [SPEC.md](SPEC.md); post-M6 work is tracked in [POST_M6_PLAN.md](POST_M6_PLAN.md).
+
 # bunko detailed design
 
 2026-09-07. Based on the [original v0.1 proposal](archive/SPEC-v0.1.md). **M0a, M0b, M1, and M2 are implemented; M3 and later remain proposals.**

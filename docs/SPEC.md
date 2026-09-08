@@ -1,4 +1,4 @@
-# bunko implementation specification — M4
+# bunko implementation specification — M7
 
 2026-09-08. This document describes the implemented contract. See [DESIGN.md](DESIGN.md) for future design, [the archived v0.1 proposal](archive/SPEC-v0.1.md) for the original concept, and [VALIDATION.md](VALIDATION.md) for measurements and unverified behavior.
 
@@ -131,13 +131,13 @@ Complete layouts collect every reachable blob in a temporary directory and renam
 
 ## 6. Cache
 
-The local cache stores CAS blobs and atomic key records under `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use `bunko-cache-v1-{deps|assets}-<full-key>` tags in the image repository or a specified cache repository. The custom OCI artifact's config includes schema, key, kind, pack format, destination, platform, descriptor, DiffID, inventory, and native metadata.
+The local cache stores CAS blobs and atomic key records under `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use `bunko-cache-v1-{deps|assets|app}-<full-key>` tags in the image repository or a specified cache repository. The custom OCI artifact's config includes schema, key, kind, pack format, destination, platform, descriptor, DiffID, inventory, and native metadata.
 
 Production dependency keys include dependency manifest fields, the full lock, patches, noncredential registry settings, Bun version/revision, target platform, base digest, libc, strategy/linker, externals, destination, epoch, and pack format. They exclude app source, credentials, host absolute paths, and image tags. Asset keys include contents/mode/path, destination, epoch, and pack format and can be shared across platforms. Closure keys are described in §9.
 
-Lookup order is local, Registry metadata, then miss. Local blobs are checked by compressed digest and DiffID. Remote bodies are fetched and checked only when required; when the destination already has the blob, even the cache body GET can be skipped. Invalid metadata or unavailable caches cause a diagnostic and miss. Corrupt fetched layer bodies fail because they cannot be reused safely.
+Lookup order is local, Registry metadata, then miss. Local blobs are checked by compressed digest and DiffID. Registry cache bodies are fetched and verified during preparation, with bounded compressed/decompressed sizes. Invalid metadata, unavailable caches, and corrupt bodies cause a diagnostic and miss before publication. Base-image bodies remain lazy and are separate from cache validation.
 
-New records are saved after independent construction/determinism checks succeed. Registry cache publication follows successful image publication. Cache write failure does not undo image success. App build caching, cross-process locks, pruning, and `--jobs` are not implemented; execution is primarily sequential.
+New records are saved after independent construction/determinism checks succeed. Registry cache publication follows successful image publication. Cache write failure does not undo image success. Application caching, cross-process locks, explicit pruning, and bounded target preparation with `--jobs` are implemented; see the M5 contract below.
 
 Determinism verification bypasses persistent layer caches on both runs and compares layers/configs/platform manifests and inventory. Bun's download cache may still be reused. Dry-run may use local caches and download packages and may write its report, but performs no Registry writes, export, or loading.
 
@@ -226,3 +226,11 @@ Target preparation accepts bounded `--jobs` (1–32, default 1). All targets pre
 Repeated `--image-label`, `--image-annotation` and `--image-user` override matching package metadata. `bunko.annotations` is a string map applied to platform manifests and the runnable index. `--image-refs` atomically creates a new newline-delimited immutable registry reference list after successful publication; partial publication stays in the JSON report. Apply emits publication references independently of later Kubernetes success.
 
 `resolve`/`apply --selector` filter top-level documents by metadata.labels using equality, inequality, existence and nonempty set requirements. No matches produce no output or Kubernetes operation. Selector mode may normalize YAML formatting; ordinary resolution preserves source text. A real target `bunkodata/` directory is included as assets and sets BUNKO_DATA_PATH under the workdir, subject to existing source/symlink exclusions. See KO_GAPS.md for exact syntax, researched ko differences and limits.
+
+## M7 input and progress contract
+
+A root `.bunkoignore` accepts positive root-relative Bun globs, blank lines and `#` comments. Matching directories are pruned; use `**/name` for matches at arbitrary depths. Negation, absolute paths, backslashes and parent traversal are rejected. The ignore file itself always participates in source identity. Required manifests, imports and explicit assets must still be present; ignored conventional data is an error. This is not gitignore syntax.
+
+Workspace application cache keys retain whole reachable member trees, every package/tsconfig manifest and root inputs. Unknown resolution, npm imports, escaped specifiers, HTML/CSS imports or tsconfig path aliases fall back to the complete snapshot. Source audit labels still represent the entire snapshot and can change the image digest even when app output is reused. Ordinary bundle output is shared across platforms within a single independent build iteration; compiled output remains platform-specific.
+
+`--progress=json` emits schema-versioned snapshot, prepare and publish events to stderr with start/completion/failure status and durations. Compiler/build logs use separate JSON log records and failures use JSON error records after progress configuration is parsed. Stdout retains its command-specific contract. Durations never participate in image identity.
