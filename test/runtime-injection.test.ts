@@ -162,3 +162,11 @@ test("SBOM separates release archive and executable hashes; provenance includes 
   const record=provenance({target:"fixture",root:image.manifest,sourceDigest:sha256("source"),toolchain:{version:runtime.version,revision:runtime.expectedRevision},images:[image]} as BuildResult);
   expect(JSON.stringify(record)).toContain(checksumDocumentDigest.slice(7)); expect(JSON.stringify(record)).toContain(runtime.signer);
 });
+
+test.skipIf(!Bun.which("gpgv"))("every supported Linux asset pin matches the official signed fixture", async () => {
+  for(const version of ["1.3.11","1.3.12","1.3.13"]) {
+    const signed=await readFile(new URL(`./fixtures/runtime/bun-${version}-checksums.asc`,import.meta.url));
+    const text=await verifiedChecksums(signed);
+    for(const asset of ["bun-linux-x64-baseline","bun-linux-aarch64"]) expect(pinnedArchiveChecksum(version,asset,text)).toMatch(/^sha256:[a-f0-9]{64}$/);
+  }
+});
