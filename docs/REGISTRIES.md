@@ -167,3 +167,16 @@ An application or workspace root `.npmrc` may specify `cafile=certs/npm-ca.pem`.
 Certificate bytes, certificate paths and proxy credentials are excluded from dependency content-cache metadata and successful reports. Offline diagnostics validate the presence/shape of the cafile setting without requiring credential environment values or opening the certificate. Build preparation validates the actual bundle before network activity. The immutable rc.3 CLI does not include this support.
 
 Validation uses a local HTTPS npm registry and a separate tarball server with distinct private test CAs, plus an HTTP CONNECT proxy. Actual Bun installs succeed through that proxy, and `NO_PROXY=localhost` bypasses it with a fresh package cache. See [Bun npmrc support](https://bun.sh/docs/pm/npmrc) and [Bun proxy configuration](https://github.com/oven-sh/bun/blob/main/docs/guides/http/proxy.mdx).
+
+## Pull mirrors
+
+Source builds after rc.3 accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, resolve, apply, check-base and metadata. Endpoints are registry hosts with optional ports, not URLs or repository prefixes. Docker Hub aliases normalize to `registry-1.docker.io`. Mirrors must expose the same repository path as the origin.
+
+```sh
+bunko build . --registry-mirror docker.io=mirror.example.com --push=false --oci-layout output
+```
+
+Tags are always resolved at the origin. Once a digest is known, Bunko tries the configured mirrors in order, then the origin. Digest-pinned roots can be fetched directly from a mirror. A missing object, exhausted connection retries (including TLS connection failures), rate limiting or server error allows fallback; the CLI reports the skipped mirror and reason without credentials. Authentication/policy errors, corrupt content and interrupted bodies fail the operation. Digest and size verification remains mandatory when content is consumed.
+
+Each mirror uses its own Docker credential lookup, tokens and host-scoped TLS settings. No origin Authorization header is forwarded to a mirror. Mirrors receive only pull operations; publication and cache writes use their explicit destination. Configure `--registry-config` and `--insecure-registry` for the actual mirror host if needed. A mirror is a content source, not a replacement for origin availability when resolving mutable tags. The immutable rc.3 CLI does not include this option.
+

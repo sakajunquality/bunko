@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { registryMirrors } from "../oci/mirrors.ts";
 import { parseDefines } from "./defines.ts";
 import { Telemetry, telemetryConfig } from "./telemetry.ts";
 import { parseAssetContexts } from "./asset-contexts.ts";
@@ -132,6 +133,7 @@ Options:
   --supply-chain-policy ci Require reproducible input, metadata and signing
   --deps-map <file>         Per-target, per-platform prepared dependency artifacts
   --artifact-target <path>  Bind pack-deps output to a workspace member
+  --registry-mirror <ORIGIN=MIRROR>  Pull digest content from a mirror; repeatable
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
@@ -208,6 +210,7 @@ export async function main(argv: string[]): Promise<number> {
       "supply-chain-policy": { type: "string" },
       "deps-map": { type: "string" },
       "artifact-target": { type: "string" },
+      "registry-mirror": { type: "string", multiple: true },
       "registry-config": { type: "string" },
       progress: { type: "string" },
       otel: { type: "boolean" },
@@ -260,7 +263,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
     validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
-    const registry = { insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
+    const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: registryMirrors(values["registry-mirror"]), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const options = { path, define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
