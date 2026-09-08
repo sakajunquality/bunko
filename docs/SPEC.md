@@ -267,3 +267,7 @@ Builder identity is an input to application caching and runnable image labels. D
 ## Build telemetry
 
 `--otel` explicitly enables bounded OTLP/HTTP JSON metrics and traces for build, resolve and apply. Standard OTel variables alone never enable transmission. Stage boundaries are shared with progress events and local report timings; target identities are replaced with invocation-local numbers in exported traces. Supported configuration, signal definitions, privacy limits, export deadlines and Collector interoperability are defined in [TELEMETRY.md](TELEMETRY.md). This feature is on the development branch and is not included in rc.2.
+
+### Compile output boundary
+
+Compile mode currently accepts a single emitted JavaScript server entrypoint. Literal dynamic imports that Bun includes in that output are supported. Builds that emit additional files, including HTML routes, browser JavaScript and CSS, fail before compilation with `Compile mode requires a single JavaScript output`. Use bundle mode for those applications. This avoids deleting assets that the recompiled server still references; compile mode does not yet compile HTML routes directly from source. External sourcemaps remain unsupported in compile mode.

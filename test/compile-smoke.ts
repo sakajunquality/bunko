@@ -10,7 +10,8 @@ try {
   const source = join(directory, "source");
   await mkdir(source);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "compiled", module: "index.ts" }));
-  await writeFile(join(source, "index.ts"), 'console.log(JSON.stringify({message:"compiled works",arch:process.arch}));');
+  await writeFile(join(source, "index.ts"), 'const value = await import("./message.ts"); console.log(JSON.stringify({message:value.message,arch:process.arch}));');
+  await writeFile(join(source, "message.ts"), 'export const message = "compiled works";');
   for (const architecture of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",").map((p) => p.split("/")[1]!)) {
     const reference = `bunko.local/compile-${process.pid}:${architecture}`;
     const tarball = join(directory, `${architecture}.tar`);

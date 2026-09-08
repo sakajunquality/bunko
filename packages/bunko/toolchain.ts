@@ -134,6 +134,9 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   inventory.sort((a, b) => a.path.localeCompare(b.path));
   if (project.mode === "compile") {
     if (project.build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
+    // Recompiling emitted JavaScript cannot embed Bun's serialized HTML manifest.
+    // Additional outputs must not be silently discarded from the runtime image.
+    if (Object.keys(outputs).length !== 1) throw new Error("Compile mode requires a single JavaScript output; use bundle mode for HTML, CSS or other emitted assets");
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
     const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
