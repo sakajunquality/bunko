@@ -1,6 +1,6 @@
 # Supply-chain metadata and compiled applications
 
-M3 metadata is opt-in. Neither repository visibility nor package visibility is changed. SBOMs contain package names and versions; review those identifiers before attaching them to a public image.
+Metadata is opt-in. Neither repository visibility nor package visibility is changed. SBOMs contain package names and versions; review those identifiers before attaching them to a public image.
 
 ## SBOM and provenance
 
@@ -40,7 +40,7 @@ Compile mode bundles and validates inputs first, then creates a Linux executable
 
 Base checks validate OCI platform/config metadata without Docker. `--run` additionally requires Docker and verifies the exact Bun revision in a pinned base, with networking disabled, a read-only filesystem, a nonroot user, and dropped capabilities. It does not prove compatibility with every application or native shared library. `--runtime-path` selects the Bun executable inside the base.
 
-Validation commands: `bun run test:m3-smoke` runs compiled images and checks bases; `BUNKO_COSIGN_PATH=/path/to/cosign bun test/m3-signing-smoke.ts` creates disposable local keys and a Distribution 3 registry, signs and verifies images and attachments, then removes test resources.
+Validation commands: `bun run test:compile-smoke` runs compiled images and checks bases; `BUNKO_COSIGN_PATH=/path/to/cosign bun run test:signing-smoke` creates disposable local keys and a Distribution 3 registry, signs and verifies images and attachments, then removes test resources.
 
 References: [OCI manifests](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md), [SLSA provenance](https://slsa.dev/spec/v1.1/provenance), [Bun executables](https://bun.sh/docs/bundler/executables), [cosign signing](https://docs.sigstore.dev/cosign/signing/signing_with_containers/).
 

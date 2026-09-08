@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { assetNames, releaseTag, verifyAssets } from "../scripts/distribution.ts";
 import { prepareRelease } from "../scripts/release.ts";
 import { githubBytes, setup } from "../scripts/setup.ts";
@@ -16,6 +16,9 @@ test("release assets carry matching versions, checksums, and parser licenses", a
   for (const name of assetNames) assets.set(name, await readFile(join(distribution, name)));
   verifyAssets(await readFile(join(distribution, "SHA256SUMS"), "utf8"), assets);
   const bundle = Buffer.from(assets.get("bunko.js")!).toString();
+  expect(bundle).not.toContain(resolve("node_modules/typescript"));
+  expect(bundle).not.toContain(process.cwd());
+  expect(bundle).not.toContain("node_modules/typescript/lib");
   expect(bundle).toContain("Copyright Eemeli Aro"); expect(bundle).toContain("Copyright Microsoft Corporation"); expect(bundle).toContain("Apache License");
   const license = await readFile("LICENSE", "utf8");
   expect(bundle).toContain(license.trim());
@@ -66,7 +69,7 @@ test("a checksummed artifact must still report the requested release version", a
   await expect(setup({ version: "v9.9.9", distribution, temporary: root })).rejects.toThrow("version does not match");
   expect(() => releaseTag("latest")).toThrow("explicit");
   expect(() => releaseTag("v1.0.0\ninvalid")).toThrow();
-  expect(releaseTag("0.1.0-alpha.1")).toBe("v0.1.0-alpha.1");
+  expect(releaseTag("0.1.0-alpha.2")).toBe("v0.1.0-alpha.2");
 });
 
 test("private release assets use authenticated API downloads and strip tokens on storage redirects", async () => {

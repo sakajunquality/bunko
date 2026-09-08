@@ -1,4 +1,6 @@
-# M6 review and validation
+# Diagnostics review and validation
+
+Historical review snapshot for [PR #14](https://github.com/sakajunquality/bunko/pull/14); test counts and runtime results describe that change, not the current total.
 
 Claude Code 2.1.263 reviewed diagnostics, CLI option routing, compatibility documentation, the SQLite example, CI and previous cache/layout publication additions using read-only tools.
 
@@ -13,4 +15,4 @@ Fixed findings:
 
 One review statement was narrowed: build's outer batch failure handler already preserved publication state when a late cache conflict escaped; the actual remaining issue was treating optional remote cache publication as a fatal image result. This now logs without overwriting a conflicting cache.
 
-Validation: the configuration, ignored-flag and prepublication layout corruption tests pass. The full suite passed 203 tests, followed by focused verification including the added partial-publication regression (204 total tests). Bun 1.3.11 and 1.3.12 both passed SQLite health/write/read checks on Linux amd64 and arm64 in bundle and compile modes (eight combinations), with a read-only root filesystem, non-root user and writable temporary state. Raw digests are in validation/m6-runtime.json. Bundled CLI smoke and a locally prepared checksum-verified distribution passed; no public release was made. CI covers both Bun versions on Linux/macOS and runs Docker integrations on Linux.
+Validation: the configuration, ignored-flag and prepublication layout corruption tests pass. The full suite passed 203 tests, followed by focused verification including the added partial-publication regression (204 total tests). Bun 1.3.11 and 1.3.12 both passed SQLite health/write/read checks on Linux amd64 and arm64 in bundle and compile modes (eight combinations), with a read-only root filesystem, non-root user and writable temporary state. Raw digests are in validation/runtime-compatibility.json. Bundled CLI smoke and a locally prepared checksum-verified distribution passed; no public release was made. CI covers both Bun versions on Linux/macOS and runs Docker integrations on Linux.

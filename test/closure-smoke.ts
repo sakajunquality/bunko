@@ -1,3 +1,3 @@
-import { workspaceSmoke } from "./m2a-smoke.ts";
+import { workspaceSmoke } from "./workspace-smoke.ts";
 
 if (import.meta.main) await workspaceSmoke({ closure: true });

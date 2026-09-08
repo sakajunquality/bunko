@@ -77,7 +77,7 @@ export async function setup(options: SetupOptions) {
 }
 
 if (import.meta.main) {
-  const result = await setup({ version: process.env.INPUT_VERSION ?? "v0.1.0-alpha.1", repository: process.env.INPUT_REPOSITORY,
+  const result = await setup({ version: process.env.INPUT_VERSION ?? "v0.1.0-alpha.2", repository: process.env.INPUT_REPOSITORY,
     token: process.env.INPUT_TOKEN, distribution: process.env.INPUT_DISTRIBUTION_DIRECTORY || undefined, temporary: process.env.RUNNER_TEMP });
   if (process.env.GITHUB_PATH) await appendFile(process.env.GITHUB_PATH, `${result.bin}\n`);
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `version=${result.version}\nbunko-path=${result.executable}\n`);

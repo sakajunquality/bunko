@@ -1,6 +1,6 @@
 # Registry configuration and verification status
 
-M1 implements OCI Distribution push/pull and Docker-compatible credentials. Cloud SDKs are not bundled: use an authenticated Docker config or credential helper. bunko does not create repositories or change cloud IAM.
+Bunko implements OCI Distribution push/pull and Docker-compatible credentials. Cloud SDKs are not bundled: use an authenticated Docker config or credential helper. bunko does not create repositories or change cloud IAM.
 
 ## Support matrix
 

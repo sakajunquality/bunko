@@ -9,7 +9,7 @@ import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { command } from "./command.ts";
 
-const directory = await mkdtemp(join(tmpdir(), "bunko-m4-smoke-"));
+const directory = await mkdtemp(join(tmpdir(), "bunko-operations-smoke-"));
 try {
   const f = await dependencyFixture(directory), project = await loadProject({ path: f.source });
   const plan = await dependencyPlan(project, f.source), toolchain = await selectToolchain();

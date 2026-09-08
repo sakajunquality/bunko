@@ -1,6 +1,6 @@
 # Correctness review follow-up
 
-Validated on 2026-09-08 with Bun 1.3.11 (revision af24e281), macOS arm64. These corrections apply after the M2 implementation and supplement the earlier validation records.
+Validated on 2026-09-08 with Bun 1.3.11 (revision af24e281), macOS arm64. These corrections apply after the workspace and resolution implementation and supplement the earlier validation records.
 
 | Finding | Correction and regression coverage |
 | --- | --- |

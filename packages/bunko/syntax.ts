@@ -263,7 +263,7 @@ export function rejectMacroSyntax(code: string, name: string): void {
     const dynamic = isCallExpression(node) && node.expression.kind === SyntaxKind.ImportKeyword ? node : undefined;
     const specifier = declaration?.moduleSpecifier ?? dynamic?.arguments[0];
     if (declaration?.attributes || dynamic && dynamic.arguments.length > 1 || specifier && isStringLiteralLike(specifier) && specifier.text.startsWith("macro:")) {
-      throw new Error(`Import attributes / macros are not supported in M1: ${name}`);
+      throw new Error(`Import attributes / macros are not supported: ${name}`);
     }
     forEachChild(node, (child) => { pending.push(child); });
   }

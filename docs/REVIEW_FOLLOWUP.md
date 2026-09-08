@@ -1,12 +1,12 @@
 # Review follow-up: scalar semantics, workspace discovery, and scan cost
 
-2026-09-08. This follow-up addresses three observations after the M2 correctness and live Registry changes.
+2026-09-08. This follow-up addresses three observations after the workspace and resolution correctness and live Registry changes.
 
 ## YAML block scalars
 
 URI validation applies to the decoded YAML value and never trims it. A non-template scalar starting with `bunko://` fails with `Invalid bunko reference` if its value includes whitespace. A final newline retained by `|`, `|+`, `>`, or `>+` therefore causes a pre-build failure. A single-line `|-` or `>-` removes that newline and resolves normally, while embedded whitespace or a trailing space still fails.
 
-This is intentional strict URI validation. The [current specification](SPEC.md#10-resolve-m2c) now states the rule explicitly rather than implying every block style is accepted. Regression tests cover clipped/kept/stripped literal and folded scalars, retained header comments, CRLF, and invalid whitespace. Existing tests also verify invalid references cause no Registry requests.
+This is intentional strict URI validation. The [current specification](SPEC.md#10-resolve) now states the rule explicitly rather than implying every block style is accepted. Regression tests cover clipped/kept/stripped literal and folded scalars, retained header comments, CRLF, and invalid whitespace. Existing tests also verify invalid references cause no Registry requests.
 
 ## Workspace pattern normalization
 

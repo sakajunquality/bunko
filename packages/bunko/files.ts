@@ -60,7 +60,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       names.set(path.toLowerCase(), path);
     }
     const info = await lstat(current);
-    if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported in M1: ${path}`);
+    if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported: ${path}`);
     if (info.isDirectory()) {
       await mkdir(join(destination, path), { recursive: true });
       if (path) records.push({ path, type: "directory" });

@@ -5,14 +5,14 @@ import { build } from "../packages/bunko/build.ts";
 import { checkBase } from "../packages/bunko/check-base.ts";
 import { command } from "./command.ts";
 
-const directory = await mkdtemp(join(tmpdir(), "bunko-m3-smoke-"));
+const directory = await mkdtemp(join(tmpdir(), "bunko-compile-smoke-"));
 try {
   const source = join(directory, "source");
   await mkdir(source);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "compiled", module: "index.ts" }));
   await writeFile(join(source, "index.ts"), 'console.log(JSON.stringify({message:"compiled works",arch:process.arch}));');
   for (const architecture of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",").map((p) => p.split("/")[1]!)) {
-    const reference = `bunko.local/m3-${process.pid}:${architecture}`;
+    const reference = `bunko.local/compile-${process.pid}:${architecture}`;
     const tarball = join(directory, `${architecture}.tar`);
     const result = await build({ path: source, mode: "compile", platform: `linux/${architecture}`, tarball, push: false,
       localCache: false, gitMetadata: false, verifyDeterministic: true, log: (text) => process.stderr.write(text) });

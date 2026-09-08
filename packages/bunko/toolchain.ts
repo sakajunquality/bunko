@@ -25,7 +25,7 @@ async function validateTsconfigs(root: string): Promise<void> {
     if (config.extends === undefined) return;
     const parents = Array.isArray(config.extends) ? config.extends : [config.extends];
     for (const parent of parents) {
-      if (typeof parent !== "string" || !parent.startsWith(".")) throw new Error("M1 supports only relative tsconfig extends inside the project");
+      if (typeof parent !== "string" || !parent.startsWith(".")) throw new Error("Bunko supports only relative tsconfig extends inside the project");
       let candidate = resolve(dirname(path), parent);
       if (!candidate.endsWith(".json")) candidate += ".json";
       await visit(candidate);

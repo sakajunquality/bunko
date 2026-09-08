@@ -183,9 +183,9 @@ This is the pre-implementation checklist. Later sections record subsequent progr
 - [ ] Maintain individual ECR/GAR/GHCR/Docker Hub/Harbor matrices; do not count untested cases as successes.
 - [ ] Fix the buildx comparison configuration and measure upload/download bytes separately.
 
-The design replaces the original proposal's requirement to finish every item before M0 with gates for the features that depend on each result. Outstanding experiments are explicit implementation work.
+The design replaces the original proposal's requirement to finish every item before the initial prototype with gates for the features that depend on each result. Outstanding experiments are explicit implementation work.
 
-## 8. M0a implementation validation
+## 8. Initial image composition validation
 
 Implemented the TypeScript/Bun CLI, snapshots, bundling, deterministic tar/gzip, a public Registry reader, and OCI composition/layout. The original proposal moved to [archive/SPEC-v0.1.md](archive/SPEC-v0.1.md); [SPEC.md](SPEC.md) became the implemented contract.
 
@@ -223,9 +223,9 @@ This was not yet implementation of product `--local` or `--tarball`. OCI import 
 - CLI metafile outputs omitted external sourcemaps, requiring output-tree enumeration.
 - Some nested sourcemaps resolved sources relative to outdir rather than the map directory; matching against metafile inputs allowed stable rewriting.
 
-At M0a, Registry publication/mounts, private credentials, native/npm dependencies, arm64 containers, and other Registry interoperability remained unimplemented or unverified.
+During initial composition, Registry publication/mounts, private credentials, native/npm dependencies, arm64 containers, and other Registry interoperability remained unimplemented or unverified.
 
-## 9. M0b / M1 implementation validation
+## 9. Initial publication, build and cache validation
 
 The same PR added private Registry authentication, push, production dependencies, deps/assets caching, multi-platform output, Docker archives, and Docker/kind loading. These results update the historical limitations in sections 7–8.
 
@@ -239,7 +239,7 @@ A separate real-package probe used `is-number@7.0.0`, the `num` alias, an option
 
 ### Real Registry and Linux runtime
 
-`bun run test:m1-smoke` started a dedicated Distribution 3 container, built/published `examples/dependencies` for amd64/arm64 with local layer caching disabled, and verified independent deterministic builds. Editing the response string and publishing again produced Registry cache hits with zero deps/assets uploads.
+`bun run test:build-smoke` started a dedicated Distribution 3 container, built/published `examples/dependencies` for amd64/arm64 with local layer caching disabled, and verified independent deterministic builds. Editing the response string and publishing again produced Registry cache hits with zero deps/assets uploads.
 
 | Item | Observed value |
 | --- | --- |
@@ -276,7 +276,7 @@ Recorded durations were 10,036 ms initially and 2,010 ms after the edit. **The f
 
 Product `--local` generated, loaded, and inspected a single-platform Docker archive. Python checks its format/DiffIDs in ordinary tests.
 
-After checking the official kind 0.33.0 macOS arm64 binary checksum, the probe created temporary cluster `bunko-m1-6f0ca10`. `--kind --kind-cluster ... --platform linux/arm64` loaded the image archive and passed node-side `crictl inspecti`. The cluster was deleted. This verified image storage, not native HTTP in a Kubernetes Pod.
+After checking the official kind 0.33.0 macOS arm64 binary checksum, the probe created a temporary cluster. `--kind --kind-cluster ... --platform linux/arm64` loaded the image archive and passed node-side `crictl inspecti`. The cluster was deleted. This verified image storage, not native HTTP in a Kubernetes Pod.
 
 ### Compatibility fixes from real execution
 
@@ -291,47 +291,47 @@ Live GHCR/GAR/Docker Hub/ECR publication, real private npm authentication, and p
 
 CI runs typechecks, unit/integration tests, and bundled CLI checks on Linux/macOS, plus real Distribution smoke on Linux. Smoke builds both architectures but runs amd64 on Linux CI; the local record includes both architectures.
 
-## 10. M2a workspace implementation validation
+## 10. Workspace validation
 
 Added shared-lock validation, automatic/explicit workspace target selection, multiple-image build/publication, and production-runtime topology preservation.
 
 ### Automated checks
 
-Typechecking and **97 tests** passed on Bun 1.3.11, retaining M1's 86 tests. Added root/member discovery, name/path selectors, shared packages with distinct fixture-msg 1.0.0/2.0.0 versions, peer resolution for fixture-adapter, Python layer extraction and Bun execution, external workspace TypeScript/data, root-relative tsconfig extends, checkout-depth determinism, service-source cache hits, runtime-workspace cache misses, stale manifests/membership/lock entries, image-name conflicts, escaping links, asset collisions, delayed-build failure before export/publication, multi-target dry-run, partial reports, stdout, single-target tarball restrictions, and report/layout collision validation.
+Typechecking and **97 tests** passed on Bun 1.3.11, retaining the earlier 86 build/cache tests. Added root/member discovery, name/path selectors, shared packages with distinct fixture-msg 1.0.0/2.0.0 versions, peer resolution for fixture-adapter, Python layer extraction and Bun execution, external workspace TypeScript/data, root-relative tsconfig extends, checkout-depth determinism, service-source cache hits, runtime-workspace cache misses, stale manifests/membership/lock entries, image-name conflicts, escaping links, asset collisions, delayed-build failure before export/publication, multi-target dry-run, partial reports, stdout, single-target tarball restrictions, and report/layout collision validation.
 
 Author-created packages live in isolated download-cache fixtures. Bunko inspects Bun's actual installed store and symlinks instead of reimplementing semver resolution.
 
 ### Real Registry, CLI, and runtime
 
-`bun run test:m2a-smoke` ran on macOS arm64 / Bun 1.3.11 / Docker 29.3.1. The CLI published two multi-platform images to dedicated Distribution 3; stdout contained exactly two digest lines in target order. Initial outputs matched across independent staging builds.
+`bun run test:workspace-smoke` ran on macOS arm64 / Bun 1.3.11 / Docker 29.3.1. The CLI published two multi-platform images to dedicated Distribution 3; stdout contained exactly two digest lines in target order. Initial outputs matched across independent staging builds.
 
 | Target | Shared package | npm dependencies | Linux runtime |
 | --- | --- | --- | --- |
 | api | Bundled @example/shared | is-number 7.0.0; external @node-rs/xxhash 1.7.7 | amd64/arm64: HTTP 200, version 7.0.0, hash 510391394 |
 | worker | External @example/shared with JSON data | External is-number 6.0.0 | amd64/arm64: HTTP 200, version 6.0.0 |
 
-The base was the same M1 slim index, `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`. All four runtime combinations passed nonroot `65532:65532`, read-only rootfs, tmpfs /tmp, cap-drop ALL, and SIGTERM exit 0.
+The base was the same previously validated slim index, `oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9`. All four runtime combinations passed nonroot `65532:65532`, read-only rootfs, tmpfs /tmp, cap-drop ALL, and SIGTERM exit 0.
 
 An API response edit produced Registry deps cache hits and zero deps uploads for both targets/platforms. Worker app uploads were also zero; its config changed because the source digest covers the whole workspace. New layer/config payloads were 9,552 bytes for api and 9,167 for worker, excluding metadata and HTTP overhead. This fixture had no assets layer; ordinary tests covered asset reuse.
 
-As in M1, verified host-side Registry pulls were loaded through Docker archives; this was not direct Docker CLI pull validation. Temporary resources were cleaned up. CI added M2a smoke, building both architectures and running both services on amd64; local testing ran all four combinations.
+As in the earlier build/cache validation, verified host-side Registry pulls were loaded through Docker archives; this was not direct Docker CLI pull validation. Temporary resources were cleaned up. CI added workspace smoke, building both architectures and running both services on amd64; local testing ran all four combinations.
 
-### Optimizations deferred at M2a
+### Optimizations deferred during initial workspace support
 
-M2a retained the whole workspace production tree, including API-only native dependencies in the worker. Closure reduction, sharedDeps, focused cache keys, and narrower source digests were future work at that point. Section 11 records the first three; whole-workspace source digests remain the contract.
+The initial workspace implementation retained the whole workspace production tree, including API-only native dependencies in the worker. Closure reduction, sharedDeps, focused cache keys, and narrower source digests were future work at that point. Section 11 records the first three; whole-workspace source digests remain the contract.
 
-## 11. M2b: closure and sharedDeps (2026-09-07)
+## 11. Dependency closure and sharedDeps (2026-09-07)
 
-`bun run test:m2b-smoke` passed on Bun 1.3.11 / macOS arm64 / Docker Desktop. It published two targets for amd64/arm64 to real Distribution, verified edited-source Registry hits and zero extra deps/assets uploads, excluded the API-only native addon from the worker closure, and produced identical per-platform deps digests across targets with sharedDeps.
+`bun run test:closure-smoke` passed on Bun 1.3.11 / macOS arm64 / Docker Desktop. It published two targets for amd64/arm64 to real Distribution, verified edited-source Registry hits and zero extra deps/assets uploads, excluded the API-only native addon from the worker closure, and produced identical per-platform deps digests across targets with sharedDeps.
 
 Eight target/platform combinations across separate and shared closures passed verified RegistrySource pull, Docker archive/load/run, native xxhash, distinct is-number 7/6 behavior, shared workspace JSON, nonroot/read-only operation, and SIGTERM exit 0. Independent Linux installs also produced deterministic initial closures. CI added the same smoke with amd64 runtime execution.
 
-Ordinary tests cover duplicate versions/peer contexts, bundled-workspace exclusion, missing optional/required dependencies, escaping links, executable aliases, package data, checkout depth, cache hits after unrelated dev-lock changes, and misses after reachable workspace edits. Closure cache hits still perform Linux installation; no install avoidance or speedup is claimed. Live cloud Registry status remained as recorded for M1.
+Ordinary tests cover duplicate versions/peer contexts, bundled-workspace exclusion, missing optional/required dependencies, escaping links, executable aliases, package data, checkout depth, cache hits after unrelated dev-lock changes, and misses after reachable workspace edits. Closure cache hits still perform Linux installation; no install avoidance or speedup is claimed. Live cloud Registry status remained as recorded in the earlier build/cache validation.
 
-## 12. M2c: resolve (2026-09-07)
+## 12. Manifest resolution (2026-09-07)
 
-`bun run test:m2c-smoke` passed on macOS arm64 / Bun 1.3.11 / Docker Desktop. Real CLI resolve processed two YAML documents with anchors/aliases and matched output scalars to published references for two services on amd64/arm64. Aliases did not create extra targets; comments were retained. Edited-source Registry reuse and all eight separate/shared closure runtime checks passed, including native addons, distinct dependency versions, nonroot/read-only operation, and SIGTERM exit 0.
+`bun run test:resolve-smoke` passed on macOS arm64 / Bun 1.3.11 / Docker Desktop. Real CLI resolve processed two YAML documents with anchors/aliases and matched output scalars to published references for two services on amd64/arm64. Aliases did not create extra targets; comments were retained. Edited-source Registry reuse and all eight separate/shared closure runtime checks passed, including native addons, distinct dependency versions, nonroot/read-only operation, and SIGTERM exit 0.
 
 Ordinary tests cover YAML documents/comments/block scalars/CRLF/complex keys/anchors/aliases, template and partial-string exclusions, exact JSON numeric bytes, multiple-JSON arrays, directory ordering/recursion, stdin, canonical deduplication, workspace sharedDeps, pre-publication syntax/name/build failures, changed target identity, partial-publication reports, empty failure stdout, and YAML 1.1/1.2 directive boundaries.
 
-`bun run build && bun run test:bundled-smoke` copied only dist/bunko.js to a temporary directory without external node_modules, then verified stdin resolve and the bundled YAML license. CI added bundled and real-Registry M2c smoke. These results do not include kubectl apply or individual cloud Registry live publication.
+`bun run build && bun run test:bundled-smoke` copied only dist/bunko.js to a temporary directory without external node_modules, then verified stdin resolve and the bundled YAML license. CI added bundled and real-Registry manifest resolution smoke. These results do not include kubectl apply or individual cloud Registry live publication.

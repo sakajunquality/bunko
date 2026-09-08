@@ -1,4 +1,6 @@
-# M3 validation and review
+# Supply-chain and compile validation and review
+
+Historical review snapshot for [PR #11](https://github.com/sakajunquality/bunko/pull/11); test counts and runtime results describe that change, not the current total.
 
 Validated on 2026-09-08 with Bun 1.3.11 and cosign 3.1.3. Repository visibility remains private.
 

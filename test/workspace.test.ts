@@ -18,7 +18,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p,
 async function fixture() { const root = await temporary(); directories.push(root); return { root, ...await workspaceFixture(root), base: await baseLayout(join(root, "base")) }; }
 function options(f: Awaited<ReturnType<typeof fixture>>, output = "out") { return { path: f.source, baseLayout: f.base, output: join(f.root, output), push: false, localCache: false, gitMetadata: false, installCache: f.cache }; }
 
-describe("M2a workspace builds", () => {
+describe("workspace builds", () => {
   test.each(["./", "././"])("normalizes %s workspace patterns for root and member builds", async (prefix) => {
     const f = await fixture();
     await writeFile(join(f.source, "package.json"), canonicalJSON({ ...f.manifests[""], workspaces: [`${prefix}services/*/`, `${prefix}packages/*`] }));

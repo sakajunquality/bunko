@@ -15,7 +15,7 @@ import { command } from "./command.ts";
 const root = await mkdtemp(join(tmpdir(), "bunko-zstd-"));
 try {
   const source = await project(join(root, "source"));
-  for (const target of ["linux/amd64", "linux/arm64"]) {
+  for (const target of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",")) {
     const selected = platform(target), store = new BlobStore(join(root, `store-${selected.architecture}`));
     const base = await resolveBase(new RegistrySource("oven/bun:1.3.11-distroless"), selected, store);
     const layers = [];

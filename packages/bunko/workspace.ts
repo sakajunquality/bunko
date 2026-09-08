@@ -26,7 +26,7 @@ function workspacePattern(pattern: string): string {
 
 export async function workspaceAt(directory: string, root: WorkspacePackage): Promise<Workspace> {
   const patterns = root.manifest.workspaces;
-  if (!Array.isArray(patterns) || !patterns.length || !patterns.every((p) => typeof p === "string" && p && !isAbsolute(p) && !/[\\\0]/.test(p) && !p.split("/").includes("..") && !p.startsWith("!"))) throw new Error("M2a requires a non-empty workspaces array of relative, positive glob patterns");
+  if (!Array.isArray(patterns) || !patterns.length || !patterns.every((p) => typeof p === "string" && p && !isAbsolute(p) && !/[\\\0]/.test(p) && !p.split("/").includes("..") && !p.startsWith("!"))) throw new Error("Bunko requires a non-empty workspaces array of relative, positive glob patterns");
   const paths = new Set<string>();
   for (const pattern of patterns) {
     for await (const path of new Bun.Glob(`${workspacePattern(pattern)}/package.json`).scan({ cwd: directory, dot: false, followSymlinks: false })) {
@@ -40,11 +40,11 @@ export async function workspaceAt(directory: string, root: WorkspacePackage): Pr
   const packages = [root];
   const names = new Set<string>();
   for (const path of [...paths].sort()) {
-    if ([...paths].some((other) => path !== other && path.startsWith(`${other}/`))) throw new Error("Nested workspace members are not supported in M2a");
+    if ([...paths].some((other) => path !== other && path.startsWith(`${other}/`))) throw new Error("Nested workspace members are not supported");
     const pkg = await readPackage(directory, path);
     const name = pkg.manifest.name;
     if (typeof name !== "string" || !/^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_.-]+$/.test(name) || names.has(name)) throw new Error(`Workspace members require unique package names: ${path}`);
-    if (pkg.manifest.workspaces !== undefined) throw new Error("Nested workspace roots are not supported in M2a");
+    if (pkg.manifest.workspaces !== undefined) throw new Error("Nested workspace roots are not supported");
     names.add(name);
     packages.push(pkg);
   }

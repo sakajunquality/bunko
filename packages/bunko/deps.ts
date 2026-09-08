@@ -220,7 +220,7 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
         if (typeof pkg.name === "string" && typeof pkg.version === "string") {
           inventory.push({ path: dirname(path), name: pkg.name, version: pkg.version, license: packageLicense(pkg.license) });
           const scripts = object(pkg.scripts ?? {}, "Dependency scripts");
-          if (!prepared && ["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; M1 requires packages that ship ready-to-run files`);
+          if (!prepared && ["preinstall", "install", "postinstall"].some((key) => scripts[key])) throw new Error(`Runtime package ${pkg.name} declares install scripts; Bunko requires packages that ship ready-to-run files`);
         }
       }
       const elf = await inspectELF(file, platform);

@@ -33,7 +33,7 @@ try {
     registry: { insecure: [host], credentials: async () => undefined } });
   if (!result.publication?.published || result.attestations?.length !== 2) throw new Error("Expected image and two attachments");
   for (const d of [result.root, result.manifest, ...result.attestations.map((a) => a.manifest)]) {
-    await verifyImage(`${host}/signed@${d.digest}`, join(directory, "test.pub"), true, cosign);
+    await verifyImage(`${host}/signed@${d.digest}`, join(directory, "test.pub"), true, cosign, [host]);
   }
   console.log("PASS: Distribution 3 referrers, cosign image and attachment signatures verified without transparency-log upload");
 } finally {

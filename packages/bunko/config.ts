@@ -143,7 +143,7 @@ export function validateDependencySpecs(manifest: Record<string, unknown>, works
         if (!workspace?.packages.some((p) => p.path && p.manifest.name === name) || /[\/\\\0]/.test(specifier.slice(10)) || !specifier.slice(10)) throw new Error(`Invalid workspace dependency: ${name}`);
         continue;
       }
-      if (typeof specifier !== "string" || !specifier || /^(?:file:|link:|workspace:|catalog:|git|github:|https?:|\.|\/)/.test(specifier) || (specifier.includes("/") && !specifier.startsWith("npm:"))) throw new Error(`M1 supports registry dependencies only: ${name}`);
+      if (typeof specifier !== "string" || !specifier || /^(?:file:|link:|workspace:|catalog:|git|github:|https?:|\.|\/)/.test(specifier) || (specifier.includes("/") && !specifier.startsWith("npm:"))) throw new Error(`Bunko supports registry dependencies only: ${name}`);
     }
   }
 }
@@ -154,7 +154,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const manifest = object(JSON.parse(manifestText), "package.json");
   if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
   validateDependencySpecs(manifest, workspace);
-  if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported in M1");
+  if (await Bun.file(join(directory, "bunfig.toml")).exists()) throw new Error("Project bunfig.toml is not supported");
   const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
   knownKeys(config, ["entrypoint", "mode", "base", "platforms", "assets", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
@@ -172,13 +172,13 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const build = config.build === undefined ? {} : object(config.build, "build");
   knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target"], "build");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
-  if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported in M1");
+  if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported");
   if (build.minify !== undefined && typeof build.minify !== "boolean") throw new Error("build.minify must be boolean");
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
   knownKeys(runtime, ["bunPath", "libc"], "runtime");
-  if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported in M1");
+  if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported");
   const env = stringMap(config.env, "env");
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
   const labels = { ...stringMap(config.labels, "labels"), ...stringMap(options.imageLabels, "image labels") };

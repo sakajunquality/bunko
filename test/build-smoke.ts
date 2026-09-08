@@ -15,7 +15,7 @@ export { command } from "./command.ts";
 import { pullImage } from "./docker-pull.ts";
 
 export async function smoke() {
-  const temporary = await mkdtemp(join(tmpdir(), "bunko-m1-smoke-"));
+  const temporary = await mkdtemp(join(tmpdir(), "bunko-build-smoke-"));
   const id = randomUUID(), registryName = `bunko-registry-${id}`;
   const containers = new Set<string>(), images = new Set<string>();
   let registryStarted = false;
@@ -26,7 +26,7 @@ export async function smoke() {
     registryStarted = true;
     const info = JSON.parse(await command(["docker", "inspect", registryName]))[0];
     const port = info.NetworkSettings.Ports["5000/tcp"][0].HostPort;
-    const host = `127.0.0.1:${port}`, repo = `${host}/bunko-m1`;
+    const host = `127.0.0.1:${port}`, repo = `${host}/bunko-build`;
     for (let i = 0; ; i++) {
       try { if ((await fetch(`http://${host}/v2/`, { signal: AbortSignal.timeout(1000) })).ok) break; } catch { /* wait for registry */ }
       if (i === 99) throw new Error("Registry did not start");
