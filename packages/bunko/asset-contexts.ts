@@ -104,8 +104,8 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
           selected.push({ type: "directory", path: destination });
           for (const name of (await readdir(input)).sort()) await walk(`${path}/${name}`, `${destination}/${name}`);
         } else if (info.isFile()) {
-          if (!stage) {
-            selected.push({ type: "file", path: destination, source: input, size: info.size, executable: Boolean(info.mode & 0o111) });
+          if (stage === undefined) {
+            selected.push({ type: "file", path: destination, content: new Uint8Array(0), executable: Boolean(info.mode & 0o111) });
             return;
           }
           const copied = join(stage, String(index), destination);
@@ -117,7 +117,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
         } else throw new Error(`Unsupported asset input type: ${mapping.context}/${path}`);
       }
       await walk(mapping.from, mapping.to.slice(1));
-      if (stage) materials.push({ ...mapping, digest: sha256(canonicalJSON(await assetInputs(selected))) });
+      if (stage !== undefined) materials.push({ ...mapping, digest: sha256(canonicalJSON(await assetInputs(selected))) });
       entries.push(...selected);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code;

@@ -59,3 +59,10 @@ test("privacy CLI emits only a fixed summary and never authorizes publication", 
   expect(missing.code).toBe(1); expect(missing.err).toBe("");
   expect(JSON.parse(missing.out)).toEqual({schemaVersion:1,identifierGate:"failed",publicationApproved:false});
 });
+
+test("privacy gate rejects an opaque uncompressed tar file", async () => {
+  const root = await fixture(), header = Buffer.alloc(512);
+  header.write("ustar",257);
+  await writeFile(join(root,"archive.tar"),header);
+  await expect(scanPrivateOutput(root,["private-organization"])).rejects.toThrow("UNSUPPORTED_COMPRESSED_OUTPUT");
+});

@@ -55,13 +55,12 @@ export BUNKO_QUARANTINE="$(mktemp -d)"
     "env": { "REPO_ROOT": "/repo" },
     "external": ["@temporalio/worker", "snowflake-sdk"],
     "deps": { "allowIgnoredScripts": ["protobufjs", "@swc/core"] },
-    "build": { "allowUnresolved": [""] },
     "inheritBaseOciLabels": false,
     "user": "65532:65532"
   }
 }</pre>
 <ul>
-<li><strong>Native dependencies:</strong> externalize location-sensitive packages as needed, based on the resolved inventory. The example allowances are candidates from the original report, not a blanket approved list. Confirm published files work without hooks. The empty unresolved pattern permits opaque dependency expressions; it does not install missing runtime packages.</li>
+<li><strong>Native dependencies:</strong> externalize location-sensitive packages as needed, based on the resolved inventory. The example allowances are candidates from the original report, not a blanket approved list. Confirm published files work without hooks. If the original opaque dependency expressions still require runtime resolution, explicitly add <code>"build": { "allowUnresolved": [""] }</code> after auditing those imports. Prefer exact specifier patterns for identifiable imports; the empty pattern allows opaque expressions broadly and does not install missing runtime packages.</li>
 <li><strong>Runtime files:</strong> create a local manifest of source path → image path → expected content/hash. Adapt import.meta-relative reads to declared image paths or embed explicit data imports. A warning followed by a default value fails acceptance.</li>
 <li><strong>Temporal:</strong> prebuild workflows with bundleWorkflowCode in the trusted preparation step. Configure the worker with workflowBundle.codePath to the copied bundle instead of runtime workflowsPath compilation. See the <a href="https://github.com/temporalio/samples-typescript/blob/main/production/src/worker.ts">official production worker example</a>. Verify the native bridge and required shared libraries on each architecture.</li>
 <li><strong>Migrations:</strong> provide one explicit entry that calls the migration API and every ordered synchronization step. Shell command chains and external CLI executables are not automatically bundled. A separate trusted migration preparation job is an acceptable operational fallback, but then mark the migration-image criterion not-run.</li>

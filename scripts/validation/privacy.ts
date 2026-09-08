@@ -26,8 +26,8 @@ export async function scanPrivateOutput(root: string, terms: string[], maxBytes 
     }
   }
   async function content(file: string) {
-    const magic = Buffer.from(await Bun.file(file).slice(0, 4).arrayBuffer());
-    if (magic.equals(Buffer.from([0x28, 0xb5, 0x2f, 0xfd])) || magic.subarray(0, 2).toString() === "PK") throw new Error("UNSUPPORTED_COMPRESSED_OUTPUT");
+    const magic = Buffer.from(await Bun.file(file).slice(0, 512).arrayBuffer());
+    if (magic.subarray(0, 4).equals(Buffer.from([0x28, 0xb5, 0x2f, 0xfd])) || magic.subarray(0, 2).toString() === "PK" || magic.subarray(257, 262).toString() === "ustar") throw new Error("UNSUPPORTED_COMPRESSED_OUTPUT");
     const raw = createReadStream(file);
     try { await scan(raw); } finally { raw.destroy(); }
     if (magic.subarray(0, 2).equals(Buffer.from([0x1f, 0x8b]))) {

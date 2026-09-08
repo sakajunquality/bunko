@@ -55,7 +55,7 @@ Usage:
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>]
-  bunko doctor [path] [--bun-path <file>]
+  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
   bunko version
 
