@@ -27,6 +27,15 @@ test("telemetry requires explicit opt-in and validates only its supported config
   const config = telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: "https://example.test/prefix/", OTEL_EXPORTER_OTLP_HEADERS: "authorization=Bearer%20test" })!;
   expect(config.traces!.href).toBe("https://example.test/prefix/v1/traces");
   expect(config.headers.authorization).toBe("Bearer test");
+  for (const endpoint of ["http://collector.example.test", "http://127.0.0.1:4318"]) {
+    expect(() => telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: endpoint, OTEL_EXPORTER_OTLP_HEADERS: "authorization=secret" })).toThrow("require HTTPS");
+    expect(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: endpoint })).toBeDefined();
+  }
+  for (const signal of ["TRACES", "METRICS"]) expect(() => telemetryConfig(true, {
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.test",
+    [`OTEL_EXPORTER_OTLP_${signal}_ENDPOINT`]: "http://127.0.0.1:4318",
+    OTEL_EXPORTER_OTLP_HEADERS: "x-api-key=secret",
+  })).toThrow("require HTTPS");
   expect(telemetryConfig(true, { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://example.test/custom", OTEL_METRICS_EXPORTER: "none" })!.traces!.pathname).toBe("/custom");
   for (const env of [{ OTEL_EXPORTER_OTLP_PROTOCOL: "grpc" }, { OTEL_EXPORTER_OTLP_ENDPOINT: "https://user:secret@example.test" }, { OTEL_EXPORTER_OTLP_TIMEOUT: "Infinity" }, { OTEL_EXPORTER_OTLP_HEADERS: "host=evil" }]) expect(() => telemetryConfig(true, env)).toThrow();
 });
@@ -61,11 +70,11 @@ test("failure is exported without exception content and exporter errors preserve
   }
 });
 
-test("redirects never forward headers and a stalled body has a bounded flush", async () => {
+test("redirects never contact the destination and a stalled body has a bounded flush", async () => {
   const destination = receiver();
   const redirect = receiver(() => new Response(null, { status: 307, headers: { Location: `${destination.endpoint}/v1/traces` } }));
   let warnings = 0;
-  await new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: redirect.endpoint, OTEL_EXPORTER_OTLP_HEADERS: "authorization=secret" })!, () => { warnings++; }).run("build", async () => 42);
+  await new Telemetry(telemetryConfig(true, { OTEL_EXPORTER_OTLP_ENDPOINT: redirect.endpoint })!, () => { warnings++; }).run("build", async () => 42);
   expect(destination.received).toHaveLength(0); expect(warnings).toBe(1);
   const stalled = receiver(() => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("{")); } }), { headers: { "content-type": "application/json" } }));
   const start = performance.now();

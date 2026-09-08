@@ -42,6 +42,7 @@ export function telemetryConfig(enabled: boolean | undefined, env: Record<string
       if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
       if (!specific) url.pathname = `${url.pathname.replace(/\/$/, "")}/v1/${signal.toLowerCase()}`;
     } catch { throw new Error(`Invalid OTLP ${signal.toLowerCase()} endpoint`); }
+    if (url.protocol === "http:" && Object.keys(headers).length) throw new Error("OTLP exporter headers require HTTPS endpoints");
     return url;
   };
   const traces = endpoint("TRACES"), metrics = endpoint("METRICS");
