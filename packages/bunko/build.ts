@@ -1,3 +1,4 @@
+import { normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
@@ -62,6 +63,7 @@ export interface BuildResult {
   manifest: Descriptor;
   config: Descriptor;
   sourceDigest: Digest;
+  assetMaterials?: AssetMaterial[];
   baseDigest: Digest;
   baseRuntimeVerified: false;
   toolchain: { version: string; revision: string; digest?: string };
@@ -98,6 +100,7 @@ export async function writeReport(path: string, value: unknown) {
 }
 
 interface BuildContext {
+  mappedAssets: Awaited<ReturnType<typeof stageAssetMappings>>;
   syntax: SyntaxCache;
   toolchainDigest: Digest;
   inputDigest: Digest;
@@ -175,8 +178,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
     }
     const prefix = project.workdir.slice(1);
-    const assets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix);
-    const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, entries: await assetInputs(assets) });
+    const assets = [...await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix), ...context.mappedAssets.entries];
+    assertNoLayerCollision([assets]);
+    const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(context.mappedAssets.materials.length ? { materials: context.mappedAssets.materials } : {}), entries: await assetInputs(assets) });
     const records: CacheRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
       const result: PlatformResult[] = [];
@@ -291,7 +295,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const result: BuildResult = {
       schemaVersion: 2, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
-      sourceDigest, baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
+      sourceDigest, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
@@ -368,7 +372,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
-  options = supplyChainOptions(options);
+  options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache]);
@@ -389,6 +393,10 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const multiple = discovered.targets.length > 1;
   if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
   const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
+  for (const project of projects) for (const mapping of project.assetMappings) {
+    const destination = mapping.to.toLowerCase(), runtime = project.bunPath.toLowerCase();
+    if (runtime === destination || runtime.startsWith(`${destination}/`) || destination.startsWith(`${runtime}/`)) throw new Error("Asset mapping overlaps the configured Bun runtime");
+  }
   if (options.baseSBOMs && Object.keys(options.baseSBOMs).some((key) => !projects.some((p) => p.platforms.some((platform) => `${platform.os}/${platform.architecture}` === key)))) throw new Error("Base SBOM map contains an unselected platform");
   if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");
   if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => !projects.some((p) => p.directory === path))) throw new Error("Dependency map contains an unselected target");
@@ -449,6 +457,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       const captured = await workspaceAt(source, discovered.workspace.packages[0]!);
       if (JSON.stringify(captured.packages.map((pkg) => pkg.path)) !== JSON.stringify(discovered.workspace.packages.map((pkg) => pkg.path))) throw new Error("Workspace membership changed while creating the snapshot; retry the build");
     }
+    const mapped = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
+    for (const [index, project] of projects.entries()) mapped.set(project.directory, await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index)), [...exclusions, temporary]));
     const plan = await dependencyPlan(projects[0]!, source), toolchain = await selectToolchain(options.bunPath);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
@@ -468,7 +478,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

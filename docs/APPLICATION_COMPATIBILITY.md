@@ -62,7 +62,7 @@ Generic fixtures cover catalog frozen installs, pre-execution macro rejection, c
 
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 
-Subsequent work includes explicit external asset contexts, and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
+Subsequent work includes workload validation and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
 
 
 ## Multiple entrypoints in one image
@@ -95,3 +95,30 @@ The report's `images[].entrypoints` maps names to absolute image paths. The defa
 Use either the existing `entrypoint` setting or `entrypoints`. The existing single-entry image contract is unchanged. Named entries currently require bundle mode; compile mode rejects them. A single named entry can omit `defaultEntrypoint`. URI fragments are not introduced: `bunko://` continues to refer to the complete target image. Kubernetes `args` can select a different emitted entry in that image. Migrations remain explicit one-off commands.
 
 Named-entry images always enable code splitting, including a single named entry. Container Cmd/Kubernetes args provide Bun arguments directly and can invoke other Bun CLI operations; the entry map is a deployment convenience, not a runtime command allowlist. Treat permission to override these arguments as permission to select what the container executes.
+## Named local asset contexts
+
+Use `assetMappings` for runtime files outside the project. Bind each logical context to a local directory at invocation time; host paths do not belong in package.json.
+
+```json
+{
+  "bunko": {
+    "assetMappings": [
+      { "context": "repo", "from": "config/generated", "to": "/repo/config" },
+      { "context": "repo", "from": "schema.sql", "to": "/repo/schema.sql" }
+    ],
+    "env": { "REPO_ROOT": "/repo" }
+  }
+}
+```
+
+```sh
+bunko build ./server --asset-context repo=/path/to/staged-inputs --oci-layout ./image
+```
+
+`from` is an exact relative file or directory, without globs or parent traversal. A directory copies its contents recursively into the exact absolute image directory specified by `to`; a file maps to that exact filename. Existing `assets` patterns remain relative to the application's workdir. `--asset-context` is repeatable and works with build, resolve, and apply; it is independent of resolve's `--context`. Relative context paths, including programmatic `assetContexts` values, resolve from the invocation working directory.
+
+Only selected files are read and frozen before dependency installation or bundling. Unselected sibling directories are not scanned. Context-root `.bunkoignore` rules and the normal credential, dependency, output, and cache exclusions apply; an excluded file anywhere in a selected tree fails the build. Symlinks and special files are rejected, including symlinks in selected parent paths. Empty directories are preserved. Files normalize to mode 0755 when any executable bit is set and 0644 otherwise; directories use 0755. This matches ordinary assets and makes packaged files readable by the configured runtime user. Live input trees should remain unchanged during staging.
+
+Mappings cannot target system directories such as `/usr`, `/etc`, or `/proc`, or Bunko's dependency directories. Collisions between mappings, regular assets, dependencies, and application output fail, including case collisions and file/directory conflicts. Custom destinations follow normal OCI layering over the chosen base; mappings are not a general base-filesystem inspection feature.
+
+Reports and provenance record logical context names, selected relative paths, exact destinations, and content digests. Asset cache identity includes these mappings and the frozen contents; host input directory paths are omitted. These logical names and relative paths are public metadata when publishing provenance, so choose names appropriate for publication. Additional source files copied as assets do not become executable bundle inputs. This feature does not make missing runtime dependencies or shared libraries available.
