@@ -14,6 +14,8 @@ Existing compile users with other Bun patches or custom builds must select a sup
 
 Collector, runtime-injection and generic application fixtures provide repeatable acceptance checks. They do not certify external application behavior; remote workload acceptance and unavailable provider credentials remain separate. Follow the [remote acceptance checklist](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.3/docs/validation-request.html). Registry interoperability evidence from earlier releases is not automatically attributed to rc.3. Private ECR remains unverified.
 
+Exact candidate evidence is recorded in [rc.3 validation](https://github.com/sakajunquality/bunko/blob/v0.1.0-rc.3/docs/validation/rc3.md).
+
 The distribution contains the JavaScript CLI, SHA256SUMS, MIT license and third-party notices. npm publication is not included. Earlier tags and assets remain immutable. Rebuild compiled images when upgrading; the additional runtime inputs and notices change application cache keys and image digests.
 
 The transpiler cache default changes image configuration digests in every mode when the base does not already declare the setting. Existing explicit settings are preserved.

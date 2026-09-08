@@ -1,6 +1,6 @@
 # Application acceptance before stable release
 
-Use v0.1.0-rc.2 with Bun 1.3.11–1.3.13. Keep the source revision, CLI checksum, Bun revision and digest-pinned base constant. A successful `check-config` is a configuration result, not a functional compatibility result.
+Use v0.1.0-rc.3 with Bun 1.3.11–1.3.13. Keep the source revision, CLI checksum, Bun revision and digest-pinned base constant. A successful `check-config` is a configuration result, not a functional compatibility result.
 
 ## Public functional fixture
 
