@@ -1,6 +1,6 @@
 # CLI container
 
-The container workflow packages the published, checksum-verified JavaScript CLI with pinned Bun 1.3.11, GnuPG's `gpgv`, Git and CA certificates. The intended release reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.3`; use it only after the container workflow has published and verified that tag. Pin the resulting index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The container workflow packages the published, checksum-verified JavaScript CLI with pinned Bun 1.3.11, GnuPG's `gpgv`, Git and CA certificates. The published release reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.3`. Its verified multiarchitecture index is `sha256:96089cd845b26fc8a12c5495b007c7ce76be47617ec6621382fc7e9ad356464e`; pin this digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -40,3 +40,7 @@ gh attestation verify "oci://ghcr.io/sakajunquality/bunko@$IMAGE_DIGEST" \
 ```
 
 A Dockerfile builds this tool distribution. Bunko application builds still construct OCI layers directly and do not gain arbitrary RUN or package-manager execution.
+
+## Published validation
+
+[Container workflow 34229522090](https://github.com/sakajunquality/bunko/actions/runs/34229522090) completed publication and exact-source attestation verification on 2026-09-08. The recipe source was `refs/heads/main` at `589564556d67568d163f7e61e67da41cb90698de`; the CLI payload was the checksum-pinned rc.3 release. Both platform builders compiled and executed the dependency fixture before publication. The published digest above was then pulled for Linux amd64 and arm64 using an empty Docker credential configuration, and both images returned `0.1.0-rc.3` under nonroot, read-only, network-disabled execution.
