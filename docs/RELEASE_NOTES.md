@@ -5,6 +5,7 @@ This release candidate expands compatibility with existing Bun applications and 
 - Bundle only loaded executable inputs, with pre-execution macro checks and explicit data imports. Copied frontend assets and unreachable dependencies no longer receive executable syntax checks.
 - Support workspace catalogs, selected application compiler configuration, and a restricted install-only bunfig contract.
 - Allow explicitly reviewed dependency install hooks to be ignored (never executed), and opt into unresolved dependency expressions when runtime resolution is required.
+- Omit recognized foreign prebuilt native addons and their aliases while retaining target shared objects. Reject corrupt/unknown addons, bound package ownership checks, and preserve the target-addon requirement across all dependency strategies.
 - Bundle named server, worker and migration entries into one image with an overridable default command.
 - Map selected named local asset inputs to image destinations, including generated files outside the project.
 - Optionally suppress inherited base OCI labels. This is not an anonymization feature.

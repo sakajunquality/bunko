@@ -62,6 +62,8 @@ Packages that ship one prebuilt `.node` per platform in a single tree, such as T
 
 Generic fixtures cover catalog frozen installs, pre-execution macro rejection, copy-only assets, imported sibling configuration, data loaders, script-free allowances, unresolved imports, and label inheritance. The CI matrix includes Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS. The distributed CLI smoke test runs outside the checkout without external npm dependencies.
 
+[PR #27](https://github.com/sakajunquality/bunko/pull/27) reports Temporal workflow completion and Snowflake minicore loading on amd64/arm64 at a source checkpoint. Those author-reported checks do not certify the exact released RC or complete application behavior.
+
 Private application compatibility is not established by these fixtures. Complete HTTP behavior, native functionality, database operations, runtime files, and both target Linux architectures still need workload validation. Use independently authored fixtures in public CI; do not copy private application code or configuration.
 
 Subsequent work includes workload validation and evaluation of source-preserving mode. Runtime injection into custom bases remains a separate design requiring ABI and shared-library checks. Database migrations should run as explicit one-off operations, not implicitly on every HTTP startup.
