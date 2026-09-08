@@ -37,7 +37,7 @@ export async function validateFontFile(file: string, destination: string, mode: 
   let offsets = [0];
   if (collection) {
     const count = header.readUInt32BE(8);
-    if (header.toString("ascii", 0, 4) !== "ttcf" || ![0x10000, 0x20000].includes(header.readUInt32BE(4)) || count < 1 || count > 64) throw invalid();
+    if (header.readUInt32BE(0) !== 0x74746366 || ![0x10000, 0x20000].includes(header.readUInt32BE(4)) || count < 1 || count > 64) throw invalid();
     const directory = await bytes(12, count * 4);
     offsets = Array.from({ length: count }, (_, index) => directory.readUInt32BE(index * 4));
     if (offsets.some((offset) => offset < 12 + count * 4)) throw invalid();
@@ -47,7 +47,7 @@ export async function validateFontFile(file: string, destination: string, mode: 
     if (![0x10000, 0x4f54544f, 0x74727565].includes(version) || count < 1 || count > 4096) throw invalid();
     const directory = await bytes(offset + 12, count * 16), tags = new Set<string>();
     for (let index = 0; index < count; index++) {
-      const position = index * 16, tag = directory.toString("ascii", position, position + 4);
+      const position = index * 16, tag = directory.toString("latin1", position, position + 4);
       const start = directory.readUInt32BE(position + 8), length = directory.readUInt32BE(position + 12);
       if (tags.has(tag) || !/^[\x20-\x7e]{4}$/.test(tag) || start < 12 || start + length > size || (["head", "name", "cmap"].includes(tag) && length === 0)) throw invalid();
       tags.add(tag);

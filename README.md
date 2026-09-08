@@ -46,7 +46,7 @@ bun run dev build examples/hello --repo ghcr.io/OWNER
 
 Success prints one `ghcr.io/OWNER/hello@sha256:...` line. `--bare` treats `--repo` as the exact repository. Default tags are `latest` and the Git revision; override them with `--tag v1 --tag latest`. See [authentication setup](docs/REGISTRIES.md).
 
-Source builds after rc.3 also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), and [runtime/workspace configuration](docs/CONFIGURATION.md). These additions are not present in the immutable rc.3 CLI or container.
+Source builds after rc.3 also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), [runtime/workspace configuration](docs/CONFIGURATION.md), and [system font mappings](docs/FONTS.md). These additions are not present in the immutable rc.3 CLI or container.
 
 ## Custom bases without Bun
 
