@@ -23,7 +23,7 @@ export interface InjectedRuntime {
 }
 export function runtimeAsset(toolchain: Toolchain, platform: Platform) {
   if (!/^1\.3\.(11|12|13)$/.test(toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error("Verified runtime selection supports official Bun 1.3.11, 1.3.12 and 1.3.13 releases");
-  if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported injected runtime platform");
+  if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported verified runtime platform");
   return `bun-linux-${platform.architecture === "amd64" ? "x64-baseline" : "aarch64"}`;
 }
 
@@ -81,7 +81,7 @@ export function releaseRevision(bytes: Buffer, toolchain: Toolchain): string {
     const revision = bytes.subarray(at + 1, at + 41).toString("ascii");
     if (/^[a-f0-9]{40}$/.test(revision) && bytes[at + 41] === 0) return revision;
   }
-  throw new Error("Official runtime does not contain the selected toolchain revision; custom builds cannot be injected");
+  throw new Error("Official runtime does not contain the selected toolchain revision; custom builds cannot use official runtime assets");
 }
 
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
@@ -146,7 +146,7 @@ export async function extractRuntime(bytes: Buffer, asset: string): Promise<Buff
 }
 
 export function runtimeELF(bytes: Buffer, platform: Platform) {
-  if (bytes.length < 64 || bytes.subarray(0, 4).toString() !== "\x7fELF" || bytes[4] !== 2 || bytes[5] !== 1 || ![0, 3].includes(bytes[7]!) || ![2, 3].includes(bytes.readUInt16LE(16)) || bytes.readUInt16LE(18) !== (platform.architecture === "amd64" ? 62 : 183)) throw new Error("Injected runtime is not a target Linux ELF64 executable");
+  if (bytes.length < 64 || bytes.subarray(0, 4).toString() !== "\x7fELF" || bytes[4] !== 2 || bytes[5] !== 1 || ![0, 3].includes(bytes[7]!) || ![2, 3].includes(bytes.readUInt16LE(16)) || bytes.readUInt16LE(18) !== (platform.architecture === "amd64" ? 62 : 183)) throw new Error("Verified runtime is not a target Linux ELF64 executable");
   const num = (offset: number) => { const n = Number(bytes.readBigUInt64LE(offset)); if (!Number.isSafeInteger(n) || n < 0) throw new Error("Invalid runtime ELF offset"); return n; };
   const phoff = num(32), width = bytes.readUInt16LE(54), count = bytes.readUInt16LE(56);
   if (width !== 56 || !count || count > 1024 || phoff + width * count > bytes.length) throw new Error("Invalid runtime ELF program headers");
