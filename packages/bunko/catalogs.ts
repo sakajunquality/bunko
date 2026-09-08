@@ -8,7 +8,7 @@ export function catalogs(manifest: Record<string, unknown>): { catalog: Record<s
   const workspace = manifest.workspaces !== undefined && !Array.isArray(manifest.workspaces) ? object(manifest.workspaces, "workspaces") : {};
   function field(name: string): unknown {
     if (manifest[name] !== undefined && workspace[name] !== undefined) throw new Error(`Define ${name} at the root or inside workspaces, not both`);
-    return manifest[name] ?? workspace[name] ?? {};
+    return manifest[name] !== undefined ? manifest[name] : workspace[name] !== undefined ? workspace[name] : {};
   }
   function entries(value: unknown): Record<string, string> {
     const result: Record<string, string> = Object.create(null);

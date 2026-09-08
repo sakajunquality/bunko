@@ -127,17 +127,19 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   const config = join(root, OUTPUT_DIRECTORY, "install.toml");
   await mkdir(dirname(config), { recursive: true });
   await writeFile(config, installConfig(plan.installPolicy ?? {}));
+  const home = join(root, OUTPUT_DIRECTORY, "install-home");
+  await mkdir(join(home, "config"), { recursive: true, mode: 0o700 });
   const auth = join(root, ".npmrc");
   if (plan.npmrc) await writeFile(auth, plan.npmrc, { mode: 0o600 });
   const args = [toolchain.path, "install", "--frozen-lockfile", "--ignore-scripts", "--linker=isolated", "--backend=copyfile", "--no-progress", `--config=${config}`, `--registry=${plan.registry}`];
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
-  // Keep downloads outside node_modules even in the intentionally HOME-free environment.
+  // Keep downloads outside node_modules even in the isolated installer environment.
   args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   try {
     const child = Bun.spawn(args, { cwd: root, env: {
-      PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
+      HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
       BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
       ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
       ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),

@@ -30,15 +30,18 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
 export async function bundle(project: Project, toolchain: Toolchain, root: string, log: (message: string) => void, contextRoot = root, syntax?: SyntaxCache): Promise<{ outdir: string; entry: string; inventory: InventoryEntry[]; inputs: string[] }> {
   const outdir = join(root, OUTPUT_DIRECTORY, "out");
   await mkdir(outdir, { recursive: true });
+  const home = join(root, OUTPUT_DIRECTORY, "home");
+  await mkdir(join(home, "config"), { recursive: true, mode: 0o700 });
+  for (const file of ["errors.json", "meta.json", "validation.json"]) await rm(join(root, OUTPUT_DIRECTORY, file), { force: true });
   const worker = join(root, OUTPUT_DIRECTORY, "worker.js");
   const settings = join(root, OUTPUT_DIRECTORY, "worker.json");
-  await writeFile(worker, await workerCode());
-  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, external: project.external, ...project.build }));
+  await writeFile(worker, await workerCode(), { mode: 0o600 });
+  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved }), { mode: 0o600 });
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   const child = Bun.spawn(args, {
     cwd: root,
-    env: { PATH: process.env.PATH ?? "", NODE_ENV: "production", TZ: "UTC", LANG: "C", LC_ALL: "C" },
+    env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", NODE_ENV: "production", TZ: "UTC", LANG: "C", LC_ALL: "C" },
     stdout: "pipe", stderr: "pipe",
   });
   const drain = async (stream: ReadableStream<Uint8Array>) => {
@@ -54,8 +57,9 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     throw new Error(`Bun build failed (exit ${exit})${detail ? `: ${detail}` : ""}`);
   }
   if (syntax) {
-    const stats = JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "validation.json"), "utf8"));
-    syntax.stats.parsed += stats.parsed; syntax.stats.bytes += stats.bytes;
+    const stats = object(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "validation.json"), "utf8")), "Worker validation statistics");
+    if (![stats.parsed, stats.bytes].every((value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) throw new Error("Invalid worker validation statistics");
+    syntax.stats.parsed += stats.parsed as number; syntax.stats.bytes += stats.bytes as number;
   }
   const meta = object(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "meta.json"), "utf8")), "Bun metafile");
   const outputs = object(meta.outputs, "Bun metafile outputs");
@@ -121,8 +125,8 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (project.build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
-    const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--outfile=${executable}`, "--env=disable", "--no-env-file"],
-      { cwd: outdir, env: { PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
+    const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
+      { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
     const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
     if (code) throw new Error(`Bun compile failed (exit ${code})`);
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");

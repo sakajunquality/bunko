@@ -66,14 +66,14 @@ test("opaque dependency loads require an explicit allowance while application lo
   await writeFile(join(f.source, "src/server.ts"), 'import load from "fixture-msg"; console.log(load("node:path").sep);');
   const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
   const options = { path: f.source, baseLayout: base, installCache: f.cache, localCache: false, gitMetadata: false };
-  await expect(build({ ...options, output: join(root, "strict") })).rejects.toThrow("Bun build failed");
+  await expect(build({ ...options, output: join(root, "strict") })).rejects.toThrow("argument is not a string literal");
   manifest.bunko.build = { allowUnresolved: [""] };
   await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
   await build({ ...options, output: join(root, "allowed") });
   await writeFile(join(f.source, "src/server.ts"), 'const name = process.argv[2]; require(name);');
   await expect(build({ ...options, output: join(root, "app-computed") })).rejects.toThrow("Computed require/import");
   await writeFile(join(f.source, "src/server.ts"), 'import "missing-literal-package";');
-  await expect(build({ ...options, output: join(root, "missing") })).rejects.toThrow("Bun build failed");
+  await expect(build({ ...options, output: join(root, "missing") })).rejects.toThrow("missing-literal-package");
 });
 
 
@@ -87,4 +87,21 @@ test.each(["production", "closure"])("workspace script allowances apply to resol
   const result = await build({ path: join(f.source, "services/api"), baseLayout: base, output: join(root, "out"), installCache: f.cache, localCache: false, gitMetadata: false });
   expect(result.images[0]!.inventory.find((p) => p.name === "fixture-msg" && p.version === "1.0.0")?.ignoredInstallScripts).toEqual(["postinstall"]);
   expect(await Bun.file(join(root, "executed")).exists()).toBe(false);
+});
+
+test("build subprocesses ignore parent HOME and XDG bunfig preloads", async () => {
+  const root = await dir(), f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  const marker = join(root, "executed"), preload = join(root, "preload.ts");
+  await writeFile(preload, `await Bun.write(${JSON.stringify(marker)}, "unsafe");`);
+  await writeFile(join(root, ".bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+  await writeFile(join(root, "bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+  const savedHome = process.env.HOME, savedXdg = process.env.XDG_CONFIG_HOME;
+  try {
+    process.env.HOME = root; process.env.XDG_CONFIG_HOME = root;
+    await build({ path: f.source, baseLayout: base, output: join(root, "out"), installCache: f.cache, localCache: false, gitMetadata: false });
+    expect(await Bun.file(marker).exists()).toBe(false);
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = savedXdg;
+  }
 });

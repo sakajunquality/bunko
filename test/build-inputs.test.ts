@@ -73,3 +73,60 @@ test("data attributes and literal dynamic imports preserve output", async () => 
   expect(output).toContain("this is plain text");
   expect(output).toContain("42");
 });
+
+test("entry modules reject macros and file/toml data retain native loader behavior", async () => {
+  const { source } = await fixture();
+  const marker = join(source, "executed");
+  await writeFile(join(source, "src/macro.ts"), `await Bun.write(${JSON.stringify(marker)}, "unsafe"); export function value() { return 1; }`);
+  await writeFile(join(source, "src/server.ts"), 'import {value} from "./macro.ts" with {type:"macro"}; console.log(value());');
+  const rejected = await run(source);
+  expect(rejected.success).toBe(false);
+  expect(await Bun.file(marker).exists()).toBe(false);
+  await writeFile(join(source, "src/data.bin"), Buffer.from([0, 255, 1, 2, 3]));
+  await writeFile(join(source, "src/data.toml"), 'answer=42\n');
+  await writeFile(join(source, "src/server.ts"), 'import file from "./data.bin" with {type:"file"}; import data from "./data.toml" with {type:"toml"}; console.log(file, data.answer);');
+  const result = await run(source);
+  expect(result.logs.map((entry) => entry.message)).toEqual([]);
+  expect(result.success).toBe(true);
+  const binary = result.outputs.find((output) => output.path.endsWith(".bin"));
+  expect(binary).toBeDefined();
+  expect(new Uint8Array(await binary!.arrayBuffer())).toEqual(new Uint8Array([0, 255, 1, 2, 3]));
+});
+
+test("a JavaScript file imported as text stays data and mixed loads fail", async () => {
+  const { source } = await fixture();
+  const marker = join(source, "executed");
+  await writeFile(join(source, "src/data.js"), `import {value} from "./macro.ts" with {type:"macro"}; console.log(value());`);
+  await writeFile(join(source, "src/macro.ts"), `await Bun.write(${JSON.stringify(marker)}, "unsafe"); export function value(){ return 1; }`);
+  await writeFile(join(source, "src/server.ts"), 'import text from "./data.js" with {type:"text"}; console.log(text);');
+  expect((await run(source)).success).toBe(true);
+  expect(await Bun.file(marker).exists()).toBe(false);
+  await writeFile(join(source, "src/data.js"), 'export default 42;');
+  await writeFile(join(source, "src/other.ts"), 'import value from "./data.js"; console.log(value);');
+  await writeFile(join(source, "src/server.ts"), 'import text from "./data.js" with {type:"text"}; import "./other.ts"; console.log(text);');
+  await expect(run(source)).rejects.toThrow("cannot mix data-loader and ordinary imports");
+});
+
+
+test.each([false, true])("mixed loaders fail regardless of importer discovery order (%s)", async (reverse) => {
+  const { source } = await fixture();
+  await writeFile(join(source, "src/data.js"), 'export default 42;');
+  await writeFile(join(source, "src/ordinary.ts"), 'import value from "./data.js"; console.log(value);');
+  await writeFile(join(source, "src/text.ts"), 'import text from "./data.js" with {type:"text"}; console.log(text);');
+  const imports = ['import "./ordinary.ts";', 'import "./text.ts";'];
+  await writeFile(join(source, "src/server.ts"), (reverse ? imports.reverse() : imports).join("\n"));
+  await expect(run(source)).rejects.toThrow("cannot mix data-loader and ordinary imports");
+});
+
+test("data inputs cannot escape the context or alias an entrypoint", async () => {
+  const { root, source } = await fixture();
+  await writeFile(join(root, "outside.txt"), 'outside');
+  await writeFile(join(source, "src/server.ts"), 'import text from "../../outside.txt" with {type:"text"}; console.log(text);');
+  const outside = await run(source);
+  expect(outside.success).toBe(false);
+  expect(outside.logs.map((entry) => entry.message).join()).toContain("escaped the project snapshot");
+  await writeFile(join(source, "src/server.ts"), 'import text from "./server.ts" with {type:"text"}; console.log(text);');
+  const self = await run(source);
+  expect(self.success).toBe(false);
+  expect(self.logs.map((entry) => entry.message).join()).toContain("entrypoint cannot also be a data import");
+});
