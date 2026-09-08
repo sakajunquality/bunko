@@ -25,7 +25,7 @@ import { media, type BaseImage, type Descriptor, type Digest, type Layer, type P
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
-import { dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
+import { dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
 import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
@@ -195,6 +195,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const base = bases[index]!;
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         await cp(snapshotRoot, root, { recursive: true });
+        const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} prebuilt native addon file(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
@@ -211,6 +212,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const content = await context.closure(context.closureProjects, platform, iteration);
           aliases = content.aliases.get(project.targetPath) ?? [];
           inventory = content.inventory; native = content.native;
+          noteOmittedAddons(content.omitted);
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`,
             strategy: "closure-v1", entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
             toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
@@ -229,6 +231,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             await installDependencies(runtime, plan, toolchain, platform, options.installCache);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
+            noteOmittedAddons(content.omitted);
             depsLayer = await packLayer(store, depsEntries, "deps", timestamp);
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
           }

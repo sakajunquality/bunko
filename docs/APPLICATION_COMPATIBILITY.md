@@ -54,6 +54,8 @@ Only the two listed install settings are forwarded to the controlled frozen inst
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 
+Packages that ship one prebuilt `.node` per platform in a single tree, such as Temporal's core bridge or Snowflake's minicore, are supported: only the target's ELF64 addon is packaged, foreign-format or foreign-architecture `.node` files are omitted, and the build log counts the omissions. A package whose `.node` files include none for the target still fails; the runtime selection logic inside the package is not inspected.
+
 `inheritBaseOciLabels: false` omits inherited `org.opencontainers.image.*` labels. Explicit application labels and Bunko-generated labels remain; other base labels retain their existing behavior. This option alone does not anonymize image metadata, provenance, inventories, or sourcemaps.
 
 ## Validation and remaining work

@@ -17,6 +17,67 @@ const dependencyFields = ["dependencies", "devDependencies", "optionalDependenci
 export interface DependencyPlan { installPolicy?: InstallPolicy; manifest: Record<string, unknown>; workspace?: Workspace; workspaceSources?: Record<string, string>; lock?: Record<string, unknown>; npmrc?: string; registry: string; resolution: Record<string, string>; patches: Record<string, string> }
 export interface InventoryEntry { path: string; name: string; version: string; license?: string; ignoredInstallScripts?: string[] }
 export interface NativeBinary { path: string; architecture: string; needed: string[] }
+export interface OmittedAddon { path: string; reason: "foreign-format" | "foreign-architecture" }
+
+const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]);
+const elfMachine = (platform: Platform) => platform.architecture === "amd64" ? 62 : 183;
+
+/**
+ * Packages such as @temporalio/core-bridge or snowflake-sdk ship one prebuilt
+ * `.node` per supported platform inside a single tree and select one at
+ * runtime. Only the target's little-endian ELF64 addon is packaged; a `.node`
+ * file of any other format or architecture can never load on the target, so
+ * it is omitted from the image instead of failing the build.
+ */
+export async function classifyAddon(path: string, platform: Platform): Promise<{ elf?: NativeBinary; omit?: OmittedAddon["reason"] }> {
+  const file = await open(path, "r");
+  const header = Buffer.alloc(20);
+  let bytesRead: number;
+  try { ({ bytesRead } = await file.read(header, 0, 20, 0)); } finally { await file.close(); }
+  if (bytesRead < 20 || !header.subarray(0, 4).equals(ELF_MAGIC) || header[4] !== 2 || header[5] !== 1) return { omit: "foreign-format" };
+  if (header.readUInt16LE(18) !== elfMachine(platform)) return { omit: "foreign-architecture" };
+  return { elf: await inspectELF(path, platform) };
+}
+
+/** Records packaged and omitted `.node` files per package; a package that ships addons but none for the target still fails. */
+export class AddonLedger {
+  private readonly packages = new Map<string, { kept: number; omitted: OmittedAddon[] }>();
+  constructor(private readonly platform: Platform) {}
+  private async entry(file: string, path: string) {
+    // Attribute the addon to the nearest enclosing package.json; fall back to its own directory.
+    let directory = dirname(file), depth = 0;
+    while (!(await Bun.file(join(directory, "package.json")).exists())) {
+      const parent = dirname(directory);
+      if (parent === directory) { directory = dirname(file); depth = 0; break; }
+      directory = parent; depth++;
+    }
+    const segments = path.split("/");
+    const key = segments.slice(0, Math.max(0, segments.length - 1 - depth)).join("/") || ".";
+    let record = this.packages.get(key);
+    if (!record) { record = { kept: 0, omitted: [] }; this.packages.set(key, record); }
+    return record;
+  }
+  async keep(file: string, path: string): Promise<void> { (await this.entry(file, path)).kept++; }
+  async omit(file: string, path: string, reason: OmittedAddon["reason"]): Promise<void> { (await this.entry(file, path)).omitted.push({ path, reason }); }
+  /** Returns every omitted addon in walk order; throws when a package retains no addon for the target. */
+  finish(): OmittedAddon[] {
+    const omitted: OmittedAddon[] = [];
+    for (const [pkg, record] of this.packages) {
+      if (!record.kept) throw new Error(`Native addon package has no ${this.platform.os}/${this.platform.architecture} build: ${pkg} (omitted ${record.omitted.map((o) => o.path).join(", ")})`);
+      omitted.push(...record.omitted);
+    }
+    return omitted;
+  }
+}
+
+/** Inspects a runtime file for the target; returns null when a `.node` file built for another platform was omitted. */
+export async function inspectRuntimeFile(file: string, path: string, platform: Platform, ledger: AddonLedger): Promise<NativeBinary | undefined | null> {
+  if (!path.endsWith(".node")) return inspectELF(file, platform);
+  const addon = await classifyAddon(file, platform);
+  if (addon.omit) { await ledger.omit(file, path, addon.omit); return null; }
+  await ledger.keep(file, path);
+  return addon.elf;
+}
 
 export function packageRoot(value: string): string {
   const match = /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_.-]+/.exec(value);
@@ -159,10 +220,10 @@ export async function inspectELF(path: string, platform: Platform): Promise<Nati
   try {
     const header = Buffer.alloc(64);
     const { bytesRead } = await file.read(header, 0, 64, 0);
-    if (bytesRead < 4 || !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) return;
+    if (bytesRead < 4 || !header.subarray(0, 4).equals(ELF_MAGIC)) return;
     if (bytesRead < 64 || header[4] !== 2 || header[5] !== 1) throw new Error("Only little-endian ELF64 binaries are supported");
     const machine = header.readUInt16LE(18);
-    if (machine !== (platform.architecture === "amd64" ? 62 : 183)) throw new Error(`Native ELF architecture mismatch: ${path}`);
+    if (machine !== elfMachine(platform)) throw new Error(`Native ELF architecture mismatch: ${path}`);
     const offset = Number(header.readBigUInt64LE(32)), count = header.readUInt16LE(56), size = header.readUInt16LE(54);
     if (!Number.isSafeInteger(offset) || size < 56 || count > 4096) throw new Error("Invalid ELF program headers");
     const segments: { type: number; offset: number; address: number; size: number }[] = [];
@@ -202,11 +263,12 @@ export async function inspectELF(path: string, platform: Platform): Promise<Nati
   } finally { await file.close(); }
 }
 
-export async function runtimeEntries(root: string, prefix: string, platform: Platform, prepared = false, allowedScripts: string[] = []): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[] }> {
+export async function runtimeEntries(root: string, prefix: string, platform: Platform, prepared = false, allowedScripts: string[] = []): Promise<{ entries: TarEntry[]; inventory: InventoryEntry[]; native: NativeBinary[]; omitted: OmittedAddon[] }> {
   const modules = await realpath(join(root, "node_modules"));
   const entries: TarEntry[] = [];
   const inventory: InventoryEntry[] = [];
   const native: NativeBinary[] = [];
+  const ledger = new AddonLedger(platform);
   async function walk(path: string) {
     const file = join(modules, path);
     const info = await lstat(file);
@@ -232,14 +294,14 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
           }
         }
       }
-      const elf = await inspectELF(file, platform);
-      if (path.endsWith(".node") && !elf) throw new Error(`Native addon is not Linux ELF64: ${path}`);
+      const elf = await inspectRuntimeFile(file, path, platform, ledger);
+      if (elf === null) return;
       if (elf) native.push({ ...elf, path: destination });
       entries.push({ type: "file", path: destination, source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported dependency file type: ${path}`);
   }
   await walk("");
-  return { entries, inventory, native };
+  return { entries, inventory, native, omitted: ledger.finish() };
 }
 
 export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, project: Project): Record<string, unknown> {
