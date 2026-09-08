@@ -4,6 +4,8 @@ import { media } from "./types.ts";
 
 export type Fetcher = (url: string | URL, init?: RequestInit) => Promise<Response>;
 export interface RegistryOptions {
+  /** Origin-to-mirror hosts; only RegistrySource uses these for digest reads. */
+  mirrors?: Record<string, string[]>;
   sensitivePaths?: string[];
   tls?: Record<string, import("./tls.ts").RegistryTLS>;
   fetcher?: Fetcher;
@@ -44,6 +46,8 @@ export async function responseBytes(response: Response, limit = 8 * 1024 * 1024)
   }
   return Buffer.concat(chunks);
 }
+
+export class RegistryConnectionError extends Error {}
 
 export class RegistryError extends Error {
   constructor(readonly status: number, method: string, registry: string) {
@@ -149,7 +153,7 @@ export class RegistryClient {
       } catch (error) {
         if (init.signal?.aborted) throw init.signal.reason;
         if (error instanceof Error && /HTTPS|credentials or fragments|registry redirect/.test(error.message)) throw error;
-        if (!retryable || attempt >= (this.options.retries ?? 3)) throw new Error(`Registry ${method} connection failed: ${this.registry}`);
+        if (!retryable || attempt >= (this.options.retries ?? 3)) throw new RegistryConnectionError(`Registry ${method} connection failed: ${this.registry}`);
         await this.backoff(attempt);
         continue;
       }

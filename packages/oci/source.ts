@@ -1,7 +1,8 @@
+import { registryHost } from "./mirrors.ts";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RegistryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
+import { RegistryError, RegistryConnectionError, RegistryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
 import { BlobStore } from "./blob-store.ts";
 import { descriptor, object, sha256 } from "./digest.ts";
 import { media, type BaseImage, type Descriptor, type ImageConfig, type ImageManifest, type Platform } from "./types.ts";
@@ -65,12 +66,27 @@ export { type Fetcher } from "./registry.ts";
 export class RegistrySource implements ImageSource {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
+  private readonly mirrors: RegistryClient[];
   constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
-    this.client = new RegistryClient(this.ref.registry, typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options);
+    const settings = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
+    this.client = new RegistryClient(this.ref.registry, settings);
+    const hosts = settings.mirrors?.[registryHost(this.ref.registry)] ?? [];
+    if (!Array.isArray(hosts) || hosts.length > 8) throw new Error("At most eight mirrors are allowed per registry");
+    this.mirrors = hosts.map((host) => new RegistryClient(registryHost(host), settings));
+  }
+  private async read(path: string, digestAddressed: boolean): Promise<Response> {
+    const scopes = [`repository:${this.ref.repository}:pull`];
+    if (digestAddressed) for (const mirror of this.mirrors) {
+      try { return await mirror.request(path, {}, scopes); }
+      catch (error) {
+        if (!(error instanceof RegistryConnectionError) && !(error instanceof RegistryError && (error.status === 404 || error.status === 429 || error.status >= 500))) throw error;
+      }
+    }
+    return this.client.request(path, {}, scopes);
   }
   async root() {
-    const response = await this.client.request(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`, {}, [`repository:${this.ref.repository}:pull`]);
+    const response = await this.read(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`, this.ref.reference.startsWith("sha256:"));
     const bytes = await responseBytes(response);
     const digest = sha256(bytes);
     if (this.ref.reference.startsWith("sha256:") && digest !== this.ref.reference) throw new Error("Base manifest digest mismatch");
@@ -82,7 +98,7 @@ export class RegistrySource implements ImageSource {
   }
   async blob(d: Descriptor) {
     const manifest = [media.index, media.manifest, media.dockerIndex, media.dockerManifest].includes(d.mediaType as typeof media.index);
-    const response = await this.client.request(`/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`, {}, [`repository:${this.ref.repository}:pull`]);
+    const response = await this.read(`/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`, true);
     if (!response.body) throw new Error(`Missing blob body: ${d.digest}`);
     return webStream(response.body);
   }
