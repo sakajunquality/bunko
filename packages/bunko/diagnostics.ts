@@ -1,3 +1,4 @@
+import { assertToolchain } from "./toolchain-policy.ts";
 import { assertAssetRuntime, inspectAssetMappings, normalizeAssetContexts } from "./asset-contexts.ts";
 import { join } from "node:path";
 import { VERSION, loadProject, type BuildOptions } from "./config.ts";
@@ -18,6 +19,7 @@ export async function checkConfig(options: BuildOptions) {
     projects.push({ entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external,
       workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
+      toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort() });
   }
   if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
@@ -27,6 +29,7 @@ export async function checkConfig(options: BuildOptions) {
 
 export async function doctor(options: BuildOptions) {
   const config = await checkConfig(options), toolchain = await selectToolchain(options.bunPath);
+  for (const project of config.targets) assertToolchain(project.toolchainRequirements, toolchain);
   return { ...config, toolchain: { version: toolchain.version, revision: toolchain.revision },
     host: { os: process.platform, architecture: process.arch, runtime: Bun.version },
     optionalTools: Object.fromEntries(["docker", "kubectl", "cosign", "gpgv"].map((name) => [name, Boolean(Bun.which(name === "cosign" ? options.cosignPath ?? name : name))])),

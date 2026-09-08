@@ -1,3 +1,4 @@
+import { assertToolchain } from "./toolchain-policy.ts";
 import { sourceApplication } from "./source-application.ts";
 import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
@@ -323,7 +324,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
-          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
+          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: project.env, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
@@ -519,6 +520,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const mapped = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
     for (const [index, project] of projects.entries()) mapped.set(project.directory, await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index)), [...exclusions, temporary]));
     const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
+    for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };

@@ -1,3 +1,5 @@
+import { workspaceDefaults } from "./workspace-defaults.ts";
+import { toolchainRequirements, type ToolchainRequirements } from "./toolchain-policy.ts";
 import { assetMappings, type AssetMapping } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { catalogs, catalogSpecifier, registrySpecifier } from "./catalogs.ts";
@@ -14,6 +16,7 @@ export const VERSION = packageMetadata.version;
 
 export interface BuildOptions {
   offline?: boolean;
+  runtimeArgs?: string[];
   path: string;
   assetContexts?: Record<string, string>;
   define?: Record<string, string>;
@@ -69,6 +72,8 @@ export interface BuildOptions {
 }
 
 export interface Project {
+  runtimeArgs: string[];
+  toolchainRequirements: ToolchainRequirements;
   mode: "bundle" | "compile" | "source";
   directory: string;
   manifestText: string;
@@ -174,8 +179,8 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);
-  const config = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
-  knownKeys(config, ["entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
+  const config = workspaceDefaults(manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko"), workspace?.packages[0]?.manifest.bunko, Boolean(workspace && directory === workspace.directory));
+  knownKeys(config, ["toolchain", "entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
   if (mode !== "bundle" && mode !== "compile" && mode !== "source") throw new Error("mode must be bundle, compile or source");
@@ -203,7 +208,9 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
-  knownKeys(runtime, ["bunPath", "libc", "inject"], "runtime");
+  knownKeys(runtime, ["args", "bunPath", "libc", "inject"], "runtime");
+  const runtimeArgs = options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs");
+  if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
   if (runtimeInject && mode === "compile") throw new Error("Runtime injection requires bundle mode or source mode");
@@ -283,6 +290,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
+    runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain),
     mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
