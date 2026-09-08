@@ -86,3 +86,13 @@ Font discovery and glyph fallback are separate from support for color font forma
 The validation runner downloads Noto Sans CJK JP and Noto Color Emoji from exact upstream commits, checks SHA-256 digests, and packages their accompanying OFL 1.1 license files. The font licenses are in [Noto CJK Sans](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE) and [Noto Emoji fonts](https://github.com/googlefonts/noto-emoji/blob/8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/LICENSE). The Noto Emoji repository's general Apache license applies to other material; select the license accompanying the actual font files. No font binaries are vendored into Bunko itself.
 
 Run `bun run build && bun run test:fonts` with Docker and network access. The fixture uses `@napi-rs/canvas` 1.0.5 and `@resvg/resvg-js` 2.6.2 on a digest-pinned Bun 1.3.13 slim base. It compares automatic discovery with explicit registration, checks Canvas CJK and colored emoji pixels including an explicit CJK/emoji font-family stack, and checks Resvg CJK output with an application fontconfig file and directory scanning against a no-font negative control. Resvg color emoji rendering is not certified by this fixture. Containers run with UID 65532, a read-only filesystem, networking disabled and no font-cache generation.
+
+On 2026-09-08, both Linux amd64 and arm64 passed this fixture with the same rendered pixel digests on each architecture:
+
+| Render | SHA-256 of RGBA pixels |
+| --- | --- |
+| Canvas CJK | `6269c0ee6b509b01f1dfb88b19c18f634e352c5f05442929a4fe59570a7759f0` |
+| Canvas color emoji | `1e53ab472987dd22d2b5acab7553ba85ec8179cce205ce76b2ad0cb376c74f85` |
+| Resvg CJK | `8a0089873912bd1e87165443608664211d5a2af476f915a8da861f21ac30dad2` |
+
+These values identify this fixture and pinned inputs, not a cross-version rendering guarantee. CI repeats the amd64 runtime probe. Unit tests separately cover malformed font data, collection bounds, reserved destinations, executable modes, source/base symlinks, notices, deterministic layers and cache invalidation.
