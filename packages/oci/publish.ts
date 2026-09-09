@@ -45,6 +45,17 @@ export class Publisher {
     if (dryRun) return { ...result, action: "would-upload", uploaded: d.size };
     const origin = store.origins.get(d.digest);
     let location: string | undefined;
+    const host = new URL(this.client.origin).hostname;
+    const providerMonolithic = host === "ghcr.io" || /^(?:(?:us|eu|asia)\.)?gcr\.io$/.test(host) || /^[a-z0-9-]+-docker\.pkg\.dev$/.test(host);
+    let monolithic = providerMonolithic, chunkSize = 8 * 1024 * 1024;
+    const negotiate = (response: Response) => {
+      const raw = response.headers.get("OCI-Chunk-Min-Length");
+      const minimum = raw === null ? 0 : /^\d+$/.test(raw) ? Number(raw) : NaN;
+      // A registry cannot make us allocate an unbounded chunk. Use a streamed
+      // monolithic PUT for large or malformed minimums, including new sessions.
+      monolithic = providerMonolithic || !Number.isSafeInteger(minimum) || minimum > 32 * 1024 * 1024;
+      chunkSize = monolithic ? 8 * 1024 * 1024 : Math.max(8 * 1024 * 1024, minimum);
+    };
     if (origin?.registry === this.ref.registry && origin.repository !== this.ref.repository) {
       const path = new URL(`/v2/${this.ref.repository}/blobs/uploads/`, this.client.origin);
       path.searchParams.set("mount", d.digest);
@@ -61,24 +72,19 @@ export class Publisher {
           if (!(await this.exists(d))) throw new Error("Mounted registry blob is missing");
           return { ...result, action: "mounted" };
         }
-        if (response.status === 202) location = this.location(response, path.toString());
+        if (response.status === 202) { location = this.location(response, path.toString()); negotiate(response); }
       }
     }
     if (!location) {
-      location = await this.startUpload();
+      location = await this.startUpload(negotiate);
     }
     let complete = false;
     try {
       await store.ensure(d);
       const file = Bun.file(store.path(d.digest));
       if (file.size !== d.size) throw new Error("Upload blob size mismatch");
-      // GAR requires monolithic uploads; GHCR rejects our ranged PATCH path.
-      // Stream the complete file in PUT without a whole-layer JavaScript buffer.
-      const host = new URL(this.client.origin).hostname;
-      const monolithic = host === "ghcr.io" || /^[a-z0-9-]+-docker\.pkg\.dev$/.test(host);
       let offset = 0;
       let failures = 0, restarts = 0;
-      const chunkSize = 8 * 1024 * 1024;
       while (!monolithic && offset < d.size) {
         const end = Math.min(offset + chunkSize, d.size);
         try {
@@ -105,7 +111,7 @@ export class Publisher {
           await status.body?.cancel();
           if (status.status === 404 || status.status === 410) {
             if (++restarts > 3) throw new Error("Registry repeatedly expired the upload session");
-            location = await this.startUpload(); offset = 0;
+            location = await this.startUpload(negotiate); offset = 0;
             continue;
           }
           const range = /^(?:bytes=)?0-(\d+)$/.exec(status.headers.get("Range") ?? "");
@@ -115,7 +121,7 @@ export class Publisher {
             // one-byte session. Start afresh instead of guessing and skipping
             // the first byte. Only this invocation's session is deleted.
             await this.cancelUpload(location);
-            location = await this.startUpload();
+            location = await this.startUpload(negotiate);
             continue;
           }
           const confirmed = Number(range[1]) + 1;
@@ -147,7 +153,8 @@ export class Publisher {
             // A failed full-body PUT can consume its session. Reconcile the
             // digest, then replay the whole file only in a fresh session.
             await this.cancelUpload(location);
-            location = await this.startUpload();
+            location = await this.startUpload(negotiate);
+            monolithic = true;
           }
         }
       }
@@ -161,14 +168,16 @@ export class Publisher {
     }
   }
 
-  private async startUpload(): Promise<string> {
+  private async startUpload(negotiate: (response: Response) => void): Promise<string> {
     const path = `/v2/${this.ref.repository}/blobs/uploads/`;
     for (let attempt = 0; ; attempt++) {
       try {
         const response = await this.client.request(path, { method: "POST" }, [this.scope]);
         await response.body?.cancel();
         if (response.status !== 202) throw new Error("Registry did not create an upload session");
-        return this.location(response, new URL(path, this.client.origin).toString());
+        const location = this.location(response, new URL(path, this.client.origin).toString());
+        negotiate(response);
+        return location;
       } catch (error) {
         // A lost POST response can leave an empty session for registry GC.
         // Only upload-session creation is replayed, never arbitrary POSTs.

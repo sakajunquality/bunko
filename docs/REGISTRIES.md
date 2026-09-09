@@ -190,3 +190,8 @@ Chunked uploads query the committed offset after transient failures and back off
 Successful finalization responses in the 2xx range are accepted only with subsequent blob existence/digest-size checks or exact manifest-byte verification. This tolerates providers with nonstandard success codes without treating the status alone as proof of publication.
 
 Terminal errors retain recognized [OCI Distribution error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes), such as `DENIED` or `MANIFEST_UNKNOWN`. Error responses are bounded to 64 KiB and one second. Arbitrary upstream messages, details, and unknown codes are omitted because they may echo credentials, signed URLs, or private input. Offline transport policy errors retain their explicit diagnostic and bypass connection retries. These changes do not alter the immutable rc.4 release.
+
+
+Registry references, insecure allowlists, mirror hosts, and TLS configuration keys accept bracketed IPv6 literals, such as `[::1]:5000/team/app:tag`. Unbracketed literals and zone identifiers are rejected. Credentials remain scoped to the configured registry authority.
+
+Uploads use 8 MiB chunks by default and honor a session's `OCI-Chunk-Min-Length` up to a 32 MiB buffer limit. Larger or malformed advertised minimums select a streamed monolithic PUT instead of allocating a registry-controlled buffer. New upload sessions renegotiate their minimum; replayed monolithic transfers stay monolithic. GHCR, Artifact Registry Docker endpoints, and migrated `gcr.io`, `us.gcr.io`, `eu.gcr.io`, and `asia.gcr.io` endpoints use monolithic uploads. Completion still requires verified remote digest/size evidence.
