@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko:v0.1.0-rc.5 \
+  ghcr.io/sakajunquality/bunko@sha256:ce1cb4515ae18c52b219f3d39b2e8b32783dce66f680b90c3ec7d1a03fd22e30 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
