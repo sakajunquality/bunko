@@ -56,6 +56,7 @@ test("runtime CA inputs reject traversal and symlinked path components", async (
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { caCertificates: ["../outside.pem"] } } }));
   await expect(loadProject({ path: source })).rejects.toThrow();
   await mkdir(join(directory, "certificates"));
+  await writeFile(join(directory, "certificates/root.pem"), "certificate fixture");
   await symlink(join(directory, "certificates"), join(source, "certs"));
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { caCertificates: ["certs/root.pem"] } } }));
   await expect(runtimeCA(await loadProject({ path: source }))).rejects.toThrow("symlinks");

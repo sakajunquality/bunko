@@ -8,12 +8,12 @@ const directory = await mkdtemp(join(tmpdir(), "bunko-compile-ca-"));
 try {
   const source = join(directory, "source"), key = join(directory, "disposable.key");
   await mkdir(source);
-  await command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost", "-keyout", key, "-out", join(source, "ca.pem")]);
+  await command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", key, "-out", join(source, "ca.pem")]);
   // The disposable server key is mounted only for execution, never packaged.
   await chmod(key, 0o444);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "compile-ca", module: "index.ts", bunko: { runtime: { caCertificates: ["ca.pem"] } } }));
   await writeFile(join(source, "index.ts"), `const server = Bun.serve({hostname:"127.0.0.1",port:0,tls:{key:await Bun.file("/fixtures/key.pem").text(),cert:await Bun.file(process.env.NODE_EXTRA_CA_CERTS!).text()},fetch:()=>new Response("compile runtime TLS works")});
-try { console.log(await (await fetch("https://localhost:"+server.port)).text()); } finally { server.stop(true); }`);
+try { console.log(await (await fetch("https://127.0.0.1:"+server.port)).text()); } finally { server.stop(true); }`);
   for (const platform of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",")) {
     const tarball = join(directory, `${platform.replace("/", "-")}.tar`);
     const result = await build({ path: source, mode: "compile", platform, tarball, push: false, localCache: false, gitMetadata: false });

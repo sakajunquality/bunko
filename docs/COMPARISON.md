@@ -1,6 +1,6 @@
 # Comparison with ko and BuildKit
 
-Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the current main branch; immutable release-specific evidence is linked separately. This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
+Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the current main branch; immutable release-specific evidence is in the [release notes](RELEASE_NOTES.md). This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
 
 ko is the workflow reference for building images directly from language source and resolving deployment manifests. BuildKit is a general build execution backend with workers and frontends. Bunko directly uses Bun and composes OCI images; duplicating BuildKit's execution engine would change that scope.
 
@@ -17,7 +17,7 @@ ko is the workflow reference for building images directly from language source a
 | Local retention | Managed usage, age or byte-budget previews, explicit deletion | Unknown/unreferenced files remain untouched; no total disk quota or automatic GC |
 | SPDX | Opt-in package/license/runtime inventory, platform-bound external base document, exact-payload export | ko defaults to SBOM generation; Bunko does not scan the base OS itself |
 | Provenance/signing | Self-reported SLSA v1 predicate, builder/Bun digests, private key/KMS signing, CI policy | No claimed SLSA assurance level, public keyless workflow or implicit base-image trust policy |
-| Diagnostics | Configuration checks, plain/JSON stage progress, cache reports and partial-failure records | OTLP/HTTP JSON metrics and spans are available; no build-history service or protobuf exporter |
+| Diagnostics | Configuration checks, plain/JSON stage progress, cache reports, partial-failure records and OTLP/HTTP JSON metrics/spans | No build-history service or protobuf exporter |
 | Base updates | Explicit base selection, checks and digest validation | No automatic rebase; native ABI constraints stay in cache identity |
 | Platforms | Linux amd64 and arm64 targets on documented Bun/host versions | No promise of Go's architecture breadth or every BuildKit platform |
 | Isolation | Explicit child environments and containment validation | Host subprocesses are not an OS sandbox; use trusted inputs and isolated runners |

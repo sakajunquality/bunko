@@ -16,7 +16,7 @@ This record separates correctness repairs from feature proposals and intentional
 | Metadata | Content-derived SPDX namespaces, canonical provenance subjects, privacy-preserving build parameters, standard base annotations and offline local base inventories. Graph and local metadata reads are bounded. [#58](https://github.com/sakajunquality/bunko/pull/58), [#65](https://github.com/sakajunquality/bunko/pull/65). |
 | Signing and attachments | Pre-publication cosign version guard, bounded/redacted helper diagnostics, lowercase proxy handling, OCI-Subject capability detection, delayed referrer visibility and in-process fallback serialization. [#66](https://github.com/sakajunquality/bunko/pull/66), [#67](https://github.com/sakajunquality/bunko/pull/67). |
 | Container release | Build once by digest, execute both architectures, attest and verify that exact index, then promote its unchanged bytes. Signed Debian snapshot packages, fixed base/helper digests and publication serialization. [#60](https://github.com/sakajunquality/bunko/pull/60). |
-| Host trust and coverage | Nonempty installer CA inputs are validated consistently with or without npm cafile. Asset exclusion tests use files that are not already omitted by policy; toolchain revision/integrity-suffix and CA traversal cases have explicit tests. |
+| Host trust and coverage (this change) | Nonempty installer CA inputs are validated consistently with or without npm cafile. Asset exclusion tests use files that are not already omitted by policy; toolchain revision/integrity-suffix and CA traversal cases have explicit tests. |
 
 Reviews combine local Codex inspection, Claude review and CodeRabbit when available. Rate-limited or absent bot responses are not approvals. Findings discovered during review receive their own tests; CI and real-runtime evidence are recorded with each PR.
 
@@ -41,3 +41,8 @@ Reviews combine local Codex inspection, Claude review and CodeRabbit when availa
 5. Implement [musl support #53](https://github.com/sakajunquality/bunko/issues/53) and [safe rebase #54](https://github.com/sakajunquality/bunko/issues/54) under their explicit compatibility gates.
 
 General Dockerfile/LLB/RUN execution, remote workers, operating-system package management, arbitrary secret/SSH build steps, Windows images and buildpacks remain outside Bunko's source-to-image scope. The remote application acceptance matrix must still be run on its owning machine; synthetic fixtures are not a substitute.
+
+
+## Additional runtime evidence
+
+On 2026-09-09, the compile CA fixture passed on Linux amd64 and arm64 with host Bun 1.4.2 (revision `744846f84`) and authenticated release compilers. Each nonroot, read-only container verified its private loopback TLS endpoint without external networking. This verifies declared Bun TLS trust, not native-client system stores. The fixture requires Docker with support for the selected target platforms and OpenSSL with `req -addext`; select fewer targets with `BUNKO_SMOKE_PLATFORMS` when emulation is unavailable.

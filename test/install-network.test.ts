@@ -12,10 +12,10 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 test("isolated installer retains proxy bypass, explicit empty overrides and absolute host certificate paths", () => {
-  const environment = installNetworkEnvironment({ HTTPS_PROXY: "https://user:pass@proxy.example", https_proxy: "", NO_PROXY: "localhost,.internal", http_proxy: "http://proxy.example", no_proxy: "internal.example", NODE_EXTRA_CA_CERTS: "certs/root.pem", SSL_CERT_FILE: "", SECRET: "hidden", NODE_OPTIONS: "--require=unexpected" });
+  const environment = installNetworkEnvironment({ HTTPS_PROXY: "https://user:pass@proxy.example", https_proxy: "", NO_PROXY: "localhost,.internal", http_proxy: "http://proxy.example", no_proxy: "internal.example", NODE_EXTRA_CA_CERTS: "certs/root.pem", SSL_CERT_FILE: "", SSL_CERT_DIR: "host-certificates", SECRET: "hidden", NODE_OPTIONS: "--require=unexpected" });
   expect(environment.https_proxy).toBe(""); expect(environment.NO_PROXY).toBe("localhost,.internal");
   expect(environment.no_proxy).toBe("internal.example"); expect(environment.NODE_EXTRA_CA_CERTS).toBe(resolve("certs/root.pem"));
-  expect(environment.SSL_CERT_FILE).toBe(""); expect(environment.SECRET).toBeUndefined(); expect(environment.NODE_OPTIONS).toBeUndefined();
+  expect(environment.SSL_CERT_FILE).toBe(""); expect(environment.SSL_CERT_DIR).toBeUndefined(); expect(environment.SECRET).toBeUndefined(); expect(environment.NODE_OPTIONS).toBeUndefined();
 });
 
 test("npm cafile uses original project paths, remains outside cache metadata, and is removed after installation", async () => {
