@@ -537,7 +537,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const syntax = new SyntaxCache();
     const assetExclusions: string[] = [];
     const required = await requiredInputs(discovered.directory, projects, exclusions, assetExclusions);
-    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions));
+    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source")));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }

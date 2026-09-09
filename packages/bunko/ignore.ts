@@ -1,13 +1,15 @@
+import { gitSourceIgnore } from "./source-policy.ts";
 import { assetExcluder } from "./asset-policy.ts";
 import { object } from "../oci/digest.ts";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { Project } from "./config.ts";
 
-export const sourceOmissions = new Set([".git", ".cursor", "node_modules", ".bunko-output", ".bunko-build", ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store"]);
+export const sourceOmissions = new Set([".git", ".cursor", "node_modules", ".bunko-output", ".bunko-build", ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store", ".ssh", ".kube", ".gnupg", ".netrc", ".terraform", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "terraform.tfstate", "terraform.tfstate.backup"]);
 
 export async function requiredInputs(root: string, projects: Project[], excluded: string[] = [], assetExclusions: string[] = []): Promise<string[]> {
   const ignored = await sourceIgnore(root);
+  const gitIgnored = projects.some((project) => project.mode === "source") ? gitSourceIgnore(root) : undefined;
   const isIgnored = (path: string) => path.split("/").some((_, i, parts) => ignored(parts.slice(0, i + 1).join("/")));
   const omitted = (path: string) => path.split("/").some((part) => sourceOmissions.has(part) || part.startsWith(".env")) || [...excluded, ...assetExclusions].some((p) => join(root, path) === p || join(root, path).startsWith(`${p}/`));
   const required = new Set<string>(["package.json", "bun.lock", "tsconfig.json", "jsconfig.json"]);
@@ -40,7 +42,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
   async function config(path: string) {
     if (visited.has(path)) return;
     visited.add(path);
-    if (isIgnored(path)) throw new Error(`Ignored required input: ${path}`);
+    if (isIgnored(path) || await gitIgnored?.(path)) throw new Error(`Ignored required input: ${path}`);
     required.add(path);
     const value = object(Bun.JSONC.parse(await readFile(join(root, path), "utf8")), "tsconfig");
     for (const parent of value.extends === undefined ? [] : Array.isArray(value.extends) ? value.extends : [value.extends]) {
@@ -52,7 +54,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
     }
   }
   for await (const path of new Bun.Glob("**/{tsconfig,jsconfig}.json").scan({ cwd: root, dot: true, followSymlinks: false })) {
-    if (!omitted(path) && !isIgnored(path)) await config(path);
+    if (!omitted(path) && !isIgnored(path) && !await gitIgnored?.(path)) await config(path);
   }
   if (projects.some((project) => project.mode === "source")) {
     for (const path of required) if (assetExclusions.some((excluded) => join(root, path) === excluded || join(root, path).startsWith(`${excluded}/`))) throw new Error(`Asset exclusion overlaps a required source input: ${path}`);
