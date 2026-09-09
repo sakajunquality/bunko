@@ -7,7 +7,7 @@ A separate job downloads the prepared artifacts and verifies each subject agains
 Install a current GitHub CLI, download all release assets, then verify a particular attested version before running its CLI:
 
 ```sh
-version=v0.1.0-rc.5
+version=v0.1.0
 sha256sum --check SHA256SUMS
 gh attestation verify bunko.js --bundle PROVENANCE.jsonl \
   --repo sakajunquality/bunko \

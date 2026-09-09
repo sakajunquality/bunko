@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "name": "@sakajunquality/bunko",
+  "version": "0.1.0",
+  "distTags": {
+    "next": "0.1.0-rc.5",
+    "latest": "0.1.0"
+  },
+  "integrity": "sha512-pled1CTuoYwdJmhDoIkNoG4qRDtOYJKWZ90M7z7wZ74XZnGDJS+XLHi2SuZ6BfvcZrly4OAkLAQn/A0Kclyj2g==",
+  "cliDigest": "sha256:c9839f9e0756ae43ba921d754cdd429f85824ee8e5329847342f6fd0ddee4d08",
+  "anonymousRegistryDownload": true,
+  "candidateBytesMatch": true,
+  "npmInstall": true,
+  "bunxExactVersion": true,
+  "bunxLatest": true,
+  "signatures": "audited 1 package in 0s\n\n1 package has a verified registry signature\n\n1 package has a verified attestation\n(use --json --include-attestations to view attestation details)",
+  "npmProvenance": true,
+  "publication": "GitHub Actions trusted publishing with npm provenance"
+}
