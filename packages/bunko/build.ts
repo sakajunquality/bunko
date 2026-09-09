@@ -29,7 +29,7 @@ import { BlobStore } from "../oci/blob-store.ts";
 import { dockerCredentials } from "../oci/credentials.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
-import { assembleImage } from "../oci/image.ts";
+import { assembleImage, isRootUser, nonrootUser } from "../oci/image.ts";
 import { assertOutputAvailable, canonicalOutput, exportLayout, exportLayouts } from "../oci/layout.ts";
 import { Publisher, PublicationError, repository, repositoryName, type Publication } from "../oci/publish.ts";
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
@@ -345,6 +345,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
+        const baseUser = base.config.config?.User;
+        if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,

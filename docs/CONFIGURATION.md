@@ -28,6 +28,10 @@ Entrypoints, entrypoint names, image names, target enablement and sharedDeps are
 
 After rc.4, `check-config` and `doctor` report `inheritedDefaults` for each target, and build logs list inherited leaf keys. Member resets and invocation overrides are reflected in that list. Values are not logged. Review the workspace root when keys such as `user`, `deps.allowIgnoredScripts`, `runtime.inject`, or `runtime.caCertificates` are inherited: defaults are explicit shared policy, including an explicitly configured root user.
 
+## Image user
+
+`bunko.user` (or `--image-user`) sets the OCI `User` of the built image. Without it, a base image `User` other than root is inherited; a base `User` that is absent, empty or root (`0`, `0:0`, `root`, `root:root` and similar spellings) is replaced by `65532:65532`, the `nonroot` account shipped by `oven/bun:<version>-distroless`. The build logs `Base image declares User 0; running as 65532:65532` once per platform image when that replacement occurs. Set `"user": "0:0"` explicitly for a base that must run as root, and pick another user (for example `"1000:1000"`) when the base defines it.
+
 ## Bun runtime arguments
 
 `bunko.runtime.args` is an array of arguments placed after the Bun executable and before the entry script. Use it for runtime flags such as `--smol` or runtime export conditions. Repeat `--runtime-arg=VALUE` to replace that array for an invocation; using `=` allows values beginning with `--`.

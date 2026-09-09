@@ -3,7 +3,6 @@
   "type": "module",
   "module": "src/server.ts",
   "bunko": {
-    "ports": [3000],
-    "user": "65532:65532"
+    "ports": [3000]
   }
 }

@@ -121,11 +121,11 @@ Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary l
 - Entrypoint: `[runtime.bunPath, workdir + emitted server path]`.
 - Cmd: configured args, default `[]`.
 - WorkingDir: configured value or `/app`.
-- User: explicit setting, then nonempty base User, then `65532:65532`.
+- User: explicit setting, then the base User unless it is root, then `65532:65532`. A base User counts as root when it is empty or its user part (before any `:`) is `0` or `root`, for example `0`, `0:0`, `root`, `root:root`, `root:0` or `0:root`; other values such as `1000`, `nonroot` or `65532:65532` are inherited.
 - Env: base, then NODE_ENV=production, then application overrides; ordered by key.
 - History: preserve and append only when the base has history; verify empty_layer/DiffID counts.
 
-A base's explicit root user remains root. Examples explicitly select nonroot. Read-only rootfs is a runtime setting.
+An inherited root user is replaced by `65532:65532` and the build logs that replacement once per platform image; a base that must run as root requires an explicit `user` setting such as `0:0` (or `--image-user 0:0`). Read-only rootfs is a runtime setting.
 
 See [REGISTRIES.md](REGISTRIES.md) for authentication and provider setup. After every platform builds, publish blobs/configs, platform manifests, the root index, then tags. GET/HEAD have bounded retries. PATCH normally uses 8 MiB chunks; ambiguous results are reconciled using upload offsets and destination HEAD. GHCR and Artifact Registry use a streamed full-file PUT, with digest reconciliation and a fresh upload session for bounded transient retries. Manifest PUT results are read back and checked by digest. Partial failures retain published-state details in reports without rolling tags back.
 

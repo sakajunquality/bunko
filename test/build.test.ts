@@ -197,3 +197,17 @@ describe("configuration", () => {
     await expect(loadProject({ path: source, output: join(root, "out") })).rejects.toThrow();
   });
 });
+
+describe("image user", () => {
+  test("replaces an inherited root base user with nonroot, logs it once per platform, and honours an explicit root setting", async () => {
+    const root = await temporary(); directories.push(root);
+    const base = await baseLayout(join(root, "base"), undefined, "0");
+    const logs: string[] = [];
+    const result = await build({ path: await project(join(root, "app")), baseLayout: base, output: join(root, "out"), gitMetadata: false, verifyDeterministic: true, log: (message) => logs.push(message) });
+    expect((await readJSON<ImageConfig>(result.layout!, result.config)).config?.User).toBe("65532:65532");
+    expect(logs.filter((message) => message.startsWith("Base image declares User 0; running as 65532:65532"))).toHaveLength(1);
+    const explicit = await build({ path: await project(join(root, "explicit"), { bunko: { user: "0:0" } }), baseLayout: base, output: join(root, "out-root"), gitMetadata: false, log: (message) => logs.push(message) });
+    expect((await readJSON<ImageConfig>(explicit.layout!, explicit.config)).config?.User).toBe("0:0");
+    expect(logs.filter((message) => message.startsWith("Base image declares"))).toHaveLength(1);
+  });
+});
