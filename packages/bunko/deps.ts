@@ -1,5 +1,6 @@
 import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
+import { installerOutputTail } from "./install-diagnostics.ts";
 import { readBunfig, installConfig, type InstallPolicy } from "./bunfig.ts";
 import { catalogs } from "./catalogs.ts";
 import { packageLicense } from "./inventory.ts";
@@ -243,10 +244,11 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
       BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
       ...network,
     }, stdout: "pipe", stderr: "pipe" });
-    const [, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    // Installer diagnostics may contain private URLs or credentials. The caller
-    // gets the operation and exit code, never raw authentication-bearing output.
-    if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability`);
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    // Installer diagnostics may contain private URLs or credentials, so the caller
+    // gets the operation, exit code and only a redacted tail of the output; raw
+    // authentication-bearing text is never surfaced.
+    if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability${installerOutputTail(stderr, stdout, root)}`);
     if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
     for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
   } finally { await Promise.all([rm(auth, { force: true }), rm(certificateFile, { force: true })]); }

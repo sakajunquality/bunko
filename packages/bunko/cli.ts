@@ -115,11 +115,11 @@ Options:
   --bun-path <file>        Bun executable used for bundling and installation
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
   --cache-repo <repo>      Registry cache repository (default: image repository)
-  --no-cache               Disable persistent local and registry layer caches
+  --no-cache               Disable persistent local/registry layer caches and download caches
   --no-app-cache           Disable reusable application output
-  --no-local-cache         Disable persistent local layer cache
+  --no-local-cache         Disable persistent local layer and download caches
   --no-registry-cache      Disable registry cache reads/writes
-  --install-cache <dir>    Bun package download cache (separate from layer cache)
+  --install-cache <dir>    Bun package download cache (default: ~/.cache/bunko/install/v1)
   --insecure-registry <host:port>  Allow HTTP for this registry; repeatable
   --dry-run                Build/estimate with registry reads only; no export/load/push
   --reproducible            Require a digest-pinned base or local base layout
