@@ -49,10 +49,43 @@ export async function responseBytes(response: Response, limit = 8 * 1024 * 1024)
 }
 
 export class RegistryConnectionError extends Error {}
+/** Transport policy failures must survive connection-error wrapping and retries. */
+export class RegistryNetworkDisabledError extends Error {}
+
+const errorCodes = new Set(["BLOB_UNKNOWN", "BLOB_UPLOAD_INVALID", "BLOB_UPLOAD_UNKNOWN", "DIGEST_INVALID", "MANIFEST_BLOB_UNKNOWN", "MANIFEST_INVALID", "MANIFEST_UNKNOWN", "NAME_INVALID", "NAME_UNKNOWN", "SIZE_INVALID", "UNAUTHORIZED", "DENIED", "UNSUPPORTED", "TOOMANYREQUESTS", "TAG_INVALID", "MANIFEST_UNVERIFIED"]);
+
+/** Retain standardized diagnostics without echoing untrusted messages or details. */
+async function registryErrorCodes(response: Response): Promise<string[]> {
+  if (!response.body) return [];
+  const reader = response.body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const bytes = await Promise.race([
+      (async () => {
+        const chunks: Uint8Array[] = []; let size = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) return Buffer.concat(chunks);
+          size += value.byteLength;
+          if (size > 64 * 1024) throw new Error("Registry error body exceeds limit");
+          chunks.push(value);
+        }
+      })(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Registry error body deadline")), 1000); }),
+    ]);
+    const value = JSON.parse(bytes.toString());
+    return Array.isArray(value?.errors) ? [...new Set<string>(value.errors.map((item: any) => item?.code).filter((code: unknown): code is string => typeof code === "string" && errorCodes.has(code)))].slice(0, 8) : [];
+  } catch { return []; }
+  finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+    try { reader.releaseLock(); } catch { /* Pending cancellation releases the stream. */ }
+  }
+}
 
 export class RegistryError extends Error {
-  constructor(readonly status: number, method: string, registry: string) {
-    super(`Registry ${method} failed (${status}): ${registry}`);
+  constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = []) {
+    super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}`);
   }
 }
 
@@ -62,6 +95,7 @@ export class RegistryClient {
   readonly fetcher: Fetcher;
   private readonly credentials: CredentialProvider;
   private readonly insecureOrigins: Set<string>;
+  private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   constructor(readonly registry: string, private readonly options: RegistryOptions = {}) {
     this.insecureOrigins = new Set((options.insecure ?? []).map((host) => new URL(`http://${host}`).origin));
@@ -92,7 +126,12 @@ export class RegistryClient {
     }
     if (!/^Bearer\s/i.test(challenge)) throw new Error(`Unsupported registry authentication: ${this.registry}`);
     if (credential?.registryToken) return { authorization: `Bearer ${credential.registryToken}`, expires: Date.now() + 60_000 };
-    const values = Object.fromEntries([...challenge.matchAll(/([\w]+)="((?:\\.|[^"])*)"/g)].map((m) => [m[1]!.toLowerCase(), m[2]!.replace(/\\(.)/g, "$1")]));
+    const values: Record<string, string> = Object.create(null);
+    for (const match of challenge.replace(/^Bearer\s+/i, "").matchAll(/(?:^|,)\s*([\w-]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|([^,\s]+))/g)) {
+      const key = match[1]!.toLowerCase();
+      if (Object.hasOwn(values, key)) throw new Error("Ambiguous registry authentication challenge");
+      values[key] = match[2] === undefined ? match[3]! : match[2].replace(/\\(.)/g, "$1");
+    }
     if (!values.realm) throw new Error("Registry Bearer challenge has no realm");
     const realm = this.safeURL(values.realm);
     const params = new URLSearchParams();
@@ -111,8 +150,8 @@ export class RegistryClient {
     }
     let response: Response;
     try { response = await this.fetcher(realm, { method: body ? "POST" : "GET", headers, body, redirect: "error", signal: AbortSignal.timeout(30_000) }); }
-    catch { throw new Error(`Registry token request failed: ${this.registry}`); }
-    if (!response.ok) { await response.body?.cancel(); throw new RegistryError(response.status, "authentication", this.registry); }
+    catch (error) { if (error instanceof RegistryNetworkDisabledError) throw error; throw new Error(`Registry token request failed: ${this.registry}`); }
+    if (!response.ok) throw new RegistryError(response.status, "authentication", this.registry, await registryErrorCodes(response));
     let token: Record<string, unknown>;
     try { token = object(JSON.parse(Buffer.from(await responseBytes(response, 1024 * 1024)).toString()), "Token response"); }
     catch { throw new Error("Invalid registry token response"); }
@@ -129,6 +168,10 @@ export class RegistryClient {
     const retryable = method === "GET" || method === "HEAD";
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
+      const previous = this.tokens.get(key), challenge = this.challenges.get(key);
+      if (initial.origin === this.origin && previous && previous.expires <= Date.now() && challenge) {
+        this.tokens.set(key, await this.authenticate(challenge, scopes, true));
+      }
       let url = initial;
       let response: Response | undefined;
       try {
@@ -153,6 +196,7 @@ export class RegistryClient {
         }
       } catch (error) {
         if (init.signal?.aborted) throw init.signal.reason;
+        if (error instanceof RegistryNetworkDisabledError) throw error;
         if (error instanceof Error && /HTTPS|credentials or fragments|registry redirect/.test(error.message)) throw error;
         if (!retryable || attempt >= (this.options.retries ?? 3)) throw new RegistryConnectionError(`Registry ${method} connection failed: ${this.registry}`);
         await this.backoff(attempt);
@@ -164,6 +208,7 @@ export class RegistryClient {
         await response.body?.cancel();
         const hadToken = this.tokens.has(key);
         this.tokens.set(key, await this.authenticate(challenge, scopes, hadToken));
+        this.challenges.set(key, challenge);
         refreshed = true;
         attempt--;
         continue;
@@ -175,14 +220,13 @@ export class RegistryClient {
         continue;
       }
       if (!response.ok && !allowed.includes(response.status)) {
-        await response.body?.cancel();
-        throw new RegistryError(response.status, method, this.registry);
+        throw new RegistryError(response.status, method, this.registry, await registryErrorCodes(response));
       }
       return response;
     }
   }
 
-  private async backoff(attempt: number, retryAfter?: string | null) {
+  async backoff(attempt: number, retryAfter?: string | null) {
     const requested = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : NaN;
     const delay = Number.isFinite(requested) ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
     await (this.options.sleep ?? Bun.sleep)(delay);

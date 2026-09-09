@@ -1,3 +1,4 @@
+import { RegistryNetworkDisabledError } from "../oci/registry.ts";
 import type { BuildOptions } from "./config.ts";
 
 /** Offline builds consume local inputs and verified cache entries, never implicit downloads. */
@@ -8,5 +9,5 @@ export function offlineOptions(options: BuildOptions): BuildOptions {
   if (options.registryCache === true || options.cacheRepo || options.cacheFrom?.length) throw new Error("Offline builds cannot use registry caches");
   const references = [...Object.values(options.externalDeps ?? {}), ...Object.values(options.externalDepsByTarget ?? {}).flatMap(Object.values), ...Object.values(options.baseSBOMs ?? {})];
   if (references.some((reference) => !reference.startsWith("layout:"))) throw new Error("Offline dependency and SBOM inputs must use local layouts");
-  return { ...options, push: false, registryCache: false, registry: { ...options.registry, fetcher: async () => { throw new Error("Registry network access is disabled in offline mode"); }, credentials: async () => undefined, retries: 0 } };
+  return { ...options, push: false, registryCache: false, registry: { ...options.registry, fetcher: async () => { throw new RegistryNetworkDisabledError("Registry network access is disabled in offline mode"); }, credentials: async () => undefined, retries: 0 } };
 }

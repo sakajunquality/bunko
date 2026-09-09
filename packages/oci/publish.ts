@@ -49,13 +49,20 @@ export class Publisher {
       const path = new URL(`/v2/${this.ref.repository}/blobs/uploads/`, this.client.origin);
       path.searchParams.set("mount", d.digest);
       path.searchParams.set("from", origin.repository);
-      const response = await this.client.request(path, { method: "POST" }, [this.scope, `repository:${origin.repository}:pull`], [400, 403, 404, 405]);
-      await response.body?.cancel();
-      if (response.status === 201) {
-        if (!(await this.exists(d))) throw new Error("Mounted registry blob is missing");
-        return { ...result, action: "mounted" };
+      let response: Response | undefined;
+      try { response = await this.client.request(path, { method: "POST" }, [this.scope, `repository:${origin.repository}:pull`], [400, 403, 404, 405]); }
+      catch (error) {
+        if (!retryableUpload(error)) throw error;
+        if (await this.exists(d)) return result;
       }
-      if (response.status === 202) location = this.location(response, path.toString());
+      if (response) {
+        await response.body?.cancel();
+        if (response.status === 201) {
+          if (!(await this.exists(d))) throw new Error("Mounted registry blob is missing");
+          return { ...result, action: "mounted" };
+        }
+        if (response.status === 202) location = this.location(response, path.toString());
+      }
     }
     if (!location) {
       location = await this.startUpload();
@@ -70,7 +77,7 @@ export class Publisher {
       const host = new URL(this.client.origin).hostname;
       const monolithic = host === "ghcr.io" || /^[a-z0-9-]+-docker\.pkg\.dev$/.test(host);
       let offset = 0;
-      let failures = 0;
+      let failures = 0, restarts = 0;
       const chunkSize = 8 * 1024 * 1024;
       while (!monolithic && offset < d.size) {
         const end = Math.min(offset + chunkSize, d.size);
@@ -89,11 +96,18 @@ export class Publisher {
           offset = end;
           failures = 0;
         } catch (error) {
+          if (!retryableUpload(error) && !(error instanceof RegistryError && [404, 410, 416].includes(error.status))) throw error;
           if (++failures > 3) throw new Error(`${error instanceof Error ? error.message : "Upload failed"}; blob ${d.digest}, offset ${offset}/${d.size}`);
           // A disconnected PATCH can already have committed bytes. Query its
           // offset before replaying; never append the same bytes blindly.
-          const status = await this.client.request(location, {}, [this.scope]);
+          await this.client.backoff(failures - 1);
+          const status = await this.client.request(location, {}, [this.scope], [404, 410]);
           await status.body?.cancel();
+          if (status.status === 404 || status.status === 410) {
+            if (++restarts > 3) throw new Error("Registry repeatedly expired the upload session");
+            location = await this.startUpload(); offset = 0;
+            continue;
+          }
           const range = /^(?:bytes=)?0-(\d+)$/.exec(status.headers.get("Range") ?? "");
           if (!range) throw new Error("Registry upload status has no valid Range");
           if (offset === 0 && range[1] === "0") {
@@ -121,7 +135,7 @@ export class Publisher {
             body: monolithic ? file : undefined,
           }, [this.scope]);
           await response.body?.cancel();
-          if (response.status !== 201) throw new Error("Registry did not finalize upload");
+          if (!response.ok) throw new Error("Registry did not finalize upload");
           const digest = response.headers.get("Docker-Content-Digest");
           if (digest && digest !== d.digest) throw new Error("Registry upload digest mismatch");
           break;
@@ -149,10 +163,19 @@ export class Publisher {
 
   private async startUpload(): Promise<string> {
     const path = `/v2/${this.ref.repository}/blobs/uploads/`;
-    const response = await this.client.request(path, { method: "POST" }, [this.scope]);
-    await response.body?.cancel();
-    if (response.status !== 202) throw new Error("Registry did not create an upload session");
-    return this.location(response, new URL(path, this.client.origin).toString());
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await this.client.request(path, { method: "POST" }, [this.scope]);
+        await response.body?.cancel();
+        if (response.status !== 202) throw new Error("Registry did not create an upload session");
+        return this.location(response, new URL(path, this.client.origin).toString());
+      } catch (error) {
+        // A lost POST response can leave an empty session for registry GC.
+        // Only upload-session creation is replayed, never arbitrary POSTs.
+        if (attempt >= 2 || !retryableUpload(error) || error instanceof RegistryError && error.status === 404) throw error;
+        await this.client.backoff(attempt);
+      }
+    }
   }
 
   private async cancelUpload(location: string): Promise<void> {
@@ -189,7 +212,7 @@ export class Publisher {
       }
     }
     await response.body?.cancel();
-    if (response.status !== 201 && response.status !== 202) throw new Error("Registry did not accept manifest");
+    if (!response.ok) throw new Error("Registry did not accept manifest");
     const declared = response.headers.get("Docker-Content-Digest");
     if (declared && declared !== d.digest) throw new Error("Published manifest digest mismatch");
     const check = await this.client.request(`/v2/${this.ref.repository}/manifests/${reference}`, {}, [this.scope]);
