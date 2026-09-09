@@ -34,7 +34,7 @@ Reviews combine local Codex inspection, Claude review and CodeRabbit when availa
 
 ## Follow-up implementation order
 
-1. Publish and independently validate the next immutable RC, then implement npm/bunx distribution and installation/upgrade/rollback tests. Preserve previous release assets.
+1. rc.5 CLI and container publication and independent consumer verification are complete; see [validation evidence](validation/rc5.md). Resume the private GHCR application conformance run after the owner resolves the GitHub billing restriction. Next implement npm/bunx distribution and installation/upgrade/rollback tests. Preserve previous release assets.
 2. Expand supply-chain consumption: recursive/platform and attachment signature verification, opt-in DSSE attestations, scanner-compatible SBOM discovery/export, index inventory and CycloneDX. Define the exact consumer contract before changing defaults or claiming scanner compatibility.
 3. Complete dedicated private ECR and provider-specific immutable/referrer policy validation. Add effective mirror-serving diagnostics without exposing signed URLs or credentials. Generic Distribution fixtures do not certify every cloud registry policy.
 4. Extend CI integration inputs and deployment recipes, then prioritize cache TTL, additional destinations, remote contexts and telemetry propagation/protobuf using workload evidence. Existing OpenTelemetry JSON export is implemented; a history service is not.

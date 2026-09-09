@@ -1,4 +1,6 @@
-# rc.5 candidate validation
+# rc.5 validation
+
+Status: published CLI and official container consumer acceptance passed. Private GHCR application conformance remains pending because of the GitHub billing restriction described below.
 
 Candidate version: `0.1.0-rc.5`, prepared with Bun 1.3.11. The JavaScript CLI is 7,863,758 bytes with SHA256 `56e4c2ef57ebdb1b2ac0f0c4c6e7ccee6383c9df8a86643ae9b520eae1427d83`. Every candidate result below used these exact CLI bytes. Publication and independent release/container consumer verification are separate steps; this record initially describes the prepared candidate.
 
@@ -41,8 +43,20 @@ These are synthetic fixtures. They do not certify the separate application-machi
 
 GAR used the existing gcloud credential helper with the private configuration; Docker Hub used the existing Docker credential store. No IAM or visibility settings changed. Reports were checked for host paths, private-key PEM, bearer credentials and GitHub token patterns before inclusion.
 
-GHCR verification with the published CLI follows release publication through the dedicated test repository's workflow token. Local GHCR credentials are unavailable. Private ECR, token-expiry/IAM mutation scenarios and additional provider-specific immutable-tag policies remain unverified. Implemented generic recovery fixtures are not claims of every cloud policy combination.
+The dedicated private GHCR validation repository was updated to the published CLI and its immutable validation harness. [Run 34308299080](https://github.com/sakajunquality/bunko-test/actions/runs/34308299080) was rejected before any steps started because GitHub reported an account payment/spending-limit restriction. GHCR application publication, cache and signature conformance for rc.5 remain pending an owner billing resolution and rerun; no result is claimed. Local GHCR push credentials are unavailable. Private ECR, token-expiry/IAM mutation scenarios and additional provider-specific immutable-tag policies remain unverified. Implemented generic recovery fixtures are not claims of every cloud policy combination.
 
 ## Publication acceptance
 
 Before marking the RC complete, independently download the public CLI, compare it with the candidate hash above, verify signed provenance against the exact release tag and source commit, and execute it. The container workflow must build once, validate/attest the exact index and promote those bytes; verify its published digest and both architectures independently. Keep rc.4 assets and tags immutable. Setup defaults are updated only after the new release is verified.
+
+## Published CLI verification
+
+[Release workflow 34307997883](https://github.com/sakajunquality/bunko/actions/runs/34307997883) published rc.5 from `caca067151d2d4e0d18397dcf5846a0b09dc7fd8` on 2026-09-09. All four jobs succeeded, including the separate provenance consumer and container dispatch. The tag CI matrix also passed.
+
+An independent setup with Bun 1.4.2 downloaded the public assets without a download token, verified every payload attestation against `refs/tags/v0.1.0-rc.5` and the exact source commit, and executed the installed CLI version. Its bytes exactly matched the candidate size/hash above. Verification against `refs/heads/main` was rejected. [Published CLI evidence](rc5-published-cli.json) records these results.
+
+## Published container verification
+
+[Container workflow 34308988320](https://github.com/sakajunquality/bunko/actions/runs/34308988320) passed both compiled-application smoke tests, attested the index and promoted it without rebuilding. Its recipe source is `refs/heads/main` at `aebb1697329c02170631fb4c538a8b276feb5769`; the CLI release source remains the separate commit above. The first publication attempt stopped before promotion because classic Docker could not retain both platforms under one index digest; [#70](https://github.com/sakajunquality/bunko/pull/70) releases the validated local reference between pulls. No existing version tag was replaced.
+
+[Independent container evidence](rc5-published-container.json) records exact-source provenance verification and anonymous pulls for index `sha256:ce1cb4515ae18c52b219f3d39b2e8b32783dce66f680b90c3ec7d1a03fd22e30`. Both amd64 and arm64 returned the expected version with default UID/GID 65532, read-only filesystems, no networking and dropped capabilities. The CLI SHA256 inside each image matches the published JavaScript. CLI/container consumer acceptance passed; the separate private GHCR application conformance run remains blocked as described above.
