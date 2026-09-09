@@ -11,7 +11,7 @@ export async function prepareRelease(output = resolve("dist/release"), tag = `v$
   await mkdir(output, { recursive: false });
   try {
     const result = await bundleCLI(output);
-    if (!result.success) throw new Error("Release bundle failed");
+    if (!result.success) throw new Error(`Release bundle failed: ${result.logs.join("\n")}`);
     for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
       await copyFile(fileURLToPath(new URL(`../${name}`, import.meta.url)), join(output, name));
     }
