@@ -62,7 +62,7 @@ Only the two listed install settings are forwarded to the controlled frozen inst
 
 `deps.allowIgnoredScripts` accepts exact resolved package names whose published files work without their declared install hooks. Hooks are always disabled. The most common trigger is `protobufjs`, pulled in by `@google-cloud/*` and `@grpc/proto-loader`: its published files work without its `postinstall` hook. A build fails until the package is allowed:
 
-```
+```text
 Runtime package protobufjs@7.5.5 declares install scripts (postinstall). Bunko never runs install hooks. If the published files work without them, allow the package explicitly in the target's package.json:
   "bunko": { "deps": { "allowIgnoredScripts": ["protobufjs"] } }
 Otherwise use prepared dependency artifacts (docs/OPERATIONS.md) or an external base that provides the package.
