@@ -35,9 +35,9 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.0
+  - uses: sakajunquality/bunko@v0.1.1
     with:
-      version: v0.1.0
+      version: v0.1.1
       bun-version: 1.4.2
       verify-attestation: 'true'
   - run: bunko version
@@ -47,7 +47,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0 on main after verified promotion; an explicit version, never latest |
+| version | v0.1.1 on main after verified promotion; an explicit version, never latest |
 | bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -75,4 +75,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-At preparation time, setup defaults are rc.5 and Bun 1.4.2. The immutable v0.1.0 Action tag retains these preparation-time defaults; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
+The immutable v0.1.1 Action tag retains its preparation-time defaults of CLI 0.1.0 and Bun 1.4.2. Main defaults to the verified 0.1.1 release after promotion; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.

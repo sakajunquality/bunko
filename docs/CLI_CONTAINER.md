@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.1.0 reference is `ghcr.io/sakajunquality/bunko:v0.1.0`, with verified multiarchitecture index `sha256:1f31e7756fb93926de29b2fce46b5070e35d268b7c48415d27d10725c5e1a8e9`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.1.1 reference is `ghcr.io/sakajunquality/bunko:v0.1.1`, with verified multiarchitecture index `sha256:9adf1365ed09a2067d839819f041cd4dfe52fde6cfee735390edf2876e7afee8`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:1f31e7756fb93926de29b2fce46b5070e35d268b7c48415d27d10725c5e1a8e9 \
+  ghcr.io/sakajunquality/bunko@sha256:9adf1365ed09a2067d839819f041cd4dfe52fde6cfee735390edf2876e7afee8 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -55,4 +55,8 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 
 ## Published 0.1.0 validation
 
-[Container workflow 34318353999](https://github.com/sakajunquality/bunko/actions/runs/34318353999) validated and promoted the 0.1.0 index above from recipe source `72d9ac859fd1c499c2d1856a11891101f25f99df`. Both platform builders compiled and ran the application before publication. Independent exact-source attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and in-image CLI hash comparison passed on amd64 and arm64. See [0.1.0 evidence](validation/v0.1.0.md).
+[Container workflow 34318353999](https://github.com/sakajunquality/bunko/actions/runs/34318353999) validated and promoted the 0.1.0 index `sha256:1f31e7756fb93926de29b2fce46b5070e35d268b7c48415d27d10725c5e1a8e9` from recipe source `72d9ac859fd1c499c2d1856a11891101f25f99df`. Both platform builders compiled and ran the application before publication. Independent exact-source attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and in-image CLI hash comparison passed on amd64 and arm64. See [0.1.0 evidence](validation/v0.1.0.md).
+
+## Published 0.1.1 validation
+
+[Container workflow 34354019145](https://github.com/sakajunquality/bunko/actions/runs/34354019145) validated and promoted the 0.1.1 index above from recipe source `d060057d7831da8dff65bc762abbbffab4ee3879`. Both platform builders compiled and ran the application before publication. Independent exact-source index attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and in-image CLI hash comparison passed on amd64 and arm64. The CLI hash matches the signed GitHub 0.1.1 release. See [0.1.1 evidence](validation/v0.1.1.md).
