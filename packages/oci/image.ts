@@ -16,6 +16,19 @@ export interface ImageOptions {
   ports?: number[];
 }
 
+export const nonrootUser = "65532:65532";
+
+/** Whether a runtime User value runs as root: an empty value or a user part of `0`/`root` (the group part does not change the uid). Such inherited values count as unset. */
+export function isRootUser(user: string | undefined): boolean {
+  const account = (user ?? "").split(":", 1)[0]!;
+  return account === "" || /^0+$/.test(account) || account === "root";
+}
+
+/** Image user precedence: explicit setting, then a nonroot base User, then 65532:65532; explicit settings can select root. */
+export function resolveUser(explicit: string | undefined, inherited: string | undefined): string {
+  return explicit ?? (inherited && !isRootUser(inherited) ? inherited : nonrootUser);
+}
+
 export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOptions): ImageConfig {
   const inherited = base.config ?? {};
   const env = new Map<string, string>();
@@ -30,7 +43,7 @@ export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOp
   const created = new Date(options.epoch * 1000).toISOString().replace(".000Z", "Z");
   const baseLabels = Object.fromEntries(Object.entries(inherited.Labels ?? {}).filter(([key]) => (options.inheritBaseOciLabels !== false || !key.startsWith("org.opencontainers.image.")) && !key.startsWith("org.bunko.") && key !== "org.opencontainers.image.revision"));
   const config: RuntimeConfig = {
-    User: options.user ?? (inherited.User || "65532:65532"),
+    User: resolveUser(options.user, inherited.User),
     Env: [...env].sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b))).map(([k, v]) => `${k}=${v}`),
     Entrypoint: options.entrypoint,
     Cmd: options.args,
