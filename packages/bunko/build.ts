@@ -1,3 +1,4 @@
+import { assertCosign } from "./cosign.ts";
 import { gitLabels } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
 import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
@@ -397,7 +398,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`${options.dryRun ? "Estimating transfer to" : "Publishing to"} ${destination}\n`);
           try {
             const publisher = new Publisher(destination, registry);
-            result.publication = await stage("push", () => publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun));
+            result.publication = await stage("push", () => publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun, options.tagConflict));
+            for (const skipped of result.publication.skippedTags ?? []) log(`Registry kept immutable tag ${skipped.tag} at ${skipped.digest}\n`);
             if (options.dryRun) {
               for (const item of attestations) {
                 const estimate = await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true);
@@ -464,7 +466,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (options.signKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
   if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
-  if ((options.signKey || options.depsVerifyKey) && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing or dependency verification requires cosign on PATH or --cosign-path");
+  if (options.signKey || options.depsVerifyKey) await assertCosign(options.cosignPath);
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;

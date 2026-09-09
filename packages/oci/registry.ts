@@ -59,8 +59,8 @@ export class RegistryNetworkDisabledError extends Error {}
 const errorCodes = new Set(["BLOB_UNKNOWN", "BLOB_UPLOAD_INVALID", "BLOB_UPLOAD_UNKNOWN", "DIGEST_INVALID", "MANIFEST_BLOB_UNKNOWN", "MANIFEST_INVALID", "MANIFEST_UNKNOWN", "NAME_INVALID", "NAME_UNKNOWN", "SIZE_INVALID", "UNAUTHORIZED", "DENIED", "UNSUPPORTED", "TOOMANYREQUESTS", "TAG_INVALID", "MANIFEST_UNVERIFIED"]);
 
 /** Retain standardized diagnostics without echoing untrusted messages or details. */
-async function registryErrorCodes(response: Response): Promise<string[]> {
-  if (!response.body) return [];
+async function registryErrorCodes(response: Response): Promise<{ codes: string[]; immutableTag: boolean }> {
+  if (!response.body) return { codes: [], immutableTag: false };
   const reader = response.body.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -78,8 +78,12 @@ async function registryErrorCodes(response: Response): Promise<string[]> {
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Registry error body deadline")), 1000); }),
     ]);
     const value = JSON.parse(bytes.toString());
-    return Array.isArray(value?.errors) ? [...new Set<string>(value.errors.map((item: any) => item?.code).filter((code: unknown): code is string => typeof code === "string" && errorCodes.has(code)))].slice(0, 8) : [];
-  } catch { return []; }
+    const errors = Array.isArray(value?.errors) ? value.errors : [];
+    const codes = [...new Set<string>(errors.map((item: any) => item?.code).filter((code: unknown): code is string => typeof code === "string" && errorCodes.has(code)))].slice(0, 8);
+    // Classify only explicit immutable-tag refusals; never retain upstream text.
+    const immutableTag = [400, 403, 405, 409, 412].includes(response.status) && errors.some((item: any) => ["TAG_INVALID", "DENIED", "UNSUPPORTED"].includes(item?.code) && typeof item.message === "string" && /\bimmutab(?:le|ility)\b|\blocked tag\b|\btag (?:is )?locked\b/i.test(item.message));
+    return { codes, immutableTag };
+  } catch { return { codes: [], immutableTag: false }; }
   finally {
     clearTimeout(timer);
     void reader.cancel().catch(() => {});
@@ -88,8 +92,12 @@ async function registryErrorCodes(response: Response): Promise<string[]> {
 }
 
 export class RegistryError extends Error {
-  constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = []) {
+  constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = [], readonly immutableTag = false) {
     super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}`);
+  }
+  static async response(response: Response, method: string, registry: string): Promise<RegistryError> {
+    const diagnostics = await registryErrorCodes(response);
+    return new RegistryError(response.status, method, registry, diagnostics.codes, diagnostics.immutableTag);
   }
 }
 
@@ -157,7 +165,7 @@ export class RegistryClient {
     let response: Response;
     try { response = await this.fetcher(realm, { method: body ? "POST" : "GET", headers, body, redirect: "error", signal: AbortSignal.timeout(30_000) }); }
     catch (error) { if (error instanceof RegistryNetworkDisabledError) throw error; throw new Error(`Registry token request failed: ${this.registry}`); }
-    if (!response.ok) throw new RegistryError(response.status, "authentication", this.registry, await registryErrorCodes(response));
+    if (!response.ok) throw await RegistryError.response(response, "authentication", this.registry);
     let token: Record<string, unknown>;
     try { token = object(JSON.parse(Buffer.from(await responseBytes(response, 1024 * 1024)).toString()), "Token response"); }
     catch { throw new Error("Invalid registry token response"); }
@@ -228,7 +236,7 @@ export class RegistryClient {
         continue;
       }
       if (!response.ok && !allowed.includes(response.status)) {
-        throw new RegistryError(response.status, method, this.registry, await registryErrorCodes(response));
+        throw await RegistryError.response(response, method, this.registry);
       }
       return response;
     }

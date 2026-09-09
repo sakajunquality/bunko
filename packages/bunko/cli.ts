@@ -138,6 +138,7 @@ Options:
   --deps-map <file>         Per-target, per-platform prepared dependency artifacts
   --artifact-target <path>  Bind pack-deps output to a workspace member
   --registry-mirror <ORIGIN=MIRROR>  Pull digest content from a mirror; repeatable
+  --tag-conflict <fail|skip>  Fail on immutable tag refusals, or report and skip them
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
@@ -216,6 +217,7 @@ export async function main(argv: string[]): Promise<number> {
       "artifact-target": { type: "string" },
       "registry-mirror": { type: "string", multiple: true },
       "registry-config": { type: "string" },
+      "tag-conflict": { type: "string" },
       progress: { type: "string" },
       otel: { type: "boolean" },
       "app-cache": { type: "boolean", default: true },
@@ -269,6 +271,8 @@ export async function main(argv: string[]): Promise<number> {
     const [command, path = ".", ...rest] = positionals;
     if (values.version || command === "version") { process.stdout.write(`${VERSION}\n`); return 0; }
     validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
+    if (values["tag-conflict"] !== undefined && !["fail", "skip"].includes(values["tag-conflict"])) throw new Error("Tag conflict policy must be fail or skip");
+    const tagConflict = values["tag-conflict"] as "fail" | "skip" | undefined;
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
     const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
@@ -282,7 +286,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === "push-layout") {
       if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");
-      const result = await pushLayout(path, values.repo, values.tag, registry, values.report);
+      const result = await pushLayout(path, values.repo, values.tag, registry, values.report, tagConflict);
       process.stdout.write(`${result.reference}\n`); return 0;
     }
     if (command === "cache-info") {
@@ -363,7 +367,7 @@ export async function main(argv: string[]): Promise<number> {
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
       mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
-      push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag,
+      push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
