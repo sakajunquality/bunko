@@ -93,3 +93,11 @@ test("local layout metadata reads stop at their byte limits", async () => {
   await writeFile(join(root, "index.json"), " ".repeat(8 * 1024 ** 2 + 1));
   await expect(new LayoutSource(root).root()).rejects.toThrow("Layout metadata exceeds size limit");
 });
+
+test("metadata export bounds manifest and config discovery before payload export", async () => {
+  const root = await fixture(), store = new BlobStore(root), manifests = [];
+  for (let i = 0; i < 22; i++) manifests.push(await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, annotations: { fixture: String(i), padding: "x".repeat(6 * 1024 ** 2) } }), media.manifest));
+  await writeFile(join(root, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
+  await writeFile(join(root, "index.json"), canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests }));
+  await expect(imageMetadata(`layout:${root}`)).rejects.toThrow("cumulative metadata byte budget");
+});

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
-import { canonicalJSON, descriptor, object } from "../oci/digest.ts";
+import { canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
 import { LayoutSource, RegistrySource, type ImageSource } from "../oci/source.ts";
 import { assertOutputAvailable } from "../oci/layout.ts";
 import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
@@ -12,6 +12,19 @@ import { sbomType, provenanceType } from "./attest.ts";
 export interface MetadataRecord { subject: Descriptor; manifest: Descriptor; payload: Descriptor; document: Record<string, unknown>; bytes: Uint8Array; reference?: string }
 class UnsupportedMetadataError extends Error {}
 const maximum = 8 * 1024 ** 2;
+function metadataBudget(source: ImageSource, limit: number, label: string) {
+  let total = 0;
+  const charged = new Set<string>();
+  const charge = (d: Descriptor) => {
+    if (d.size > maximum) throw new Error(`${label} metadata exceeds individual size limit`);
+    if (charged.has(d.digest)) return;
+    if (total + d.size > limit) throw new Error(`${label} graph exceeds cumulative metadata byte budget`);
+    charged.add(d.digest); total += d.size;
+  };
+  const bounded: ImageSource = { root: () => source.root(), blob: async (d) => { charge(d); return source.blob(d); } };
+  return { bounded, charge };
+}
+
 async function json(source: ImageSource, store: BlobStore, d: Descriptor, optional = false) {
   if (d.size > maximum) throw new (optional ? UnsupportedMetadataError : Error)("Metadata exceeds size limit");
   await store.putStream(await source.blob(d), d.mediaType, d);
@@ -43,16 +56,8 @@ export async function baseInventory(reference: string, subjects: string[], regis
   try {
     const source = reference.startsWith("layout:") ? new LayoutSource(resolve(reference.slice(7))) : new RegistrySource(reference, registry);
     const store = new BlobStore(temporary), root = await source.root(), accepted = new Set(subjects), candidates: MetadataRecord[] = [], visited = new Set<string>();
-    let total = 0;
-    const charged = new Set<string>();
-    const charge = (d: Descriptor) => {
-      if (d.size > maximum) throw new Error("Base SBOM metadata exceeds individual size limit");
-      if (charged.has(d.digest)) return;
-      if (total + d.size > 32 * 1024 ** 2) throw new Error("Base SBOM graph exceeds cumulative metadata byte budget");
-      charged.add(d.digest); total += d.size;
-    };
+    const { bounded, charge } = metadataBudget(source, 32 * 1024 ** 2, "Base SBOM");
     charge(root.descriptor);
-    const bounded: ImageSource = { root: async () => root, blob: async (d) => { charge(d); return source.blob(d); } };
     await store.put(root.bytes, root.descriptor.mediaType);
     const walk = async (d: Descriptor, depth = 0): Promise<void> => {
       if (visited.has(d.digest)) return;
@@ -91,12 +96,14 @@ async function inspectMetadata(reference: string, registry: RegistryOptions = {}
     const source = reference.startsWith("layout:") ? new LayoutSource(resolve(reference.slice(7))) : new RegistrySource(reference, registry);
     const expectedSubjects = new Map<string, string>();
     const store = new BlobStore(temporary), root = await source.root(), subjects = new Set<string>(), candidates = new Map<string, Descriptor>(), visited = new Set<string>();
+    const { bounded, charge } = metadataBudget(source, 128 * 1024 ** 2, "Image metadata");
+    charge(root.descriptor);
     await store.put(root.bytes, root.descriptor.mediaType);
     async function walk(d: Descriptor, depth: number, outer = false) {
       if (visited.has(d.digest)) return;
       if (depth > 5 || visited.size >= 1000) throw new Error("Image metadata graph exceeds limit");
       visited.add(d.digest);
-      const value = d.digest === root.descriptor.digest ? object(JSON.parse(Buffer.from(root.bytes).toString()), "Image root") : await json(source, store, d);
+      const value = d.digest === root.descriptor.digest ? object(JSON.parse(Buffer.from(root.bytes).toString()), "Image root") : await json(bounded, store, d);
       if (value.subject) { if ([sbomType, provenanceType].includes(String(value.artifactType))) candidates.set(d.digest, d); return; }
       if (!outer) subjects.add(d.digest);
       if ([media.index, media.dockerIndex].includes(d.mediaType as typeof media.index)) {
@@ -119,7 +126,9 @@ async function inspectMetadata(reference: string, registry: RegistryOptions = {}
       while (true) {
         if (pages.has(url.href) || pages.size >= 100) throw new Error("Invalid metadata pagination");
         pages.add(url.href);
-        const index = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Metadata referrers");
+        const bytes = await responseBytes(response);
+        charge({ mediaType: media.index, size: bytes.length, digest: sha256(bytes) });
+        const index = object(JSON.parse(Buffer.from(bytes).toString()), "Metadata referrers");
         if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid metadata referrers index");
         for (const value of index.manifests) {
           const d = descriptor(value);
@@ -143,7 +152,7 @@ async function inspectMetadata(reference: string, registry: RegistryOptions = {}
     let totalBytes = 0;
     for (const d of [...candidates.values()].sort((a, b) => a.digest.localeCompare(b.digest))) {
       let record: MetadataRecord;
-      try { record = await attachment(source, store, d, subjects); }
+      try { record = await attachment(bounded, store, d, subjects); }
       catch (error) { if (error instanceof UnsupportedMetadataError) { skipped.push({ manifest: d, reason: error.message }); continue; } throw error; }
       if (expectedSubjects.has(d.digest) && record.subject.digest !== expectedSubjects.get(d.digest)) throw new Error("Metadata referrer subject mismatch");
       totalBytes += record.bytes.byteLength;
