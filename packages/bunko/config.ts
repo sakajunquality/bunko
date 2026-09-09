@@ -48,6 +48,7 @@ export interface BuildOptions {
   repo?: string;
   bare?: boolean;
   tags?: string[];
+  tagConflict?: "fail" | "skip";
   tarball?: string;
   local?: boolean;
   kind?: string;
@@ -180,6 +181,7 @@ export function validateDependencySpecs(manifest: Record<string, unknown>, works
 }
 
 export async function loadProject(options: BuildOptions, workspace?: Workspace): Promise<Project> {
+  if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
   const manifestText = await readFile(join(directory, "package.json"), "utf8");
   const manifest = object(JSON.parse(manifestText), "package.json");
