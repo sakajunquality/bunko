@@ -1,23 +1,23 @@
 # Comparison with ko and BuildKit
 
-Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the alpha.2 release. This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
+Research reference date: 2026-09-08 JST. Sources were checked against [ko v0.19.1](https://github.com/ko-build/ko/releases/tag/v0.19.1) and [BuildKit v0.33.0](https://github.com/moby/buildkit/releases/tag/v0.33.0), plus official documentation. Bunko behavior below describes the current main branch; immutable release-specific evidence is in the [release notes](RELEASE_NOTES.md). This is a scope comparison, not a claim of complete compatibility or a throughput ranking.
 
 ko is the workflow reference for building images directly from language source and resolving deployment manifests. BuildKit is a general build execution backend with workers and frontends. Bunko directly uses Bun and composes OCI images; duplicating BuildKit's execution engine would change that scope.
 
 | Area | Bunko behavior | Remaining difference or boundary |
 | --- | --- | --- |
 | Source-to-image workflow | Build, resolve, local Docker/kind output, explicit apply | Bun package/workspace paths replace Go import paths; this is not CLI compatibility |
-| Input selection | `.bunkoignore`, conservative per-target reuse, actual bundle-input backstop | No Go-equivalent incremental compiler cache or arbitrary Docker context frontend |
+| Input selection | `.bunkoignore`, source-mode `.gitignore`, conservative per-target reuse, actual bundle-input backstop | No Go-equivalent incremental compiler cache or arbitrary Docker context frontend |
 | Work sharing | Bounded target jobs, syntax memoization, reuse of identical per-target bundles across platforms | No general dependency-graph scheduler or remote worker service |
 | Assets and configuration | Explicit assets/bunkodata, contained sources, constrained package configuration | Source symlinks and executable application build features remain rejected |
 | Prepared dependencies | Platform/lock/target-bound artifacts, optional producer-key verification, BuildKit preparation recipe | Arbitrary RUN and native generation happen outside Bunko; producer must construct a self-contained tree |
 | Compression | Raw, gzip and bounded zstd base reading; generated layers use gzip | No eStargz lazy pull or selectable zstd output |
-| Registry trust | Docker credentials, host-scoped private CA and client certificates | `--insecure-registry HOST` permits HTTP; it does not mean ko's TLS-verification bypass |
+| Registry trust | Docker credentials, host-scoped private CA/client certificates, prefixed pull mirrors | `--insecure-registry HOST` permits HTTP; it does not mean ko's TLS-verification bypass |
 | Registry caches | Multiple read sources, one write destination, read-only mode | Custom OCI records, not BuildKit cache format, gha/S3/Azure cache backends |
 | Local retention | Managed usage, age or byte-budget previews, explicit deletion | Unknown/unreferenced files remain untouched; no total disk quota or automatic GC |
 | SPDX | Opt-in package/license/runtime inventory, platform-bound external base document, exact-payload export | ko defaults to SBOM generation; Bunko does not scan the base OS itself |
 | Provenance/signing | Self-reported SLSA v1 predicate, builder/Bun digests, private key/KMS signing, CI policy | No claimed SLSA assurance level, public keyless workflow or implicit base-image trust policy |
-| Diagnostics | Configuration checks, plain/JSON stage progress, cache reports and partial-failure records | No build-history service or OTel integration |
+| Diagnostics | Configuration checks, plain/JSON stage progress, cache reports, partial-failure records and OTLP/HTTP JSON metrics/spans | No build-history service or protobuf exporter |
 | Base updates | Explicit base selection, checks and digest validation | No automatic rebase; native ABI constraints stay in cache identity |
 | Platforms | Linux amd64 and arm64 targets on documented Bun/host versions | No promise of Go's architecture breadth or every BuildKit platform |
 | Isolation | Explicit child environments and containment validation | Host subprocesses are not an OS sandbox; use trusted inputs and isolated runners |

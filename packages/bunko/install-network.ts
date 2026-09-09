@@ -47,3 +47,10 @@ export async function certificatePEM(path: string, label = "Installer CA"): Prom
     return certificates.join("\n") + "\n";
   } catch { throw new Error(`${label} must be a readable PEM certificate bundle of at most 1 MiB`); }
 }
+
+/** Validate host trust consistently, independently of project npm cafile settings. */
+export async function validateInstallCertificates(network: Record<string, string>): Promise<string> {
+  const extra = network.NODE_EXTRA_CA_CERTS ? await certificatePEM(network.NODE_EXTRA_CA_CERTS, "NODE_EXTRA_CA_CERTS") : "";
+  if (network.SSL_CERT_FILE) await certificatePEM(network.SSL_CERT_FILE, "SSL_CERT_FILE");
+  return extra;
+}

@@ -13,14 +13,14 @@ async function root() { const directory = await temporary(); roots.push(director
 test.each(["bundle", "source"])("%s assets exclude descendants and normalize file modes without packaging secrets", async (mode) => {
   const directory = await root(), source = await project(join(directory, "source"), { bunko: { assets: ["public"], assetExcludes: ["public/private", "public/*.map"], assetMode: "0444" } });
   await mkdir(join(source, "public/private"), { recursive: true });
-  await writeFile(join(source, "public/keep.txt"), "public contents"); await writeFile(join(source, "public/debug.map"), "map"); await writeFile(join(source, "public/private/.env"), "secret");
+  await writeFile(join(source, "public/keep.txt"), "public contents"); await writeFile(join(source, "public/debug.map"), "map"); await writeFile(join(source, "public/private/secret.txt"), "secret");
   const base = await baseLayout(join(directory, "base")), options = { path: source, mode, baseLayout: base, push: false, gitMetadata: false, localCache: false, registryCache: false };
   const result = await build({ ...options, output: join(directory, "image") });
   const store = new BlobStore(result.layout!);
   const entries = (await Promise.all(result.layers.map((layer) => inspectTar(store.path(layer.descriptor.digest))))).flat();
   expect(entries.find((entry) => entry.name === "app/public/keep.txt")!.mode).toBe(0o444);
   expect(entries.some((entry) => /private|debug\.map/.test(entry.name))).toBe(false);
-  await writeFile(join(source, "public/private/.env"), "changed secret");
+  await writeFile(join(source, "public/private/secret.txt"), "changed secret");
   const changed = await build({ ...options, output: join(directory, "unchanged") });
   expect(changed.root.digest).toBe(result.root.digest);
 });
@@ -32,7 +32,7 @@ test("source asset exclusions cannot remove entrypoints or package scopes", asyn
 
 test("external asset mappings filter relative descendants and retain explicit readonly modes in layer hashes", async () => {
   const directory = await root(), context = join(directory, "context"); await mkdir(join(context, "data/private"), { recursive: true });
-  await writeFile(join(context, "data/file.txt"), "content"); await writeFile(join(context, "data/private/.env"), "secret");
+  await writeFile(join(context, "data/file.txt"), "content"); await writeFile(join(context, "data/private/secret.txt"), "secret");
   const mapping = { context: "assets", from: "data", to: "/repo/data", exclude: ["private"], mode: "0444" };
   const readonly = await stageAssetMappings(assetMappings([mapping]), { assets: context }, join(directory, "readonly"));
   expect(readonly.entries.some((entry) => entry.path.includes("private"))).toBe(false);
