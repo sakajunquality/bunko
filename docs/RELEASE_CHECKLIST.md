@@ -6,7 +6,7 @@ Use this checklist for each new version, starting with the next patch release. C
 
 - [ ] Select a new version; check Git tags, GitHub releases, the GHCR version tag and npm versions. Distinguish an absent version from an authentication, network or service error.
 - [ ] Update `package.json`, release notes, compatibility/migration notes and the versioned validation record in a release PR. Keep the repository package `private: true`.
-- [ ] Run `bun install --frozen-lockfile --ignore-scripts`, `bun run check`, and `bun run release:prepare` into a new output directory. Record the CLI size, SHA256 and Bun version. Run the applicable application/runtime fixtures on both supported Linux architectures with that exact CLI.
+- [ ] Use the release workflow's preparation Bun version (currently 1.3.11). Run `bun install --frozen-lockfile --ignore-scripts`, `bun run check`, and `bun run release:prepare /tmp/bunko-<version>-candidate` with a new destination outside the working tree. Record the CLI size, SHA256 and Bun version. Run the applicable application/runtime fixtures on both supported Linux architectures with that exact CLI.
 - [ ] Complete local review and the configured external reviews; record unavailable or rate-limited reviews as unavailable, not approvals. Resolve findings and wait for required CI on the final PR head.
 - [ ] Merge the release PR and record the resulting **main commit**, which can differ from the reviewed PR head after a squash merge. Confirm CI for the resulting main commit. Keep unrelated work and stashes separate.
 - [ ] Prepare a candidate with `gh workflow run release.yml --repo sakajunquality/bunko --ref main`. Confirm the run's `headSha` is the selected main commit and that prepare/verify-candidate pass. This dispatch does not publish a release or create a tag. Manual candidate provenance uses `refs/heads/main`; published release provenance must use the tag ref.
@@ -46,14 +46,16 @@ Use a clean main checkout. Run the following as a Bash script (or save it and in
 git push origin refs/tags/v0.1.1:refs/tags/v0.1.1
 ```
 
-- [ ] Record the tag's peeled commit and the Release run ID/attempt. Do not move or force-push an existing version tag. If the push response is ambiguous, inspect the remote ref and workflow before retrying.
+- [ ] Record the tag's peeled commit and the Release run ID/attempt. The provenance source digest is that commit, not the annotated tag object ID; confirm it equals the run's `headSha` (as verified for 0.1.0). Do not move or force-push an existing version tag. If the push response is ambiguous, inspect the remote ref and workflow before retrying.
 
 ## 3. Verify the GitHub CLI and container
 
 - [ ] Wait for Release prepare, verify-candidate and publish to succeed. Check the published tag, version, prerelease flag and complete asset list. Record the tag workflow candidate hash and compare it with the downloaded release. Investigate any difference from local preparation.
 - [ ] Download all five assets into a new directory. Verify provenance for every payload against the exact tag ref, tag commit and release workflow **before executing the CLI**, then verify checksums and the installed version. Use `BUNKO_ATTESTATION_SOURCE_REF=refs/tags/v0.1.1` and `BUNKO_ATTESTATION_SOURCE_DIGEST=<recorded-tag-commit>` with `bun scripts/verify-release.ts <download-directory> v0.1.1`. Confirm that verification rejects an incorrect source ref. Record an independent public download/setup result.
-- [ ] Follow the separately dispatched **CLI container** run. Dispatch success only means the run was requested. Record its actual main source SHA, run ID and published index digest; its recipe source can differ from the CLI tag source.
+- [ ] Follow the **CLI container** run automatically dispatched by Release's `dispatch-container` job. Do not start a second run manually. Dispatch success only means the run was requested; manual recovery of a failed dispatch requires first confirming no run for the version exists. Record its actual main source SHA, run ID and published index digest; its recipe source can differ from the CLI tag source.
 - [ ] Confirm the container run tested both architectures, attested the candidate index and promoted the unchanged index. Independently verify the index attestation against that run's source identity, pull by digest, and execute both architectures with the default nonroot user, read-only filesystem, dropped capabilities and no network. Compare each in-image CLI hash with the GitHub CLI. See [container verification](CLI_CONTAINER.md).
+
+Automatic container publication can finish before independent CLI acceptance. If that acceptance fails, inspect both already-published channels and follow recovery below.
 
 The container workflow has no prepare-only input: dispatching it attempts publication. Do not dispatch it again for an existing version merely to test installation.
 
@@ -101,6 +103,7 @@ gh workflow run npm.yml --repo sakajunquality/bunko --ref main -f version=v0.1.1
 | Checkout/merge/identity guard fails before tagging | Stop. Reconcile the checkout and selected main SHA; rerun the guards. Never continue to tag with an assumed HEAD. |
 | Tag points to the wrong commit | Stop publication if it has not started. Record the actual remote tag and any existing assets; review a recovery plan without moving or force-pushing the tag. The ancestry-only repair in 0.1.0 is historical evidence, not a general substitute for correct tagging. |
 | Workflow code needs a fix | Merge the fix through review/CI. Rerunning an old run uses its old workflow revision; dispatch a new main run for npm/container fixes. A tag-bound Release workflow needs a separately reviewed recovery plan. |
+| Independent CLI acceptance fails after automatic container dispatch | Inspect both channels and stop default promotion/announcement. Diagnose verification versus payload failure; preserve existing versions and publish a new corrected version if the payload is defective. |
 | CLI succeeds but container/npm fails | Keep the verified CLI release. Inspect the failed channel and record partial completion; do not repeat all publication steps. |
 | Publish response is ambiguous, or post-publication verification fails | Inspect the registry/release and exact bytes first. If the version exists, verify or repair the consumer check; do not republish, unpublish or replace the version. A genuinely defective published artifact requires a new version. |
 | npm metadata is temporarily stale | Retry bounded read-only verification; the workflow already allows propagation time. Do not retry publication to fix metadata visibility. |
