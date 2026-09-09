@@ -1,10 +1,10 @@
 # npm and bunx distribution
 
-The planned npm package is `@sakajunquality/bunko`. The unscoped `bunko` package already exists and is unrelated to this distribution. This document describes the packaging and publication procedure; it does not claim that the scoped package has been published yet.
+The npm package is [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko), first published as `0.1.0-rc.5` on 2026-09-09. The unscoped `bunko` package is unrelated to this distribution. See [initial publication evidence](validation/npm-rc5.md).
 
 The repository root remains private to prevent publishing the development checkout. `scripts/npm-package.ts` creates a separate, allowlisted package from an existing GitHub release. Its `bunko.js`, licenses, checksums and release provenance are copied without modification. No lifecycle scripts or runtime npm dependencies are included. Bun must already be installed and on PATH; npm does not install it. Supported hosts are Linux and macOS, x64 and arm64, with Bun >=1.3.11 <1.5.
 
-After publication:
+Usage:
 
 ```sh
 bunx @sakajunquality/bunko@0.1.0-rc.5 version
@@ -51,4 +51,6 @@ If rc.5 was published during bootstrap, it already exists: do not dispatch anoth
 
 Once the trust configuration is ready and that next release exists, dispatch the workflow on main with its explicit version and `publish: true`. It publishes the tested tarball once, downloads it independently, compares its SHA512 integrity with the candidate and executes the npm and bunx consumers. A failed post-publication check must be investigated before declaring success; rerunning publication of an existing version is not a repair strategy.
 
-The first public package and cross-version upgrade/rollback acceptance remain pending until npm ownership and authentication are configured. Local tarball acceptance does not claim registry publication or fresh-registry bunx resolution.
+The first public package passed anonymous tarball download, exact candidate integrity comparison, npm installation and fresh-cache bunx execution with both the exact version and `next`. Local rc.4 → rc.5 → rc.4 tarball upgrades/rollback and Bun installation also passed; rc.4 was not published to npm. Cross-version registry acceptance and the first OIDC publication remain checks for the next release.
+
+The npm Trusted Publisher is configured for the repository, workflow and environment above with direct publishing permission. GitHub restricts the `npm` environment to the main branch. This confirms configuration, not a successful OIDC publication: rc.5 was the authenticated local bootstrap and has no npm workflow provenance. Its enclosed CLI release provenance remains intact.
