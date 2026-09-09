@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published rc.4 reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.4`, with verified multiarchitecture index `sha256:54d571385dd58d03f17606aa33f9020847fbb35357ddd8293d90c2c05decd174`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published rc.5 reference is `ghcr.io/sakajunquality/bunko:v0.1.0-rc.5`, with verified multiarchitecture index `sha256:ce1cb4515ae18c52b219f3d39b2e8b32783dce66f680b90c3ec7d1a03fd22e30`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko:v0.1.0-rc.4 \
+  ghcr.io/sakajunquality/bunko:v0.1.0-rc.5 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -27,7 +27,7 @@ These YAML files are configuration examples, not claims of live execution on eve
 
 The release workflow explicitly dispatches container packaging after uploading all assets; it does not rely on a release event created by `GITHUB_TOKEN` triggering another workflow. Manual dispatch is also supported on main. Dispatch runs in a separate job so it can be retried without recreating a release. A successful release workflow confirms dispatch, not container publication; check the linked CLI container workflow before using the image. The container uses the reviewed recipe at the dispatched main commit, even when packaging an older CLI release; its attestation records that recipe commit separately from the verified CLI release.
 
-The publication workflow refuses to replace an existing version tag. It validates both platform builders and their compiled applications before pushing, publishes BuildKit SBOM/provenance metadata, generates a GitHub attestation for the image index and verifies the repository, container workflow, source ref and source commit. rc.3's CLI is pinned to its independently verified checksum; later CLI releases require their release provenance bundle.
+The publication workflow refuses to replace an existing version tag. It uploads a candidate by digest with BuildKit SBOM/provenance metadata, validates both platform builders and their compiled applications, generates and verifies the GitHub index attestation against the repository/workflow/source identity, then promotes those unchanged bytes to the version tag. rc.3's CLI is pinned to its independently verified checksum; later CLI releases require their release provenance bundle.
 
 Verify the published index using its recorded digest and the source ref/commit of the container workflow run:
 
@@ -47,4 +47,8 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 
 ## Published rc.4 validation
 
-[Container workflow 34286476774](https://github.com/sakajunquality/bunko/actions/runs/34286476774) completed publication and exact-source attestation verification on 2026-09-09. The recipe source was `refs/heads/main` at `d89fecd854135500e994724573dc58226cae0cdf`; the CLI payload was the attested rc.4 release. Both platform builders generated/frozen-installed a Bun v2 lock, compiled and executed its application before publication. The index above was independently pulled for amd64 and arm64 with an empty Docker credential configuration; both ran `version` successfully with nonroot defaults, a read-only root filesystem, no network and dropped capabilities. See [rc.4 validation](validation/rc4.md) for exact CLI identity and fixture scope.
+[Container workflow 34286476774](https://github.com/sakajunquality/bunko/actions/runs/34286476774) completed publication and exact-source attestation verification on 2026-09-09. The recipe source was `refs/heads/main` at `d89fecd854135500e994724573dc58226cae0cdf`; the CLI payload was the attested rc.4 release. Both platform builders generated/frozen-installed a Bun v2 lock, compiled and executed its application before publication. The rc.4 index `sha256:54d571385dd58d03f17606aa33f9020847fbb35357ddd8293d90c2c05decd174` was independently pulled for amd64 and arm64 with an empty Docker credential configuration; both ran `version` successfully with nonroot defaults, a read-only root filesystem, no network and dropped capabilities. See [rc.4 validation](validation/rc4.md) for exact CLI identity and fixture scope.
+
+## Published rc.5 validation
+
+[Container workflow 34308988320](https://github.com/sakajunquality/bunko/actions/runs/34308988320) validated, attested and promoted the exact index above from recipe commit `aebb1697329c02170631fb4c538a8b276feb5769`. Independent exact-source attestation verification, anonymous pulls and nonroot, read-only, network-disabled execution passed for both architectures. Both in-image CLI hashes match the published rc.5 JavaScript. See [rc.5 evidence](validation/rc5.md).

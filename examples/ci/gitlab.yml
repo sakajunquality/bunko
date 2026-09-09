@@ -1,6 +1,6 @@
 build-image:
   image:
-    name: ghcr.io/sakajunquality/bunko:v0.1.0-rc.4
+    name: ghcr.io/sakajunquality/bunko:v0.1.0-rc.5
     entrypoint: [""]
   variables:
     HOME: /tmp/bunko-home
