@@ -100,6 +100,7 @@ jobs:
           npm publish candidate/*.tgz --access public --tag "$NPM_DIST_TAG" --provenance --ignore-scripts
 
   verify-published:
+    timeout-minutes: 15
     needs: [prepare, publish]
     runs-on: ubuntu-latest
     steps:
@@ -117,12 +118,14 @@ jobs:
       - name: Download and compare the exact published tarball
         env:
           PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+          NPM_CONFIG_FETCH_TIMEOUT: '15000'
+          NPM_CONFIG_FETCH_RETRIES: '0'
         run: |
           mkdir downloaded
-          for attempt in 1 2 3 4 5; do
+          for attempt in $(seq 1 21); do
             if npm pack "@sakajunquality/bunko@$PACKAGE_VERSION" --ignore-scripts --json --pack-destination downloaded > downloaded/pack.json; then break; fi
-            if [ "$attempt" = 5 ]; then exit 1; fi
-            sleep 5
+            if [ "$attempt" = 21 ]; then exit 1; fi
+            sleep 15
           done
           node --input-type=module -e 'import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; const expected=JSON.parse(readFileSync("candidate/validation.json")); const result=JSON.parse(readFileSync("downloaded/pack.json"))[0]; const actual="sha512-"+createHash("sha512").update(readFileSync("downloaded/"+result.filename)).digest("base64"); if(actual!==expected.integrity) throw new Error("Published tarball differs from tested candidate");'
       - name: Execute the published package in a clean consumer

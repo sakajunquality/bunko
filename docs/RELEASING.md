@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The release candidate version is **0.1.0-rc.4**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify this RC. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables and npm publication remain future work.
+This source prepares version **0.1.0**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 ## Prepare and inspect artifacts
 
@@ -33,9 +33,9 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.0-rc.4
+  - uses: sakajunquality/bunko@v0.1.0
     with:
-      version: v0.1.0-rc.4
+      version: v0.1.0
       bun-version: 1.4.2
       verify-attestation: 'true'
   - run: bunko version
@@ -45,7 +45,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-rc.4; an explicit version, never latest |
+| version | v0.1.0-rc.5 on the preparation commit; an explicit version, never latest |
 | bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -57,7 +57,7 @@ A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different pri
 
 ## Manual installation
 
-Download all four assets from the same release into one directory, verify them, and run the CLI with Bun:
+Download the CLI, checksums, license, third-party notices and provenance bundle from the same release into one directory, verify them, and run the CLI with Bun:
 
 ```sh
 # Linux
@@ -73,4 +73,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-On main after the verified promotion, the setup defaults are rc.4 and Bun 1.4.2. The immutable rc.4 Action tag retains its preparation-time rc.3/1.3.11 defaults; set both inputs explicitly when pinning that tag, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
+At preparation time, setup defaults are rc.5 and Bun 1.4.2. The immutable v0.1.0 Action tag retains these preparation-time defaults; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
