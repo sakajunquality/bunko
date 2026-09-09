@@ -45,8 +45,8 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-rc.3; an explicit version, never latest |
-| bun-version | 1.3.11; installs the Bun runtime through the pinned setup-bun Action |
+| version | v0.1.0-rc.4; an explicit version, never latest |
+| bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
 | distribution-directory | Optional directory of already downloaded assets and SHA256SUMS; skips network download |
@@ -73,4 +73,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The setup default remains rc.3 until rc.4 publication and anonymous exact-candidate verification complete. Select rc.4 explicitly in the meantime. Future default promotions must follow publication and verification of the selected immutable release.
+On main after the verified promotion, the setup defaults are rc.4 and Bun 1.4.2. The immutable rc.4 Action tag retains its preparation-time rc.3/1.3.11 defaults; set both inputs explicitly when pinning that tag, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
