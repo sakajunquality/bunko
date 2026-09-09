@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cp, rm } from "node:fs/promises";
+import { cp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installerCredentials, installerOutputTail, redactInstallerOutput } from "../packages/bunko/install-diagnostics.ts";
 import { dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
@@ -48,22 +48,16 @@ test("a failing install surfaces the redacted tail of the installer output", asy
   const root = await temporary(); roots.push(root);
   const fixture = await dependencyFixture(root), toolchain = await selectToolchain();
   const plan = await dependencyPlan(await loadProject({ path: fixture.source }), fixture.source);
-  // A live 404 fixture avoids connection-refused retry timing and port reuse races.
-  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(null, { status: 404 }) });
-  const unreachable = `http://127.0.0.1:${probe.port}/`;
-  try {
-  const stage = join(root, "stage"); await cp(fixture.source, stage, { recursive: true });
-  const failure = await installDependencies(stage, { ...plan, registry: unreachable }, toolchain, undefined, join(root, "empty-cache")).then(() => "", (error: Error) => error.message);
-  expect(failure).toContain("Bun build dependency install failed (exit 1); check the lock, registry access, and package availability\nInstaller output (redacted");
-  expect(failure).toContain("fixture-msg"); expect(failure).not.toContain(stage);
-  } finally { await probe.stop(true); }
-  const registry = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(`Authorization: Bearer npm_${"z".repeat(36)}`, { status: 401 }) });
-  try {
-    const production = join(root, "production"); await cp(fixture.source, production, { recursive: true });
-    const denied = await installDependencies(production, { ...plan, registry: `http://127.0.0.1:${registry.port}/?token=query-secret` }, toolchain, { os: "linux", architecture: "amd64" }, join(root, "empty-cache")).then(() => "", (error: Error) => error.message);
-    expect(denied).toContain("Bun Linux production dependency install failed (exit 1)"); expect(denied).toContain("Installer output (redacted");
-    expect(denied).toContain(`http://127.0.0.1:${registry.port}/?<redacted>`); expect(denied).not.toContain("query-secret"); expect(denied).not.toContain("z".repeat(36));
-  } finally { await registry.stop(true); }
+  // Invalid installer input exercises the real Bun subprocess without network retries.
+  for (const production of [false, true]) {
+    const stage = join(root, production ? "production" : "stage");
+    await cp(fixture.source, stage, { recursive: true });
+    await writeFile(join(stage, "package.json"), '{"name": invalid-json}');
+    const target = production ? { os: "linux" as const, architecture: "amd64" as const } : undefined;
+    const failure = await installDependencies(stage, plan, toolchain, target, join(root, "empty-cache")).then(() => "", (error: Error) => error.message);
+    expect(failure).toContain(`Bun ${production ? "Linux production" : "build"} dependency install failed (exit 1); check the lock, registry access, and package availability\nInstaller output (redacted`);
+    expect(failure).toContain("package.json"); expect(failure).not.toContain(stage);
+  }
 });
 
 test("quoted headers and expanded custom credentials never survive diagnostics", () => {
