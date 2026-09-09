@@ -1,3 +1,4 @@
+import { registryHost } from "./registry-host.ts";
 import { dockerCredentials, type CredentialProvider } from "./credentials.ts";
 import { object } from "./digest.ts";
 import { media } from "./types.ts";
@@ -100,7 +101,8 @@ export class RegistryClient {
   private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   constructor(readonly registry: string, private readonly options: RegistryOptions = {}) {
-    this.insecureOrigins = new Set((options.insecure ?? []).map((host) => new URL(`http://${host}`).origin));
+    registryHost(registry);
+    this.insecureOrigins = new Set((options.insecure ?? []).map((host) => new URL(`http://${registryHost(host)}`).origin));
     const http = new URL(`http://${registry}`).origin;
     this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
     if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
