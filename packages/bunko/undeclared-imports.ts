@@ -71,16 +71,22 @@ export function undeclaredImports(code: string, declared: Set<string>): string[]
 
 /** Package-relative entry points in manifest order: main, module, every string leaf of exports (all conditions, nested objects and arrays,
  * null leaves skipped), bin values and a string browser field. A leaf with `*` is expanded against the instance's files the way Node
- * substitutes it: the first `*` matches any characters including `/`, later ones are literal. Nothing here is resolved yet. */
+ * substitutes it: each `*` is replaced by the same characters, including `/`. Nothing here is resolved yet. */
 export function manifestEntryPoints(manifest: Record<string, unknown>, files: Iterable<string>): string[] {
-  const entries: string[] = [];
+  const entries: string[] = [], paths = [...files];
   const add = (value: unknown) => {
     if (typeof value !== "string" || !value) return;
     const star = value.indexOf("*");
     if (star < 0) { entries.push(value); return; }
-    const prefix = inside(value.slice(0, star)), suffix = value.slice(star + 1);
-    if (prefix === undefined) return;
-    for (const file of files) if (file.startsWith(prefix) && file.endsWith(suffix) && file.length >= prefix.length + suffix.length) entries.push(file);
+    const pattern = inside(value); if (pattern === undefined) return;
+    const parts = pattern.split("*"), count = parts.length - 1;
+    const literalLength = parts.reduce((size, part) => size + part.length, 0);
+    for (const file of paths) {
+      const length = (file.length - literalLength) / count;
+      if (!Number.isInteger(length) || length < 0 || !file.startsWith(parts[0]!)) continue;
+      const replacement = file.slice(parts[0]!.length, parts[0]!.length + length);
+      if (parts.join(replacement) === file) entries.push(file);
+    }
   };
   const leaves = (value: unknown) => { if (Array.isArray(value)) value.forEach(leaves); else if (value && typeof value === "object") Object.values(value).forEach(leaves); else add(value); };
   add(manifest.main); add(manifest.module); leaves(manifest.exports);
@@ -111,7 +117,7 @@ export async function reachableUndeclaredImports(manifest: Record<string, unknow
   async function resolve(target: string): Promise<string | undefined> {
     const file = probe(target); if (file) return file;
     const nested = posix.join(target, "package.json");
-    if (files.has(nested) && nested !== "package.json") {
+    if (files.has(nested) && files.get(nested)! <= undeclaredImportSizeLimit && nested !== "package.json") {
       let main: unknown;
       try { main = JSON.parse(await read(nested)).main; } catch { main = undefined; }
       if (typeof main === "string") { const path = inside(posix.join(target, main)); const found = path === undefined ? undefined : probe(path) ?? index(path); if (found) return found; }
@@ -123,7 +129,8 @@ export async function reachableUndeclaredImports(manifest: Record<string, unknow
   for (const entry of manifestEntryPoints(manifest, files.keys())) { const path = inside(entry); const file = path === undefined ? undefined : await resolve(path); if (file) enqueue(file); }
   if (!visited.size) { const file = index(""); if (file) enqueue(file); }
   if (!visited.size) for (const file of [...files.keys()].sort()) if (scannable.test(file) && !testLocation(file)) enqueue(file);
-  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const file = queue[cursor]!;
     if (!scannableRuntimeFile(file, files.get(file)!)) continue;
     const missing = new Set<string>();
     for (const specifier of importSpecifiers(await read(file))) {

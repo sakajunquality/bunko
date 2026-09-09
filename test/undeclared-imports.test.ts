@@ -191,3 +191,25 @@ test("application externals do not repair an importing package's strict declarat
   expect(logs).toContain("deps.undeclaredImports=warn");
   expect(logs).not.toContain("cannot resolve it at runtime");
 });
+
+
+test("multiple exports patterns retain all Map iterator entries", async () => {
+  const manifest = { exports: { "./a/*": "./a/*.js", "./b/*": "./b/*.js" } };
+  const { files, read } = memory({ "a/one.js": 'require("missing-a")', "b/two.js": 'require("missing-b")' });
+  expect(manifestEntryPoints(manifest, files.keys())).toEqual(["a/one.js", "b/two.js"]);
+  expect(await reachableUndeclaredImports(manifest, files, read)).toEqual([{ name: "missing-a", file: "a/one.js" }, { name: "missing-b", file: "b/two.js" }]);
+});
+
+test("oversized nested manifests are not read during directory resolution", async () => {
+  const { files, read } = memory({ "index.js": 'require("./lib")', "lib/package.json": '{"main":"unused.js"}', "lib/index.js": 'require("missing")' });
+  files.set("lib/package.json", undeclaredImportSizeLimit + 1);
+  expect(await reachableUndeclaredImports({}, files, async (file) => { expect(file).not.toBe("lib/package.json"); return read(file); })).toEqual([{ name: "missing", file: "lib/index.js" }]);
+});
+
+
+test("repeated stars in an exports target use the same substitution", async () => {
+  const manifest = { exports: { "./*": "./lib/*/copy-*.js" } };
+  const { files, read } = memory({ "lib/a/copy-a.js": 'require("missing-a")', "lib/a/copy-b.js": 'require("not-exported")' });
+  expect(manifestEntryPoints(manifest, files.keys())).toEqual(["lib/a/copy-a.js"]);
+  expect(await reachableUndeclaredImports(manifest, files, read)).toEqual([{ name: "missing-a", file: "lib/a/copy-a.js" }]);
+});
