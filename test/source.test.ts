@@ -98,3 +98,18 @@ test("base layer descriptor annotations survive resolution and layout descriptor
   await exportLayout(store, join(root, "exported"), index.manifests[0], [manifest.config, ...manifest.layers], "bunko.local/base:test");
   expect((await Bun.file(join(root, "exported/index.json")).json()).manifests[0].annotations).toEqual({ "org.example.descriptor": "retained", "org.opencontainers.image.ref.name": "bunko.local/base:test" });
 });
+
+
+test("malformed base layer annotations are rejected before image assembly", async () => {
+  const root = await dir();
+  const layout = await baseLayout(join(root, "base")), store = new BlobStore(layout);
+  const index = await Bun.file(join(layout, "index.json")).json();
+  const original = await readJSON<any>(layout, index.manifests[0]);
+  for (const annotations of [[], "invalid", { "org.example.layer": 1 }, null]) {
+    const manifest = structuredClone(original);
+    manifest.layers[0].annotations = annotations;
+    index.manifests[0] = await store.put(canonicalJSON(manifest), media.manifest);
+    await writeFile(join(layout, "index.json"), canonicalJSON(index));
+    await expect(resolveBase(new LayoutSource(layout), { os: "linux", architecture: "amd64" }, new BlobStore(join(root, "resolved")))).rejects.toThrow("annotation");
+  }
+});
