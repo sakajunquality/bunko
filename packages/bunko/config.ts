@@ -240,7 +240,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
   const labels = { ...stringMap(config.labels, "labels"), ...stringMap(options.imageLabels, "image labels") };
   const annotations = { ...stringMap(config.annotations, "annotations"), ...stringMap(options.imageAnnotations, "image annotations") };
-  if (Object.keys(annotations).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || key === "org.opencontainers.image.ref.name")) throw new Error("Invalid or reserved image annotation key");
+  if (Object.keys(annotations).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || ["org.opencontainers.image.ref.name", "org.opencontainers.image.base.name", "org.opencontainers.image.base.digest"].includes(key))) throw new Error("Invalid or reserved image annotation key");
   if (Object.keys(labels).some((key) => !key || /[\x00-\x1f]/.test(key) || key.startsWith("org.bunko.") || ["org.opencontainers.image.created", "org.opencontainers.image.revision"].includes(key))) throw new Error("Cannot override bunko's reserved labels");
   const entrypoints = config.entrypoints === undefined ? undefined : stringMap(config.entrypoints, "entrypoints");
   let defaultEntrypoint = optionalString(config.defaultEntrypoint, "defaultEntrypoint");

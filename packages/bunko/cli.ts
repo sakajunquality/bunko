@@ -343,7 +343,7 @@ export async function main(argv: string[]): Promise<number> {
     const baseSBOMs: Record<string, string> = {};
     for (const value of values["base-sbom"] ?? []) {
       const equal = value.indexOf("="), key = value.slice(0, equal), reference = value.slice(equal + 1);
-      if (equal < 1 || !["linux/amd64", "linux/arm64"].includes(key) || !/@sha256:[a-f0-9]{64}$/.test(reference) || baseSBOMs[key]) throw new Error("Use --base-sbom linux/ARCH=REPO@sha256:DIGEST once per platform");
+      if (equal < 1 || !["linux/amd64", "linux/arm64"].includes(key) || !(reference.startsWith("layout:") && reference.length > 7 || /@sha256:[a-f0-9]{64}$/.test(reference)) || baseSBOMs[key]) throw new Error("Use --base-sbom linux/ARCH=REPO@sha256:DIGEST or linux/ARCH=layout:DIR once per platform");
       baseSBOMs[key] = reference;
     }
     const keyValues = (items: string[] | undefined) => Object.fromEntries((items ?? []).map((item) => {

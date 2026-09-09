@@ -1,4 +1,4 @@
-import { gitLabels } from "./source-metadata.ts";
+import { gitLabels, revisionTag } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
 import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
 import { assetPolicy } from "./asset-policy.ts";
@@ -169,7 +169,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const sourceDigest = context.sourceDigest;
     const plan = context.plan;
     const git = context.git;
-    const tags = [...new Set(options.tags ?? ["latest", ...(git["org.opencontainers.image.revision"] ? [git["org.opencontainers.image.revision"].slice(0, 12) + (git["org.bunko.git.dirty"] === "true" ? "-dirty" : "")] : [])])];
+    const tags = [...new Set(options.tags ?? ["latest", ...(revisionTag(git) ? [revisionTag(git)!] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
     const cache = new LayerCache(store, { persistence: context.cachePersistence, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, readRepositories: options.registryCache === false ? [] : [...options.cacheFrom ?? [], ...cacheRepo ? [cacheRepo] : []], registry, log });
@@ -180,6 +180,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       return { source, pinned: await source.root(), trees: new Map<Digest, Promise<BaseFilesystem>>() };
     })());
     const { source, pinned, trees } = await context.sources.get(sourceKey)!;
+    const baseAnnotations = (digest: Digest): Record<string, string> => ({ "org.opencontainers.image.base.digest": digest,
+      ...(source instanceof RegistrySource ? { "org.opencontainers.image.base.name": `${repositoryName(source.ref)}@${digest}` } : {}) });
     const filesystem = (base: BaseImage) => {
       if (!trees.has(base.descriptor.digest)) trees.set(base.descriptor.digest, stage("base-inspect", () => baseFilesystem(store, base, temporary), project.platforms.find((platform) => platform.architecture === base.config.architecture)));
       return trees.get(base.descriptor.digest)!;
@@ -344,15 +346,14 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
-          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: project.annotations, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
-        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseRef! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;
@@ -366,7 +367,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     for (const record of records) await cache.remember(record);
     await cache.persistHits();
     const first = images[0]!;
-    const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
+    const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, annotations: { ...project.annotations, ...baseAnnotations(pinned.descriptor.digest) }, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
       imageRepository: destination ?? `bunko.local/${project.name}`, buildParameters: buildParameters(project),
@@ -512,7 +513,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
-  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
+  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];

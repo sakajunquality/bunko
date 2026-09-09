@@ -50,3 +50,10 @@ export async function gitLabels(directory: string, log?: (message: string) => vo
   if (source) result["org.opencontainers.image.source"] = source;
   return result;
 }
+
+
+export function revisionTag(labels: Record<string, string>): string | undefined {
+  const revision = labels["org.opencontainers.image.revision"], dirty = labels["org.bunko.git.dirty"];
+  if (!revision || !["true", "false"].includes(dirty ?? "")) return undefined;
+  return revision.slice(0, 12) + (dirty === "true" ? "-dirty" : "");
+}

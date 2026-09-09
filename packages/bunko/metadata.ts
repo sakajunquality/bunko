@@ -21,26 +21,44 @@ async function json(source: ImageSource, store: BlobStore, d: Descriptor, option
 async function attachment(source: ImageSource, store: BlobStore, d: Descriptor, subjects: Set<string>): Promise<MetadataRecord> {
   const manifest = await json(source, store, d, true), subject = descriptor(manifest.subject);
   if (!subjects.has(subject.digest)) throw new Error("Metadata artifact subject mismatch");
-  if (d.mediaType !== media.manifest || manifest.schemaVersion !== 2 || ![sbomType, provenanceType].includes(String(manifest.artifactType)) || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new UnsupportedMetadataError("Unsupported metadata artifact");
+  if (d.mediaType !== media.manifest || manifest.schemaVersion !== 2 || !Array.isArray(manifest.layers) || manifest.layers.length > 32) throw new UnsupportedMetadataError("Unsupported metadata artifact");
   const config = descriptor(manifest.config);
-  if (config.mediaType !== "application/vnd.oci.empty.v1+json") throw new UnsupportedMetadataError("Unsupported metadata config");
+  if (!config.mediaType.endsWith("+json") && config.mediaType !== "application/json") throw new UnsupportedMetadataError("Unsupported metadata config");
   await json(source, store, config, true);
-  const payload = descriptor(manifest.layers[0]);
-  if (payload.mediaType !== manifest.artifactType) throw new UnsupportedMetadataError("Metadata payload type mismatch");
+  const payloads = manifest.layers.map(descriptor).filter((layer) => [sbomType, provenanceType].includes(layer.mediaType));
+  if (payloads.length !== 1) throw new UnsupportedMetadataError("Metadata requires exactly one supported payload");
+  const payload = payloads[0]!;
+  if ([sbomType, provenanceType].includes(String(manifest.artifactType)) && payload.mediaType !== manifest.artifactType) throw new UnsupportedMetadataError("Metadata payload type mismatch");
   const document = await json(source, store, payload, true);
   if (payload.mediaType === sbomType) {
-    if (document.spdxVersion !== "SPDX-2.3" || document.SPDXID !== "SPDXRef-DOCUMENT" || typeof document.documentNamespace !== "string" || !URL.canParse(document.documentNamespace) || !Array.isArray(document.packages)) throw new UnsupportedMetadataError("Unsupported SPDX document");
+    if (!["SPDX-2.2", "SPDX-2.3"].includes(String(document.spdxVersion)) || document.SPDXID !== "SPDXRef-DOCUMENT" || typeof document.documentNamespace !== "string" || !URL.canParse(document.documentNamespace) || !Array.isArray(document.packages)) throw new UnsupportedMetadataError("Unsupported SPDX document");
   } else if (document._type !== "https://in-toto.io/Statement/v1" || document.predicateType !== "https://slsa.dev/provenance/v1") throw new UnsupportedMetadataError("Unsupported provenance statement");
   if (payload.mediaType === provenanceType && (!Array.isArray(document.subject) || !document.subject.some((item) => object(object(item, "Statement subject").digest, "Statement digest").sha256 === subject.digest.slice(7)))) throw new Error("Provenance statement subject mismatch");
   return { subject, manifest: d, payload, document, bytes: await store.read(payload) };
 }
 
 export async function baseInventory(reference: string, subjects: string[], registry: RegistryOptions): Promise<MetadataRecord & { described: string[] }> {
-  if (!/@sha256:[a-f0-9]{64}$/.test(reference)) throw new Error("Base SBOM requires a digest-pinned OCI artifact reference");
+  if (!(reference.startsWith("layout:") && reference.length > 7) && !/@sha256:[a-f0-9]{64}$/.test(reference)) throw new Error("Base SBOM requires a digest-pinned OCI artifact reference or layout:DIR");
   const temporary = await mkdtemp(join(tmpdir(), "bunko-base-inventory-"));
   try {
-    const source = new RegistrySource(reference, registry), store = new BlobStore(temporary), root = await source.root();
-    const result = await attachment(source, store, root.descriptor, new Set(subjects));
+    const source = reference.startsWith("layout:") ? new LayoutSource(resolve(reference.slice(7))) : new RegistrySource(reference, registry);
+    const store = new BlobStore(temporary), root = await source.root(), accepted = new Set(subjects), candidates: MetadataRecord[] = [], visited = new Set<string>();
+    await store.put(root.bytes, root.descriptor.mediaType);
+    const walk = async (d: Descriptor, depth = 0): Promise<void> => {
+      if (visited.has(d.digest)) return;
+      if (depth > 5 || visited.size >= 1000) throw new Error("Base SBOM graph exceeds limit");
+      visited.add(d.digest);
+      const value = d.digest === root.descriptor.digest ? object(JSON.parse(Buffer.from(root.bytes).toString()), "Base SBOM root") : await json(source, store, d);
+      if ([media.index, media.dockerIndex].includes(d.mediaType as typeof media.index)) {
+        if (value.schemaVersion !== 2 || !Array.isArray(value.manifests)) throw new Error("Invalid base SBOM index");
+        for (const child of value.manifests) await walk(descriptor(child), depth + 1);
+      } else if (value.subject && accepted.has(descriptor(value.subject).digest) && Array.isArray(value.layers) && value.layers.some((layer: any) => layer?.mediaType === sbomType)) {
+        candidates.push(await attachment(source, store, d, accepted));
+      }
+    };
+    await walk(root.descriptor);
+    if (candidates.length !== 1) throw new Error("Base SBOM must contain exactly one SPDX artifact for the selected base subject");
+    const result = candidates[0]!;
     if (result.payload.mediaType !== sbomType) throw new Error("Base inventory must be SPDX");
     const ids = new Set((result.document.packages as unknown[]).map((p) => object(p, "SPDX package").SPDXID));
     const described = new Set<string>();
@@ -50,7 +68,8 @@ export async function baseInventory(reference: string, subjects: string[], regis
       if (rel.spdxElementId === "SPDXRef-DOCUMENT" && rel.relationshipType === "DESCRIBES" && typeof rel.relatedSpdxElement === "string" && ids.has(rel.relatedSpdxElement)) described.add(rel.relatedSpdxElement);
     }
     if (!described.size) throw new Error("Base SPDX must describe at least one package");
-    return { ...result, reference, described: [...described].sort() };
+    const identity = source instanceof RegistrySource ? `${source.ref.registry}/${source.ref.repository}@${result.manifest.digest}` : `urn:bunko:base-sbom:${result.manifest.digest}`;
+    return { ...result, reference: identity, described: [...described].sort() };
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
