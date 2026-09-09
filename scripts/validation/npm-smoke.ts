@@ -29,7 +29,7 @@ try {
   const installed = join(project, "node_modules", npmPackageName, "bunko.js");
   const digest = checksum(await readFile(join(directory, "bunko.js")));
   if (checksum(await readFile(installed)) !== digest) throw new Error("Installed CLI differs from release");
-  for (const args of [["npm", "exec", "--offline", "--", "bunko", "version"], [process.execPath, "x", "--no-install", "--package", npmPackageName, "bunko", "version"]]) {
+  for (const args of [["npm", "exec", "--offline", "--", "bunko", "version"], [process.execPath, "x", "--no-install", "--package", npmPackageName, "bunko", "version"], [process.execPath, "x", "--no-install", npmPackageName, "version"]]) {
     if (await run(args, project) !== metadata.version) throw new Error("Installed executable version mismatch");
   }
   const yaml = join(project, "input with spaces.yaml"); await writeFile(yaml, "image: existing/example:tag\n");
@@ -39,7 +39,7 @@ try {
   if (await run([join(prefix, "bin/bunko"), "version"]) !== metadata.version) throw new Error("Global installation failed");
   await mkdir(destination, { recursive: false });
   await copyFile(tarball, join(destination, packed.filename));
-  const report = { status: "passed", name: metadata.name, version: metadata.version, filename: packed.filename, integrity: packed.integrity, cliDigest: `sha256:${digest}`, files: packed.files.map((file: { path: string }) => file.path).sort(), localNpmInstall: true, globalNpmInstall: true, npmExec: true, localBunx: true, quotedArguments: true };
+  const report = { status: "passed", name: metadata.name, version: metadata.version, filename: packed.filename, integrity: packed.integrity, cliDigest: `sha256:${digest}`, files: packed.files.map((file: { path: string }) => file.path).sort(), localNpmInstall: true, globalNpmInstall: true, npmExec: true, localBunx: true, argumentsContainingSpaces: true };
   await writeFile(join(destination, "validation.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } finally { await rm(root, { recursive: true, force: true }); }

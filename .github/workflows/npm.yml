@@ -89,6 +89,10 @@ jobs:
         with:
           name: npm-candidate
           path: candidate
+      - name: Check the npm client and candidate integrity
+        run: |
+          node --input-type=module -e 'import {execFileSync} from "node:child_process"; const [major,minor,patch]=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(!(major>11 || major===11 && (minor>5 || minor===5 && patch>=1))) throw new Error("npm >=11.5.1 is required");'
+          node --input-type=module -e 'import {readFileSync,readdirSync} from "node:fs"; import {createHash} from "node:crypto"; const p=JSON.parse(readFileSync("candidate/validation.json")); const files=readdirSync("candidate").filter(name=>name.endsWith(".tgz")); if(files.length!==1 || files[0]!==p.filename) throw new Error("Unexpected candidate tarball"); const digest="sha512-"+createHash("sha512").update(readFileSync("candidate/"+files[0])).digest("base64"); if(digest!==p.integrity) throw new Error("Candidate integrity mismatch");'
       - name: Publish the tested tarball with provenance
         env:
           NPM_DIST_TAG: ${{ needs.prepare.outputs.tag }}
@@ -115,7 +119,11 @@ jobs:
           PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir downloaded
-          npm pack "@sakajunquality/bunko@$PACKAGE_VERSION" --ignore-scripts --json --pack-destination downloaded > downloaded/pack.json
+          for attempt in 1 2 3 4 5; do
+            if npm pack "@sakajunquality/bunko@$PACKAGE_VERSION" --ignore-scripts --json --pack-destination downloaded > downloaded/pack.json; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep 5
+          done
           node --input-type=module -e 'import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; const expected=JSON.parse(readFileSync("candidate/validation.json")); const result=JSON.parse(readFileSync("downloaded/pack.json"))[0]; const actual="sha512-"+createHash("sha512").update(readFileSync("downloaded/"+result.filename)).digest("base64"); if(actual!==expected.integrity) throw new Error("Published tarball differs from tested candidate");'
       - name: Execute the published package in a clean consumer
         env:
@@ -127,4 +135,4 @@ jobs:
           test "$(./node_modules/.bin/bunko version)" = "$PACKAGE_VERSION"
           mkdir ../bunx-consumer
           cd ../bunx-consumer
-          test "$(bun x --package "@sakajunquality/bunko@$PACKAGE_VERSION" bunko version)" = "$PACKAGE_VERSION"
+          test "$(bun x "@sakajunquality/bunko@$PACKAGE_VERSION" version)" = "$PACKAGE_VERSION"

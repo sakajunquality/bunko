@@ -17,7 +17,7 @@ Use explicit versions for reproducible use. Prereleases publish under `next`; st
 
 ## Prepare and inspect before publication
 
-Run the **npm distribution** workflow on main with the existing release tag and `publish: false`. It verifies release provenance against the exact tag commit in main history, packages the unchanged CLI, checks the tarball file list, and tests local/global npm installation, npm exec, local bunx and quoted argument forwarding. The `npm-candidate` artifact contains the tested tarball and its integrity report. No npm credentials are required to prepare it.
+Run the **npm distribution** workflow on main with the existing release tag and `publish: false`. It verifies release provenance against the exact tag commit in main history, packages the unchanged CLI, checks the tarball file list, and tests local/global npm installation, npm exec, local bunx and arguments containing spaces. The `npm-candidate` artifact contains the tested tarball and its integrity report. No npm credentials are required to prepare it.
 
 For local preparation, download the complete release into a new directory, verify it, then package it:
 
@@ -29,7 +29,7 @@ bun scripts/npm-package.ts dist/release dist/npm v0.1.0-rc.5
 bun scripts/validation/npm-smoke.ts dist/npm dist/npm-artifact
 ```
 
-Packaging verifies checksums before executing the CLI version check. Checksums alone are not authentication: verify the release provenance first. The packaged GitHub provenance authenticates the enclosed release assets, while npm provenance authenticates the separately generated npm tarball and its packaging workflow.
+Packaging verifies checksums before executing the CLI version check. Checksums alone are not authentication: verify the release provenance first. `verify-release.ts` passes the enclosed `PROVENANCE.jsonl` directly to `gh attestation verify --bundle` for every release subject. The packaged GitHub provenance authenticates the enclosed release assets, while npm provenance authenticates the separately generated npm tarball and its packaging workflow.
 
 ## Account bootstrap and trusted publishing
 
@@ -47,6 +47,8 @@ Then configure the npm package's **Trusted Publisher** for:
 
 Create the matching GitHub `npm` environment and restrict deployment branches to main. The workflow also requires main for publishing. Use GitHub-hosted runners and a supported npm CLI (>=11.5.1) with Node >=22.14.0. It publishes with OIDC and provenance without a long-lived npm token. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-Once the trust configuration is ready, dispatch the workflow on main with `publish: true`. It publishes the tested tarball once, downloads it independently, compares its SHA512 integrity with the candidate and executes the npm and bunx consumers. A failed post-publication check must be investigated before declaring success; rerunning publication of an existing version is not a repair strategy.
+If rc.5 was published during bootstrap, it already exists: do not dispatch another rc.5 publication. Verify that first tarball against its recorded integrity and run the npm/bunx commands above. The first OIDC publication must select a **new, unpublished npm version** whose GitHub release has already been published and verified.
+
+Once the trust configuration is ready and that next release exists, dispatch the workflow on main with its explicit version and `publish: true`. It publishes the tested tarball once, downloads it independently, compares its SHA512 integrity with the candidate and executes the npm and bunx consumers. A failed post-publication check must be investigated before declaring success; rerunning publication of an existing version is not a repair strategy.
 
 The first public package and cross-version upgrade/rollback acceptance remain pending until npm ownership and authentication are configured. Local tarball acceptance does not claim registry publication or fresh-registry bunx resolution.

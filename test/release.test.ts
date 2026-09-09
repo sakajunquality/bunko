@@ -69,6 +69,8 @@ test("a checksummed artifact must still report the requested release version", a
   await expect(setup({ version: "v9.9.9", distribution, temporary: root })).rejects.toThrow("version does not match");
   expect(() => releaseTag("latest")).toThrow("explicit");
   expect(() => releaseTag("v1.0.0\ninvalid")).toThrow();
+  expect(() => releaseTag("v1.0.0\n")).toThrow();
+  expect(() => releaseTag(" v1.0.0")).toThrow();
   expect(releaseTag("0.1.0-alpha.2")).toBe("v0.1.0-alpha.2");
 });
 
