@@ -19,7 +19,7 @@ import type { InventoryEntry, NativeBinary } from "./deps.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
-export const packFormat = `tar-gzip-v3/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
+export const packFormat = `tar-gzip-v4/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
 export const cacheMetadataLimit = 8 * 1024 ** 2;
 async function readMetadata(path: string): Promise<unknown> {

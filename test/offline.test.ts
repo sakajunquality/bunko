@@ -1,3 +1,6 @@
+import { exportLayouts } from "../packages/oci/layout.ts";
+import { BlobStore } from "../packages/oci/blob-store.ts";
+import { LayoutSource, resolveBase } from "../packages/oci/source.ts";
 import { afterEach, expect, test } from "bun:test";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -69,4 +72,26 @@ test("prepared base layouts inside the project stay outside the source snapshot"
   await writeFile(join(base, "unreferenced-note.txt"), "local base storage is not application source");
   const second = await build({ ...options, output: join(directory, "second") });
   expect(second.sourceDigest).toBe(first.sourceDigest); expect(second.root.digest).toBe(first.root.digest);
+});
+
+
+test("prepare-base deduplicates normalized platform aliases and exports one multi-platform reference", async () => {
+  const directory = await root();
+  const amd64 = { os: "linux", architecture: "amd64" } as const;
+  const arm64 = { os: "linux", architecture: "arm64", variant: "v8" } as const;
+  const images = [];
+  for (const platform of [amd64, arm64]) {
+    const input = await baseLayout(join(directory, platform.architecture), platform);
+    const store = new BlobStore(join(directory, `store-${platform.architecture}`));
+    const base = await resolveBase(new LayoutSource(input), platform, store);
+    images.push({ source: store, root: { ...base.descriptor, platform }, all: [base.manifest.config, ...base.manifest.layers], refName: platform.architecture });
+  }
+  const input = join(directory, "input"), output = join(directory, "prepared");
+  await exportLayouts(input, images);
+  const prepared = await prepareBase({ baseLayout: input, output, platform: "linux/arm64,linux/arm64/v8,linux/amd64" });
+  expect(prepared.platforms).toHaveLength(2);
+  const layout = await Bun.file(join(output, "index.json")).json();
+  expect(layout.manifests).toHaveLength(1);
+  expect(layout.manifests[0].annotations["org.opencontainers.image.ref.name"]).toMatch(/^bunko\.local\/prepared-base:sha256-/);
+  for (const platform of [amd64, arm64]) expect((await resolveBase(new LayoutSource(output), platform, new BlobStore(join(directory, `verify-${platform.architecture}`)))).config.architecture).toBe(platform.architecture);
 });

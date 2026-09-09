@@ -95,5 +95,5 @@ export async function injectedLayer(store: BlobStore, metadata: InjectedRuntime,
     const files = runtimeEntries({ ...metadata, path }, Buffer.from(content), tree);
     entries.push(...files.map((entry) => ({ ...entry, executable: false })));
   }
-  return { entries, layer: (await packLayer(store, entries, "runtime", epoch))! };
+  return { entries, layer: (await packLayer(store, entries, "runtime", epoch, []))! };
 }

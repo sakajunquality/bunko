@@ -116,7 +116,7 @@ describe("workspace builds", () => {
     expect(await runImage(result[0]!, join(f.root, "run-api"))).toBe("api shared one one");
     expect(await runImage(result[1]!, join(f.root, "run-worker"))).toBe("worker shared two two");
     const index = JSON.parse(await readFile(join(f.root, "out/index.json"), "utf8"));
-    expect(index.manifests.map((m: any) => m.annotations["org.opencontainers.image.ref.name"])).toEqual(["fixture-api:latest", "fixture-worker:latest"]);
+    expect(index.manifests.map((m: any) => m.annotations["org.opencontainers.image.ref.name"])).toEqual(["bunko.local/fixture-api:latest", "bunko.local/fixture-worker:latest"]);
     const report = JSON.parse(await readFile(join(f.root, "report.json"), "utf8"));
     expect(report.schemaVersion).toBe(3);
     expect(report.targets).toHaveLength(2);

@@ -24,6 +24,10 @@ export function descriptor(value: unknown): Descriptor {
   if (typeof d.mediaType !== "string" || !Number.isSafeInteger(d.size) || (d.size as number) < 0) {
     throw new Error("Descriptor requires a mediaType and a non-negative integer size");
   }
+  if (d.annotations !== undefined) {
+    const annotations = object(d.annotations, "Descriptor annotations");
+    if (Object.values(annotations).some((value) => typeof value !== "string")) throw new Error("Descriptor annotation values must be strings");
+  }
   return d as unknown as Descriptor;
 }
 

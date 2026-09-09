@@ -27,7 +27,7 @@ export async function packDependencies(directory: string, lockfile: string, plat
     await cp(join(resolve(directory), "node_modules"), join(source, "node_modules"), { recursive: true, verbatimSymlinks: true });
     const content = await runtimeEntries(source, workdir.slice(1), platform, true);
     const store = new BlobStore(join(temporary, "store"));
-    const layer = await packLayer(store, content.entries, "deps", 0);
+    const layer = await packLayer(store, content.entries, "deps", 0, [workdir.slice(1)]);
     if (!layer) throw new Error("Dependency artifact cannot be empty");
     const lock = Bun.JSONC.parse(await readFile(lockfile, "utf8"));
     const config = await store.put(canonicalJSON({ schemaVersion: targetPath ? 2 : 1, targetPath: targetPath || undefined, platform, workdir, lockDigest: lockDigest(lock), layer }), configType);
