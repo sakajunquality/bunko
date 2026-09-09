@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { build } from "../packages/bunko/build.ts";
+import { join, resolve } from "node:path";
+import { build, type BuildResult } from "../packages/bunko/build.ts";
 import { command } from "./command.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "bunko-compile-ca-"));
@@ -16,7 +16,10 @@ try {
 try { console.log(await (await fetch("https://127.0.0.1:"+server.port)).text()); } finally { server.stop(true); }`);
   for (const platform of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",")) {
     const tarball = join(directory, `${platform.replace("/", "-")}.tar`);
-    const result = await build({ path: source, mode: "compile", platform, tarball, push: false, localCache: false, gitMetadata: false });
+    const report = join(directory, `${platform.replace("/", "-")}.json`);
+    const result: BuildResult = process.env.BUNKO_CLI
+      ? (await command([process.execPath, resolve(process.env.BUNKO_CLI), "build", source, "--mode", "compile", "--platform", platform, "--tarball", tarball, "--push=false", "--no-cache", "--git-metadata=false", "--report", report]), await Bun.file(report).json())
+      : await build({ path: source, mode: "compile", platform, tarball, push: false, localCache: false, gitMetadata: false });
     if (!result.runtimeCA || !result.images[0]!.compileRuntime) throw new Error("Missing compile/runtime CA metadata");
     const loaded = await command(["docker", "load", "--input", tarball]), image = /Loaded image: (.+)/.exec(loaded)?.[1];
     if (!image) throw new Error("Docker did not load the compiled image");
