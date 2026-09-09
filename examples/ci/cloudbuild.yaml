@@ -1,5 +1,5 @@
 steps:
-  - name: ubuntu:24.04 # Pin the helper image digest for production use.
+  - name: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
     entrypoint: bash
     args: [-c, 'mkdir -p /workspace/output && chown 65532:65532 /workspace/output']
   - name: ghcr.io/sakajunquality/bunko:v0.1.0-rc.4

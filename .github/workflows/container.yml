@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cli-container-${{ inputs.version }}
+  group: cli-container-publication
   cancel-in-progress: false
 
 jobs:
@@ -66,34 +66,35 @@ jobs:
           IMAGE_REFERENCE: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.tag }}
         run: |
           bun -e 'import {parseReference} from "./packages/oci/source.ts"; import {RegistryClient} from "./packages/oci/registry.ts"; const r=parseReference(process.env.IMAGE_REFERENCE!); const response=await new RegistryClient(r.registry).request(`/v2/${r.repository}/manifests/${r.reference}`, {method:"HEAD"}, [`repository:${r.repository}:pull,push`], [404]); if(response.status !== 404) throw new Error("Container version tag already exists; refusing replacement");'
-      - name: Validate the builder and its compiled application on both platforms
-        env:
-          BUNKO_CONTAINER_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          for arch in amd64 arm64; do
-            docker buildx build --platform "linux/$arch" --load -f container/Dockerfile \
-              --build-arg "BUNKO_VERSION=$BUNKO_CONTAINER_VERSION" -t "bunko.local/cli-candidate:$arch" .
-            BUNKO_SMOKE_PLATFORMS="linux/$arch" bun scripts/validation/container-smoke.ts
-          done
-      - name: Build and publish both platforms
+      - name: Build a digest-addressed candidate once
         id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: container/Dockerfile
           platforms: linux/amd64,linux/arm64
-          build-args: BUNKO_VERSION=${{ steps.release.outputs.version }}
-          tags: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.tag }}
-          push: true
+          build-args: |
+            BUNKO_VERSION=${{ steps.release.outputs.version }}
+            BUNKO_REVISION=${{ github.sha }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
+      - name: Validate the candidate and its compiled application on both platforms
+        env:
+          BUNKO_CONTAINER_VERSION: ${{ steps.release.outputs.version }}
+          BUNKO_CONTAINER_IMAGE: ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}
+        run: |
+          for arch in amd64 arm64; do
+            docker pull --platform "linux/$arch" "$BUNKO_CONTAINER_IMAGE"
+            BUNKO_SMOKE_PLATFORMS="linux/$arch" bun scripts/validation/container-smoke.ts
+          done
       - name: Attest the container index
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
-      - name: Verify published provenance
+      - name: Verify candidate provenance
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -101,3 +102,9 @@ jobs:
           gh attestation verify "oci://ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" \
             --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/container.yml" \
             --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+      - name: Promote the verified index without rebuilding
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: bun scripts/promote-container.ts "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" "$RELEASE_TAG"
