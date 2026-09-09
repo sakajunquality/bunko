@@ -20,3 +20,22 @@ export function workspaceDefaults(config: Record<string, unknown>, rootConfig?: 
   }
   return result;
 }
+
+/** Report inherited leaf keys, never their configured values. */
+export function inheritedWorkspaceDefaults(member: Record<string, unknown>, rootConfig?: unknown): string[] {
+  const root = object(rootConfig ?? {}, "Workspace bunko"), defaults = object(root.defaults ?? {}, "bunko.defaults");
+  const keys: string[] = [];
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!maps.includes(key)) { if (member[key] === undefined) keys.push(key); continue; }
+    if (member[key] === null || value === null) continue;
+    const inherited = object(value, `defaults.${key}`), selected = object(member[key] ?? {}, key);
+    for (const [child, leaf] of Object.entries(inherited)) {
+      if (key === "build" && child === "define") {
+        if (selected.define === null || leaf === null) continue;
+        const definitions = object(leaf, "defaults.build.define"), overrides = object(selected.define ?? {}, "build.define");
+        for (const name of Object.keys(definitions)) if (overrides[name] === undefined) keys.push(`build.define.${name}`);
+      } else if (selected[child] === undefined) keys.push(`${key}.${child}`);
+    }
+  }
+  return keys.sort();
+}

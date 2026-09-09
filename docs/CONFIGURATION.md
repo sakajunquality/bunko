@@ -26,6 +26,8 @@ Defaults apply to selected members and to a selected runnable workspace root. Me
 
 Entrypoints, entrypoint names, image names, target enablement and sharedDeps are not defaultable: they determine discovery or target identity. `bunko.defaults` is accepted only at the workspace root. Paths in defaults are interpreted in each selected member's context under the ordinary setting rules; shared absolute image destinations still undergo collision checks.
 
+After rc.4, `check-config` and `doctor` report `inheritedDefaults` for each target, and build logs list inherited leaf keys. Member resets and invocation overrides are reflected in that list. Values are not logged. Review the workspace root when keys such as `user`, `deps.allowIgnoredScripts`, `runtime.inject`, or `runtime.caCertificates` are inherited: defaults are explicit shared policy, including an explicitly configured root user.
+
 ## Bun runtime arguments
 
 `bunko.runtime.args` is an array of arguments placed after the Bun executable and before the entry script. Use it for runtime flags such as `--smol` or runtime export conditions. Repeat `--runtime-arg=VALUE` to replace that array for an invocation; using `=` allows values beginning with `--`.
@@ -36,6 +38,8 @@ bunko build . --mode source --runtime-arg=--smol \
 ```
 
 `bunko.args` remains application arguments after the entry script. Named entrypoints retain their CMD-based selection while Bun runtime arguments remain in ENTRYPOINT. Source mode appends `--no-install` before the entry script. Compile mode rejects runtime arguments because its entrypoint is the compiled executable; use application `args` there. Runtime flags do not change bundler resolution decisions made while building bundle-mode code. Arguments are passed as argv entries, never evaluated by a shell. Diagnostics report their count, not their values.
+
+After rc.4, runtime arguments are validated before registry access. Bunko accepts supported runtime options, including value pairs such as `["--preload", "./preload.ts"]` or inline values such as `--conditions=custom`. Debugger options with optional values use the inline form (`--inspect=localhost:9229`) to avoid consuming the application path. Values beginning with `-` also require the inline form. Accepted value pairs and short aliases are normalized to `--flag=value`, so no value becomes a positional argument; diagnostic counts describe the normalized argv. Empty arguments, standalone scripts/subcommands, `--`, evaluation/print modes, help/version exits, and unsupported options are rejected. Use `bunko.args` for application arguments. Bun 1.3 and 1.4 have different runtime flag support; select a runtime that implements the configured options. Preload paths refer to files in the resulting image. Auto-install controls (`--install`, `-i`) and script-runner switches (`--bun`, `--if-present`) are outside the supported runtime option set. Debugger wait/break options intentionally delay application startup until a debugger attaches.
 
 ## Toolchain declarations
 
