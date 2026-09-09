@@ -53,7 +53,7 @@ export function parseReference(value: string): RegistryReference {
     registry = components.shift()!.toLowerCase();
   }
   if (["docker.io", "index.docker.io"].includes(registry)) registry = "registry-1.docker.io";
-  if (!/^[a-z0-9.-]+(?::[0-9]+)?$/.test(registry)) throw new Error("Invalid registry host");
+  registry = registryHost(registry);
   if (registry === "registry-1.docker.io" && components.length === 1) components.unshift("library");
   if (components.some((p) => !/^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/.test(p))) {
     throw new Error("Invalid registry repository");

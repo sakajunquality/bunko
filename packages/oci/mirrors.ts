@@ -1,12 +1,5 @@
-/** Mirrors share repository names with their origin and only serve digest-addressed reads. */
-export function registryHost(value: string, normalize = false): string {
-  if (typeof value !== "string" || !/^[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(value)) throw new Error("Registry mirror endpoints must be hosts with optional ports");
-  let host: string;
-  try { host = new URL(`https://${value}`).host.toLowerCase(); }
-  catch { throw new Error("Invalid registry mirror endpoint"); }
-  const selected = normalize ? host : value.toLowerCase();
-  return ["docker.io", "index.docker.io"].includes(selected) ? "registry-1.docker.io" : selected;
-}
+import { registryHost } from "./registry-host.ts";
+export { registryHost } from "./registry-host.ts";
 
 export function registryMirrors(items: string[] | undefined): Record<string, string[]> {
   const result: Record<string, string[]> = Object.create(null);
