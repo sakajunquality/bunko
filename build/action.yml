@@ -20,7 +20,7 @@ inputs:
     description: 'Also export an OCI layout when publishing'
     default: 'false'
   mode:
-    description: 'Application mode: bundle or compile'
+    description: 'Application mode: bundle, source or compile'
     default: ''
   base:
     description: 'Base image reference'
@@ -48,6 +48,12 @@ inputs:
     default: 'true'
   asset-contexts:
     description: 'Named asset bindings, NAME=DIR, one per line'
+    default: ''
+  registry-mirrors:
+    description: 'Pull mirrors, ORIGIN=HOST[/PREFIX], one per line (requires a supporting CLI release)'
+    default: ''
+  registry-config:
+    description: 'Registry TLS/mirror JSON configuration path'
     default: ''
   otel:
     description: 'Opt in to OpenTelemetry export configured by workflow environment'
@@ -94,5 +100,7 @@ runs:
         BUNKO_INPUT_CACHE_FROM: ${{ inputs.cache-from }}
         BUNKO_INPUT_CACHE_WRITE: ${{ inputs.cache-write }}
         BUNKO_INPUT_ASSET_CONTEXTS: ${{ inputs.asset-contexts }}
+        BUNKO_INPUT_REGISTRY_MIRRORS: ${{ inputs.registry-mirrors }}
+        BUNKO_INPUT_REGISTRY_CONFIG: ${{ inputs.registry-config }}
         BUNKO_INPUT_OTEL: ${{ inputs.otel }}
       run: bun "$BUNKO_ACTION_PATH/run.ts"

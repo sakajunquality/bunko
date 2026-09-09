@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { prepareBase } from "./prepare-base.ts";
-import { registryMirrors } from "../oci/mirrors.ts";
+import { selectRegistryMirrors } from "../oci/mirrors.ts";
 import { parseDefines } from "./defines.ts";
 import { Telemetry, telemetryConfig } from "./telemetry.ts";
 import { parseAssetContexts } from "./asset-contexts.ts";
@@ -274,7 +274,7 @@ export async function main(argv: string[]): Promise<number> {
     if (values["tag-conflict"] !== undefined && !["fail", "skip"].includes(values["tag-conflict"])) throw new Error("Tag conflict policy must be fail or skip");
     const tagConflict = values["tag-conflict"] as "fail" | "skip" | undefined;
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
-    const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: registryMirrors(values["registry-mirror"]), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
+    const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
