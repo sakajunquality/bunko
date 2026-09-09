@@ -1,5 +1,7 @@
 # rc.5 validation
 
+Status: published CLI and official container consumer acceptance passed. Private GHCR application conformance remains pending because of the GitHub billing restriction described below.
+
 Candidate version: `0.1.0-rc.5`, prepared with Bun 1.3.11. The JavaScript CLI is 7,863,758 bytes with SHA256 `56e4c2ef57ebdb1b2ac0f0c4c6e7ccee6383c9df8a86643ae9b520eae1427d83`. Every candidate result below used these exact CLI bytes. Publication and independent release/container consumer verification are separate steps; this record initially describes the prepared candidate.
 
 ## Automated and runtime checks
