@@ -114,7 +114,7 @@ SOURCE_DATE_EPOCH defaults to 0 and accepts nonnegative integer seconds through 
 
 ## 5. OCI composition, Registry publication, and export
 
-Resolve a base tag once per invocation. Support OCI and Docker schema 2 manifests/indexes with raw/gzip/zstd layers; verify digest, size and bounded decompression. Schema 1 and foreign layers are unsupported. Base bodies remain lazy until needed; existence checks and same-Registry mounts can avoid transfers.
+Resolve a base tag once per invocation. Support OCI and Docker schema 2 manifests/indexes with raw/gzip/zstd layers; verify digest, size and bounded decompression. Schema 1 and foreign layers are unsupported. Builds inspect each selected base filesystem before application assembly, verifying layer bytes and DiffIDs to reject unsafe paths and stale application workdirs. Filesystem scans are shared by pinned manifest within the invocation. Registry existence checks and same-Registry mounts can still avoid uploads, but do not bypass this read validation.
 
 Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary labels, then apply application overrides. Do not inherit reserved bunko or Git revision labels.
 
@@ -137,7 +137,7 @@ The local cache stores CAS blobs and atomic key records under `${XDG_CACHE_HOME:
 
 Production dependency keys include dependency manifest fields, the full lock, patches, noncredential registry settings, Bun version/revision, target platform, base digest, libc, strategy/linker, externals, destination, epoch, and pack format. They exclude app source, credentials, host absolute paths, and image tags. Asset keys include contents/mode/path, destination, epoch, and pack format and can be shared across platforms. Closure keys are described in §9.
 
-Lookup order is local, Registry metadata, then miss. Local blobs are checked by compressed digest and DiffID. Registry cache bodies are fetched and verified during preparation, with bounded compressed/decompressed sizes. Invalid metadata, unavailable caches, and corrupt bodies cause a diagnostic and miss before publication. Base-image bodies remain lazy and are separate from cache validation.
+Lookup order is local, Registry metadata, then miss. Local blobs are checked by compressed digest and DiffID. Registry cache bodies are fetched and verified during preparation, with bounded compressed/decompressed sizes. Invalid metadata, unavailable caches, and corrupt bodies cause a diagnostic and miss before publication. Base filesystem validation is separate from application/dependency cache validation and also runs on cache hits.
 
 New records are saved after independent construction/determinism checks succeed. Registry cache publication follows successful image publication. Cache write failure does not undo image success. Application caching, cross-process locks, explicit pruning, and bounded target preparation with `--jobs` are implemented; see the performance contract below.
 
@@ -243,7 +243,7 @@ Workspace application cache keys retain whole reachable member trees, every pack
 
 Resolve supports local Docker and kind loading in addition to Registry publication. Kind apply explicitly selects the matching kind context. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md). Per-target dependency maps support standalone and target-bound workspace artifacts; see the [preparation recipe](../examples/prepared-dependencies/README.md).
 
-Zstd-compressed OCI base layers are supported without recompression during composition. Zstd descriptors are limited to 2 GiB compressed; decoding defaults to 2 GiB output and a 128 MiB maximum decoder window. Docker export verifies decompressed DiffIDs. Generated application layers remain gzip. Custom CA and mutual TLS settings are host-scoped; see [REGISTRIES.md](REGISTRIES.md).
+Zstd-compressed OCI base layers are supported without recompression during composition. Zstd descriptors are limited to 2 GiB compressed; decoding defaults to 2 GiB output and a 128 MiB maximum decoder window. Build-time base filesystem validation and Docker export verify decompressed DiffIDs. Generated application layers remain gzip. Custom CA and mutual TLS settings are host-scoped; see [REGISTRIES.md](REGISTRIES.md).
 
 ## Metadata extraction and producer policy
 
@@ -285,3 +285,11 @@ Source mode preserves the sanitized source tree and the production dependency to
 Generated layers only synthesize parent directory entries within their declared application or asset destination roots. Ancestors above those roots retain the base image's ownership and permissions, including `/tmp`'s sticky bit. Runtime injection writes its files without synthesizing ancestor directory metadata. Explicit directory entries still describe application-owned directories. Layer appliers create missing parent directories using their normal extraction rules. Imported dependency artifacts are extracted, validated and repacked with current ownership rules before use; their original tar metadata is never attached directly. All ancestor paths remain subject to collision validation, even when omitted from the tar. Each archive path component is limited to 255 UTF-8 bytes; longer complete paths use PAX records.
 
 This serialization change uses `tar-gzip-v4` cache identities; previous layer cache records are not reused. Base layer descriptor annotations are preserved. OCI layout image references are fully qualified (`bunko.local/<name>:<first-tag>` for local builds), so containerd-backed importers can address the imported image. See the [OCI layer application rules](https://github.com/opencontainers/image-spec/blob/main/layer.md#changeset-over-existing-files) for directory attribute replacement semantics.
+
+### Base filesystem compatibility
+
+Changes after rc.4 require the application workdir to be absent or an empty directory in the base. Symlink/non-directory ancestors and any existing descendants are rejected before runtime downloads or dependency installation. Choose a clean runtime base or a different empty workdir; Bunko does not remove earlier application files with whiteouts or infer which base files are safe to inherit. Files elsewhere in the base remain part of the image.
+
+All generated asset destinations are checked against base entry types and parent links, including directories implied by descendant tar entries. Explicit regular-file replacements at asset destinations remain supported; directory/file replacement and writes through base symlinks are rejected. Generated-layer collision checks remain separate.
+
+This validation downloads and decodes base layers even when a registry mount or existing blob would have avoided downloading them. It uses the bounded layer decoder and limits inspection to 200,000 tar entries across the selected platform image. Scans are reused for the same pinned manifest across selected contexts and determinism passes, but are not persisted as trusted filesystem metadata across invocations. Their metadata maps remain in memory until the invocation completes; memory use grows with distinct selected base manifests. Independent application construction reuses the already verified base tree rather than decoding it twice. Use a prepared local base layout to avoid repeated registry reads. The `base-inspect` progress/telemetry phase records this read and decode cost. Historical benchmarks predate this additional validation cost.

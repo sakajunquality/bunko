@@ -12,14 +12,16 @@ export interface RuntimeCA { path: string; digest: Digest; certificates: number 
 
 /** Validate data destinations against base metadata without following host or image links. */
 export function assertBaseDataPaths(tree: BaseFilesystem, entries: TarEntry[]): void {
+  const implicit = new Set<string>();
+  for (const path of tree.keys()) for (let parent = posix.dirname(path); parent !== "." && !tree.has(parent) && !implicit.has(parent); parent = posix.dirname(parent)) implicit.add(parent);
   for (const entry of entries) {
     archivePath(entry.path);
     for (let parent = posix.dirname(entry.path); parent !== "."; parent = posix.dirname(parent)) {
       const existing = tree.get(parent);
       if (existing && existing.type !== "directory") throw new Error("Data destination has a non-directory or symlink parent in the base");
     }
-    const existing = tree.get(entry.path);
-    if (existing && existing.type !== entry.type) throw new Error("Data destination overlaps an incompatible base entry");
+    const existing = tree.get(entry.path)?.type ?? (implicit.has(entry.path) ? "directory" : undefined);
+    if (existing && existing !== entry.type) throw new Error("Data destination overlaps an incompatible base entry");
   }
 }
 
@@ -46,4 +48,14 @@ export async function runtimeCA(project: Project): Promise<{ metadata: RuntimeCA
   if (content.length > 1024 * 1024) throw new Error("Combined runtime CA bundle exceeds 1 MiB");
   const path = `${project.workdir}/.bunko-ca/roots.pem`;
   return { metadata: { path, digest: sha256(content), certificates: (content.toString().match(/-----BEGIN CERTIFICATE-----/g) ?? []).length }, entry: { type: "file", path: path.slice(1), content, executable: false, mode: 0o444 }, files };
+}
+
+/** Application layers must not inherit stale files or directory layouts from an earlier app. */
+export function assertBaseWorkdir(tree: BaseFilesystem, workdir: string): void {
+  const path = archivePath(workdir.slice(1));
+  for (let parent = path; parent !== "."; parent = posix.dirname(parent)) {
+    const existing = tree.get(parent);
+    if (existing && existing.type !== "directory") throw new Error("Application workdir has a non-directory or symlink path in the base");
+  }
+  for (const existing of tree.keys()) if (existing.startsWith(`${path}/`)) throw new Error("Base application workdir is not empty; choose an empty workdir instead of inheriting application files");
 }

@@ -43,6 +43,7 @@ test("metadata exports exact payload bytes from layouts and registry referrer fa
   const reference = `registry.test/metadata@${sbom.manifest.digest}`;
   expect((await baseInventory(reference, [result.manifest.digest], registry)).payload.digest).toBe(sbom.payload.digest);
   await expect(baseInventory(reference, [`sha256:${"f".repeat(64)}`], registry)).rejects.toThrow("subject");
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "hello", module: "src/server.ts", type: "module", bunko: { workdir: "/derived-app" } }));
   const linked = await build({ path: source, baseLayout: output, output: join(root, "linked"), push: false, localCache: false, sbom: true, provenance: true,
     baseSBOMs: { "linux/amd64": reference }, registry });
   const linkedMetadata = await imageMetadata(`layout:${join(root, "linked")}`);
