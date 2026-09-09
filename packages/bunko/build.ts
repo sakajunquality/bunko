@@ -153,7 +153,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const destination = repo ? repositoryName(repository(options.bare ? repo : `${repo}/${project.name}`)) : undefined;
   // Validate the prefix separately so a colon/tag cannot hide before /name.
   if (repo) repository(options.bare ? repo : `${repo}/bunko-validation`);
-  const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
+  const registry = options.registry ?? { credentials: dockerCredentials() };
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const toolchain = context.toolchain;
   const baseRef = project.base ?? `oven/bun:${toolchain.version}-distroless`;

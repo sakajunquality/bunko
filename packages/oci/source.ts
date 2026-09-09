@@ -1,8 +1,9 @@
-import { registryHost } from "./mirrors.ts";
+import { pullStream } from "./pull-stream.ts";
+import { registryHost, mirrorEndpoint } from "./mirrors.ts";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RegistryError, RegistryConnectionError, RegistryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
+import { RegistryError, RegistryConnectionError, RegistryClient, registryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
 import { BlobStore } from "./blob-store.ts";
 import { descriptor, object, sha256 } from "./digest.ts";
 import { media, type BaseImage, type Descriptor, type ImageConfig, type ImageManifest, type Platform } from "./types.ts";
@@ -63,30 +64,42 @@ export function parseReference(value: string): RegistryReference {
 
 export { type Fetcher } from "./registry.ts";
 
+const unavailableMirrors = new WeakSet<RegistryClient>();
+const reportedMirrors = new WeakSet<RegistryClient>();
+
 export class RegistrySource implements ImageSource {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
   private readonly onMirrorFallback?: RegistryOptions["onMirrorFallback"];
-  private readonly mirrors: RegistryClient[];
+  private readonly mirrors: { client: RegistryClient; repository: string; name: string }[];
+  private readonly bodyIdleTimeoutMs: number;
   constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
     const settings = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
     this.onMirrorFallback = settings.onMirrorFallback;
-    this.client = new RegistryClient(this.ref.registry, settings);
+    this.bodyIdleTimeoutMs = settings.bodyIdleTimeoutMs ?? 120_000;
+    if (!Number.isFinite(this.bodyIdleTimeoutMs) || this.bodyIdleTimeoutMs <= 0 || this.bodyIdleTimeoutMs > 2_147_483_647) throw new Error("Registry blob idle timeout must be positive and fit a timer");
+    this.client = registryClient(this.ref.registry, settings);
     const hosts = settings.mirrors?.[registryHost(this.ref.registry, true)] ?? [];
     if (!Array.isArray(hosts) || hosts.length > 8) throw new Error("At most eight mirrors are allowed per registry");
-    this.mirrors = hosts.map((host) => new RegistryClient(registryHost(host), settings));
+    this.mirrors = hosts.map((value) => { const mirror = mirrorEndpoint(value); return { client: registryClient(mirror.registry, settings, true), repository: mirror.prefix ? `${mirror.prefix}/${this.ref.repository}` : this.ref.repository, name: mirror.name }; });
   }
-  private async read(path: string, digestAddressed: boolean): Promise<Response> {
+  private async read(path: string, digestAddressed: boolean, init: RequestInit = {}): Promise<Response> {
     const scopes = [`repository:${this.ref.repository}:pull`];
-    if (digestAddressed) for (const mirror of this.mirrors) {
-      try { return await mirror.request(path, {}, scopes); }
+    if (digestAddressed) for (const endpoint of this.mirrors) {
+      const mirror = endpoint.client;
+      if (unavailableMirrors.has(mirror)) continue;
+      try { return await mirror.request(path.replace(`/v2/${this.ref.repository}/`, `/v2/${endpoint.repository}/`), init, [`repository:${endpoint.repository}:pull`]); }
       catch (error) {
+        if (init.signal?.aborted) throw init.signal.reason;
         if (!(error instanceof RegistryConnectionError) && !(error instanceof RegistryError && (error.status === 404 || error.status === 429 || error.status >= 500))) throw error;
-        this.onMirrorFallback?.({ registry: this.ref.registry, mirror: mirror.registry, reason: error instanceof RegistryError ? `HTTP ${error.status}` : "connection failed" });
+        if (!(error instanceof RegistryError && error.status === 404)) unavailableMirrors.add(mirror);
+        if (reportedMirrors.has(mirror)) continue;
+        reportedMirrors.add(mirror);
+        this.onMirrorFallback?.({ registry: this.ref.registry, mirror: endpoint.name, reason: error instanceof RegistryError ? `HTTP ${error.status}` : "connection failed" });
       }
     }
-    return this.client.request(path, {}, scopes);
+    return this.client.request(path, init, scopes);
   }
   async root() {
     const response = await this.read(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`, this.ref.reference.startsWith("sha256:"));
@@ -101,7 +114,9 @@ export class RegistrySource implements ImageSource {
   }
   async blob(d: Descriptor) {
     const manifest = [media.index, media.manifest, media.dockerIndex, media.dockerManifest].includes(d.mediaType as typeof media.index);
-    const response = await this.read(`/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`, true);
+    const path = `/v2/${this.ref.repository}/${manifest ? "manifests" : "blobs"}/${d.digest}`;
+    if (!manifest) return pullStream(d, (headers, signal) => this.read(path, true, { headers, signal }), this.bodyIdleTimeoutMs, (attempt) => this.client.backoff(attempt));
+    const response = await this.read(path, true);
     if (!response.body) throw new Error(`Missing blob body: ${d.digest}`);
     return webStream(response.body);
   }

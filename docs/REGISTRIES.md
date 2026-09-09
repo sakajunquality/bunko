@@ -154,7 +154,7 @@ Local validation on 2026-09-08 passed with authenticated Distribution 3, separat
 
 Certificates are scoped to exact HTTPS origins, including separately configured token-service origins. Redirects do not forward a client certificate to an unconfigured origin. TLS verification remains enabled. `--insecure-registry HOST:PORT` means explicit HTTP permission, not disabled HTTPS verification. Configuration and certificate files are excluded from application snapshots; keep them outside the project whenever possible.
 
-This config controls Bunko's OCI client. Combining it with integrated signing is rejected before publication; publish first and sign using a separately configured cosign client. Configure cosign's trust separately (for example with its supported SSL_CERT_FILE environment); it does not consume this JSON file. Registry mirrors are not implemented.
+This config controls Bunko's OCI client. Combining it with integrated signing is rejected before publication; publish first and sign using a separately configured cosign client. Configure cosign's trust separately (for example with its supported SSL_CERT_FILE environment); it does not consume this JSON file. Pull mirrors are configured separately with `--registry-mirror`.
 
 ## Dependency installer proxies and private npm CAs
 
@@ -170,13 +170,13 @@ Validation uses a local HTTPS npm registry and a separate tarball server with di
 
 ## Pull mirrors
 
-rc.4 and later accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, resolve, apply, check-base and metadata. Endpoints are registry hosts with optional ports, not URLs or repository prefixes. Docker Hub aliases normalize to `registry-1.docker.io`. Mirrors must expose the same repository path as the origin.
+rc.4 and later accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, resolve, apply, check-base and metadata. The immutable rc.4 accepts host-only endpoints. Current development also accepts an optional repository prefix: `docker.io=us-docker.pkg.dev/example-project/cache` maps `library/app` to `example-project/cache/library/app`. Endpoints must not include a URL scheme or credentials. Docker Hub aliases normalize to `registry-1.docker.io`.
 
 ```sh
 bunko build . --registry-mirror docker.io=mirror.example.com --push=false --oci-layout output
 ```
 
-Tags are always resolved at the origin. Once a digest is known, Bunko tries the configured mirrors in order, then the origin. Digest-pinned roots can be fetched directly from a mirror. A missing object, exhausted connection retries (including TLS connection failures), rate limiting or server error allows fallback; the CLI reports the skipped mirror and reason without credentials. Authentication/policy errors, corrupt content and interrupted bodies fail the operation. Digest and size verification remains mandatory when content is consumed.
+Tags are always resolved at the origin. Once a digest is known, Bunko tries the configured mirrors in order, then the origin. Digest-pinned roots can be fetched directly from a mirror. A missing object, exhausted connection retries (including TLS connection failures), rate limiting or server error allows fallback; the CLI reports the skipped mirror and reason without credentials. Authentication/policy errors, corrupt content and exhausted body recovery fail the operation. Digest and size verification remains mandatory when content is consumed.
 
 Each mirror uses its own Docker credential lookup, tokens and host-scoped TLS settings. No origin Authorization header is forwarded to a mirror. Mirrors receive only pull operations; publication and cache writes use their explicit destination. Configure `--registry-config` and `--insecure-registry` for the actual mirror host if needed. A mirror is a content source, not a replacement for origin availability when resolving mutable tags. The immutable rc.3 CLI does not include this option.
 
@@ -192,6 +192,27 @@ Successful finalization responses in the 2xx range are accepted only with subseq
 Terminal errors retain recognized [OCI Distribution error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes), such as `DENIED` or `MANIFEST_UNKNOWN`. Error responses are bounded to 64 KiB and one second. Arbitrary upstream messages, details, and unknown codes are omitted because they may echo credentials, signed URLs, or private input. Offline transport policy errors retain their explicit diagnostic and bypass connection retries. These changes do not alter the immutable rc.4 release.
 
 
+Digest-addressed blob downloads have a two-minute idle deadline between body chunks, rather than a total transfer deadline. Interrupted or truncated bodies get at most three recovery requests with backoff. Recovery requests use `Range`; a server that ignores it can return the full object, whose already-received prefix is discarded. `Content-Range`, declared lengths/digests, final size and complete blob hash are checked. Invalid response metadata and oversized payloads fail immediately. Partial files are never accepted into the blob store. This body recovery is separate from the bounded GET/HEAD header retry policy and does not resume manifest JSON transfers.
+
 Registry references, insecure allowlists, mirror hosts, and TLS configuration keys accept bracketed IPv6 literals, such as `[::1]:5000/team/app:tag`. Unbracketed literals and zone identifiers are rejected. Credentials remain scoped to the configured registry authority.
 
 Uploads use 8 MiB chunks by default and honor a session's `OCI-Chunk-Min-Length` up to a 32 MiB buffer limit. Larger or malformed advertised minimums select a streamed monolithic PUT instead of allocating a registry-controlled buffer. New upload sessions renegotiate their minimum; replayed monolithic transfers stay monolithic. GHCR, Artifact Registry Docker endpoints, and migrated `gcr.io`, `us.gcr.io`, `eu.gcr.io`, and `asia.gcr.io` endpoints use monolithic uploads. Completion still requires verified remote digest/size evidence.
+
+
+Mirror GET/HEAD requests use at most one retry, a five-second response-header deadline, and at most 250 ms backoff (including Retry-After). An unavailable mirror is skipped for the rest of the build invocation after its retry budget is exhausted. A 404 cache miss does not disable later digest lookups. Fallback is logged once per mirror client. Authentication and content failures remain fatal, including an unavailable mirror token service. Token exchange retains its separate 30-second deadline; the short mirror header/retry budget applies to registry content requests. These limits do not relax verification or authentication policy.
+
+Readers and publishers reuse registry clients and scoped tokens within a build. Library callers using the internal transport APIs must treat a shared RegistryOptions object as immutable; a new options object creates a separate session and resets mirror availability state. Repository prefixes affect read paths and token scopes, while credential helpers and TLS settings still use the mirror host alone.
+
+
+Mirrors can also be set with `BUNKO_REGISTRY_MIRRORS` (one `ORIGIN=HOST[/PREFIX]` per line), the build Action's `registry-mirrors` input, or a versioned `--registry-config` file:
+
+```json
+{
+  "schemaVersion": 1,
+  "tls": {},
+  "mirrors": { "docker.io": ["us-docker.pkg.dev/example-project/cache", "mirror.example.com"] }
+}
+```
+
+The existing host-to-certificate JSON format remains supported. Versioned configuration rejects unknown fields. Explicit `--registry-mirror` flags replace the entire environment/config mirror list; a present environment variable replaces the config list, including an empty variable to disable it. The TLS portion is independent of this precedence. Mirror routing applies to RegistrySource reads, including base preparation, registry cache reads, prepared dependencies and base SBOM inputs; it never changes publication destinations.
+A resumed blob can be served by a different configured mirror; only the final verified digest and size permit acceptance. Consumer cancellation interrupts pending reads and recovery backoff without starting another body recovery request.
