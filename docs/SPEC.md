@@ -36,7 +36,7 @@ bunko version
 | `--cache-dir DIR` / `--cache-repo REPO` | Local and Registry layer-cache destinations. |
 | `--no-cache` | Disable persistent reuse of both layer caches. |
 | `--no-local-cache` / `--no-registry-cache` | Disable the respective cache. |
-| `--install-cache DIR` | Bun package download cache, separate from the layer cache. |
+| `--install-cache DIR` | Bun package download cache, separate from the layer cache (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`). |
 | `--insecure-registry HOST:PORT` | Explicitly permit HTTP for a host; repeatable. |
 | `--dry-run` | Build and estimate transfers with Registry reads; no Registry writes, export, or loading. |
 | `--reproducible` | Require an explicit base digest or local base layout. |
@@ -90,13 +90,13 @@ Base/platform precedence: CLI > BUNKO_DEFAULT_BASE/BUNKO_DEFAULT_PLATFORMS > pac
 
 A nonempty dependencies/devDependencies/optionalDependencies/peerDependencies field requires a text `bun.lock`. Only v1 text locks are accepted. Root declarations, optional peer metadata, overrides/resolutions, and patchedDependencies are cross-checked. Entries without integrity, unknown schemas, and file/link/git/tarball specifications are rejected. Workspace protocol support is constrained by §8. Patch contents participate in dependency identity.
 
-Build dependencies are installed for the host in a copy of the source snapshot. Runtime externals use a separate `--production --os=linux --cpu=x64|arm64` install. Both use `--ignore-scripts --linker=isolated --backend=copyfile` and verify that manifest and lock bytes did not change. Checkout node_modules are never copied, and the original source is not modified. Always set an explicit Bun download-cache directory; without `--install-cache`, use temporary build staging outside node_modules.
+Build dependencies are installed for the host in a copy of the source snapshot. Runtime externals use a separate `--production --os=linux --cpu=x64|arm64` install. Both use `--ignore-scripts --linker=isolated --backend=copyfile` and verify that manifest and lock bytes did not change. Checkout node_modules are never copied, and the original source is not modified. Bun's download-cache directory is always set explicitly and kept outside node_modules: `--install-cache DIR`, otherwise a persistent `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1` shared across builds so repeated installs do not re-download every package, or temporary build staging when `--no-cache`/`--no-local-cache` disables local caching. The download cache is excluded from source snapshots like the layer cache.
 
 The production strategy preserves the complete production tree; closure reduction is described in §9. Package data, peer contexts, and internal symlinks are retained. Escaping or dangling links and runtime packages declaring preinstall/install/postinstall are rejected. External roots must be declared production/optional/peer dependencies. Unresolved imports and typos are never automatically externalized.
 
 A packaged `.node` file must be a little-endian ELF64 shared object with System V/GNU OSABI for the target architecture; DT_NEEDED is recorded. Prebuilt `.node` files for other platforms that ship in the same package (for example one file per target triple) and links to them are omitted from the image and counted when runtime files are walked; a named package whose addons include none for the target fails. Unknown addon formats and corrupt target ELF files fail instead of being classified as foreign. If Bun installs both glibc and musl optional variants, the tree is preserved. Arbitrary base ABI/shared-library checks and native source compilation are not performed. The glibc prebuilt addon in examples/dependencies has run on amd64/arm64.
 
-Private npm configuration comes from HTTPS registries, scoped registries, and credentials in `.npmrc`, with `${ENV_NAME}` expansion. Credential files exist only in install staging with mode 0600 and are removed afterward. Credentials do not enter snapshots, cache keys, images, reports, or raw install-error logs. Noncredential registry settings affecting resolution participate in production cache keys.
+Private npm configuration comes from HTTPS registries, scoped registries, and credentials in `.npmrc`, with `${ENV_NAME}` expansion. Credential files exist only in install staging with mode 0600 and are removed afterward. Credentials do not enter snapshots, cache keys, images, or reports. A failed install reports only the last 20 lines of installer output, labelled as such, after redacting npmrc credential values, `Authorization`/bearer values, URL userinfo and query strings, npm/GitHub token shapes, and the staging path; raw installer output is never surfaced. Noncredential registry settings affecting resolution participate in production cache keys.
 
 ## 4. Snapshot, bundle, and layers
 

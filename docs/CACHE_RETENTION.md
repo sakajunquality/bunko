@@ -21,7 +21,7 @@ bunko prune --cache-dir ./cache --keep-bytes 1073741824 --execute
 
 The byte budget covers validated key metadata plus its unique referenced blobs. Unknown files, unreferenced CAS objects, temporary files, lock metadata and filesystem overhead are excluded and untouched. This is a managed-byte budget, not a bound on total directory disk usage.
 
-Budget pruning chooses the oldest metadata modification time first with a deterministic key tie-break. It is not access-time LRU. Shared blobs are counted once and retained until every selected reference is removed. `--older-than` remains available for age-based retention and cannot be combined with `--keep-bytes`. Both modes preview by default. Only `--execute` deletes; validation and the cache lock precede deletion. There is no automatic build-time GC.
+Budget pruning chooses the oldest metadata modification time first with a deterministic key tie-break. It is not access-time LRU. Shared blobs are counted once and retained until every selected reference is removed. `--older-than` remains available for age-based retention and cannot be combined with `--keep-bytes`. Both modes preview by default. Only `--execute` deletes; validation and the cache lock precede deletion. There is no automatic build-time GC. Bun's package download cache (`--install-cache`, by default `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`) and the verified runtime download cache are separate directories outside this budget; `cache-info` and `prune` do not manage them, so reclaim their space directly.
 
 Remote pruning remains provider-dependent tag-only deletion. No generic remote byte-budget claim is made.
 
