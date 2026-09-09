@@ -20,7 +20,9 @@ export async function prepareNpmPackage(distribution: string, output: string, ve
     const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
     try {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      if (code || stderr || stdout.trim() !== normalized) throw new Error("Release CLI version does not match npm package version");
+      if (code) throw new Error("Release CLI version command failed");
+      if (stderr) throw new Error("Release CLI version command emitted unexpected diagnostics");
+      if (stdout.trim() !== normalized) throw new Error("Release CLI version does not match npm package version");
     } finally { clearTimeout(timer); }
     await writeFile(join(output, "package.json"), JSON.stringify({
       name: npmPackageName, version: normalized, description: "Build OCI images from Bun applications without Dockerfiles",
