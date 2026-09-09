@@ -1,0 +1,97 @@
+{
+  "status": "passed",
+  "base": "asia-northeast1-docker.pkg.dev/sakajun-public/test/bunko-conformance@sha256:9f022528fcf0f9136830f5b5f1fa4a90267dd6d31f70a817a8d256d735ca128b",
+  "origin": "Previously mirrored public Bun content; no proprietary base content",
+  "anonymous": "rejected",
+  "authenticated": "passed",
+  "results": [
+    {
+      "mode": "bundle",
+      "platform": "linux/arm64",
+      "digest": "sha256:1089d18c24ed4186048cc867c76a0e3701e7c6d789e0c894d0a8abb7216b7cf2",
+      "builder": {
+        "digest": "sha256:56e4c2ef57ebdb1b2ac0f0c4c6e7ccee6383c9df8a86643ae9b520eae1427d83",
+        "kind": "bundle",
+        "version": "0.1.0-rc.5"
+      },
+      "publication": {
+        "pendingTags": [],
+        "published": true,
+        "reference": "docker.io/sakajunquality/test-bunko@sha256:1089d18c24ed4186048cc867c76a0e3701e7c6d789e0c894d0a8abb7216b7cf2",
+        "tags": [
+          "private-upstream-rc5-270eb4c5-5257-4d88-b784-ca0650b668ff"
+        ],
+        "transfers": [
+          {
+            "action": "reused",
+            "digest": "sha256:f4badedbec24858ef2dc51256f6418328e305e9c3c5a5e093581f83425618bd5",
+            "kind": "base",
+            "size": 30138416,
+            "uploaded": 0
+          },
+          {
+            "action": "reused",
+            "digest": "sha256:7121a318badd7246578c0f648517fb8a5b903df105e638bef590df5b1bfd541a",
+            "kind": "base",
+            "size": 296,
+            "uploaded": 0
+          },
+          {
+            "action": "reused",
+            "digest": "sha256:4870481d62828e93b7f18372579e8933b4508a5b20758136322ec9f6ba24b7b2",
+            "kind": "base",
+            "size": 39601792,
+            "uploaded": 0
+          },
+          {
+            "action": "reused",
+            "digest": "sha256:a0e4c87ef1a5eb23aee77ff6b53a944c6a3ed4b04fc4173848c3d4a4fbef64c5",
+            "kind": "base",
+            "size": 183,
+            "uploaded": 0
+          },
+          {
+            "action": "reused",
+            "digest": "sha256:3e94af2d555c2ddaf704b0cc26304198e33f1f4f6fe2e7a49035308d1b5cf80d",
+            "kind": "base",
+            "size": 3405,
+            "uploaded": 0
+          },
+          {
+            "action": "reused",
+            "digest": "sha256:ea67330cd393b943b537e1e015e2224d913cba74cb4674df0710ad635bd1ff08",
+            "kind": "base",
+            "size": 138,
+            "uploaded": 0
+          },
+          {
+            "action": "uploaded",
+            "digest": "sha256:c76dd1c124f1726c81697550e8a847cf308dc07ad2e2e4ec5d9de0a74043277e",
+            "kind": "app",
+            "size": 264,
+            "uploaded": 264
+          },
+          {
+            "action": "uploaded",
+            "digest": "sha256:a6c869bcda7e90edde9159d1edc5c4774dde96a6eba91cd438494c2c7be91d64",
+            "kind": "config",
+            "size": 4440,
+            "uploaded": 4440
+          }
+        ]
+      },
+      "runtime": "passed"
+    },
+    {
+      "mode": "compile",
+      "platform": "linux/arm64",
+      "digest": "sha256:39e33308471ab4009dacf561e75e720dd3c9723b0e033499e89e89ffc5e26e39",
+      "builder": {
+        "digest": "sha256:56e4c2ef57ebdb1b2ac0f0c4c6e7ccee6383c9df8a86643ae9b520eae1427d83",
+        "kind": "bundle",
+        "version": "0.1.0-rc.5"
+      },
+      "runtime": "passed"
+    }
+  ]
+}
