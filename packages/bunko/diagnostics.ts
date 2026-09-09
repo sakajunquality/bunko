@@ -16,7 +16,7 @@ export async function checkConfig(options: BuildOptions) {
     const plan = await dependencyPlan(project, discovery.directory, false);
     assertAssetRuntime(project.assetMappings, project.bunPath);
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts);
-    projects.push({ lockfileVersion: plan.lock?.lockfileVersion, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
+    projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external,
       workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
       runtimeCertificateCount: project.runtimeCAs.length, assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
