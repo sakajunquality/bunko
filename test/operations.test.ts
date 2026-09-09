@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { applyDocuments } from "../packages/bunko/apply.ts";
@@ -137,13 +137,14 @@ test("dependency extraction writes large files without chunk corruption and reje
   await expect(extractDependencies(archive, tree, "app/node_modules")).rejects.toThrow("Output already exists");
 });
 
-test("apply preserves kubectl output if a report path becomes occupied", async () => {
+test("apply preserves kubectl output if a report path becomes unwritable", async () => {
   const root = await fixture(), report = join(root, "report.json"), kubectl = join(root, "kubectl"), input = join(root, "input.yaml");
   await writeFile(input, "kind: ConfigMap\napiVersion: v1\nmetadata: {name: test}\n");
-  await writeFile(kubectl, `#!${process.execPath}\nawait Bun.stdin.text();await Bun.write(${JSON.stringify(report)},"preserve me");console.log("applied");`, { mode: 0o755 });
+  // A directory appearing at the report path is refused at write time; the earlier regular-file case is now an ordinary replacement.
+  await writeFile(kubectl, `#!${process.execPath}\nimport {mkdir} from "node:fs/promises";await Bun.stdin.text();await mkdir(${JSON.stringify(report)});console.log("applied");`, { mode: 0o755 });
   const result = await applyDocuments({ files: [input], context: root, kubectlPath: kubectl, report });
   expect(result.exit).toBe(1); expect(result.stdout).toBe("applied\n"); expect(result.stderr).toContain("Could not write apply report");
-  expect(await readFile(report, "utf8")).toBe("preserve me");
+  expect(await readdir(report)).toEqual([]);
 });
 
 test("remote prune verifies ownership and never falls back to digest deletion", async () => {

@@ -3,8 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDocuments, type ResolveOptions } from "./resolve.ts";
-import { writeReport } from "./build.ts";
-import { assertFileAvailable } from "../oci/archive.ts";
+import { assertReportNotInput, assertReportWritable, writeReport } from "./build.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 
 export interface ApplyOptions extends ResolveOptions {
@@ -26,7 +25,9 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   if (!kubectl) throw new Error("apply requires kubectl on PATH or --kubectl-path");
   if (options.kubeDryRun !== undefined && !["none", "client", "server"].includes(options.kubeDryRun)) throw new Error("--kube-dry-run must be none, client or server");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
+  await assertReportNotInput(report, options.files.filter((file) => file !== "-"));
+  const written = new Set<string>();
   const temporary = await mkdtemp(join(tmpdir(), "bunko-apply-report-"));
   const resolutionReport = join(temporary, "resolve.json");
   let phase = "resolve";
@@ -35,7 +36,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     const resolved = await resolveDocuments({ ...options, report: resolutionReport });
     resolution = JSON.parse(await readFile(resolutionReport, "utf8")); phase = "apply";
     if (!resolved.output.trim()) {
-      if (report) await writeReport(report, { schemaVersion: 5, command: "apply", status: "success", phase: "skipped", exit: 0, resolution });
+      if (report) await writeReport(report, { schemaVersion: 5, command: "apply", status: "success", phase: "skipped", exit: 0, resolution }, written);
       return { exit: 0, stdout: "", stderr: "" };
     }
     const args = [kubectl, "apply", "-f", "-"];
@@ -45,13 +46,13 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     const child = Bun.spawn(args, { env: process.env, stdin: new Blob([resolved.output]), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (report) {
-      try { await writeReport(report, { schemaVersion: 5, command: "apply", status: exit === 0 ? "success" : "failed", phase, exit, resolution }); }
+      try { await writeReport(report, { schemaVersion: 5, command: "apply", status: exit === 0 ? "success" : "failed", phase, exit, resolution }, written); }
       catch { return { exit: exit || 1, stdout, stderr: `${stderr}bunko: Could not write apply report; kubectl output is preserved\n` }; }
     }
     return { exit, stdout, stderr };
   } catch (error) {
     if (await Bun.file(resolutionReport).exists()) resolution = JSON.parse(await readFile(resolutionReport, "utf8"));
-    if (report && !await Bun.file(report).exists()) await writeReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, resolution, error: error instanceof Error ? error.message : "Apply failed" });
+    if (report && !written.has(report)) await writeReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, resolution, error: error instanceof Error ? error.message : "Apply failed" });
     throw error;
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
