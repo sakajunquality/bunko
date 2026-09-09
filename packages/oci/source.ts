@@ -1,7 +1,6 @@
 import { pullStream } from "./pull-stream.ts";
 import { registryHost, mirrorEndpoint } from "./mirrors.ts";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { RegistryError, RegistryConnectionError, RegistryClient, registryClient, responseBytes, webStream, type Fetcher, type RegistryOptions } from "./registry.ts";
 import { BlobStore } from "./blob-store.ts";
@@ -13,13 +12,22 @@ export interface ImageSource {
   blob(d: Descriptor): Promise<AsyncIterable<Uint8Array>>;
 }
 
+async function layoutMetadata(path: string, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = []; let size = 0;
+  for await (const chunk of createReadStream(path)) {
+    const bytes = Buffer.from(chunk); size += bytes.length;
+    if (size > limit) throw new Error("Layout metadata exceeds size limit");
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks);
+}
+
 export class LayoutSource implements ImageSource {
   constructor(readonly directory: string) { }
   async root() {
-    const marker = object(JSON.parse(await readFile(join(this.directory, "oci-layout"), "utf8")), "OCI layout");
+    const marker = object(JSON.parse((await layoutMetadata(join(this.directory, "oci-layout"), 64 * 1024)).toString()), "OCI layout");
     if (marker.imageLayoutVersion !== "1.0.0") throw new Error("Unsupported OCI layout version");
-    const bytes = await readFile(join(this.directory, "index.json"));
-    if (bytes.length > 8 * 1024 * 1024) throw new Error("Base index exceeds metadata size limit");
+    const bytes = await layoutMetadata(join(this.directory, "index.json"), 8 * 1024 * 1024);
     return { bytes, descriptor: { mediaType: media.index, digest: sha256(bytes), size: bytes.length } };
   }
   async blob(d: Descriptor) {
