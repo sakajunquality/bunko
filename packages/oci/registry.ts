@@ -16,6 +16,8 @@ export interface RegistryOptions {
   retries?: number;
   /** Deadline for GET/HEAD response headers; it never limits body transfers. */
   headersTimeoutMs?: number;
+  /** Maximum idle time between blob body chunks; active transfers have no total deadline. */
+  bodyIdleTimeoutMs?: number;
   maxRetryDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -172,6 +174,7 @@ export class RegistryClient {
     const retryable = method === "GET" || method === "HEAD";
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
+      init.signal?.throwIfAborted();
       const previous = this.tokens.get(key), challenge = this.challenges.get(key);
       if (initial.origin === this.origin && previous && previous.expires <= Date.now() && challenge) {
         this.tokens.set(key, await this.authenticate(challenge, scopes, true));
@@ -180,6 +183,7 @@ export class RegistryClient {
       let response: Response | undefined;
       try {
         for (let redirects = 0; redirects <= 5; redirects++) {
+          init.signal?.throwIfAborted();
           const headers = new Headers(init.headers);
           headers.delete("Authorization");
           const token = this.tokens.get(key);

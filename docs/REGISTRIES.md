@@ -176,7 +176,7 @@ rc.4 and later accept repeatable `--registry-mirror ORIGIN=MIRROR` for build, re
 bunko build . --registry-mirror docker.io=mirror.example.com --push=false --oci-layout output
 ```
 
-Tags are always resolved at the origin. Once a digest is known, Bunko tries the configured mirrors in order, then the origin. Digest-pinned roots can be fetched directly from a mirror. A missing object, exhausted connection retries (including TLS connection failures), rate limiting or server error allows fallback; the CLI reports the skipped mirror and reason without credentials. Authentication/policy errors, corrupt content and interrupted bodies fail the operation. Digest and size verification remains mandatory when content is consumed.
+Tags are always resolved at the origin. Once a digest is known, Bunko tries the configured mirrors in order, then the origin. Digest-pinned roots can be fetched directly from a mirror. A missing object, exhausted connection retries (including TLS connection failures), rate limiting or server error allows fallback; the CLI reports the skipped mirror and reason without credentials. Authentication/policy errors, corrupt content and exhausted body recovery fail the operation. Digest and size verification remains mandatory when content is consumed.
 
 Each mirror uses its own Docker credential lookup, tokens and host-scoped TLS settings. No origin Authorization header is forwarded to a mirror. Mirrors receive only pull operations; publication and cache writes use their explicit destination. Configure `--registry-config` and `--insecure-registry` for the actual mirror host if needed. A mirror is a content source, not a replacement for origin availability when resolving mutable tags. The immutable rc.3 CLI does not include this option.
 
@@ -191,6 +191,8 @@ Successful finalization responses in the 2xx range are accepted only with subseq
 
 Terminal errors retain recognized [OCI Distribution error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes), such as `DENIED` or `MANIFEST_UNKNOWN`. Error responses are bounded to 64 KiB and one second. Arbitrary upstream messages, details, and unknown codes are omitted because they may echo credentials, signed URLs, or private input. Offline transport policy errors retain their explicit diagnostic and bypass connection retries. These changes do not alter the immutable rc.4 release.
 
+
+Digest-addressed blob downloads have a two-minute idle deadline between body chunks, rather than a total transfer deadline. Interrupted or truncated bodies get at most three recovery requests with backoff. Recovery requests use `Range`; a server that ignores it can return the full object, whose already-received prefix is discarded. `Content-Range`, declared lengths/digests, final size and complete blob hash are checked. Invalid response metadata and oversized payloads fail immediately. Partial files are never accepted into the blob store. This body recovery is separate from the bounded GET/HEAD header retry policy and does not resume manifest JSON transfers.
 
 Registry references, insecure allowlists, mirror hosts, and TLS configuration keys accept bracketed IPv6 literals, such as `[::1]:5000/team/app:tag`. Unbracketed literals and zone identifiers are rejected. Credentials remain scoped to the configured registry authority.
 
@@ -213,3 +215,4 @@ Mirrors can also be set with `BUNKO_REGISTRY_MIRRORS` (one `ORIGIN=HOST[/PREFIX]
 ```
 
 The existing host-to-certificate JSON format remains supported. Versioned configuration rejects unknown fields. Explicit `--registry-mirror` flags replace the entire environment/config mirror list; a present environment variable replaces the config list, including an empty variable to disable it. The TLS portion is independent of this precedence. Mirror routing applies to RegistrySource reads, including base preparation, registry cache reads, prepared dependencies and base SBOM inputs; it never changes publication destinations.
+A resumed blob can be served by a different configured mirror; only the final verified digest and size permit acceptance. Consumer cancellation interrupts pending reads and recovery backoff without starting another body recovery request.
