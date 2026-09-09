@@ -56,8 +56,10 @@ export async function pushLayout(directory: string, repository: string, tags: st
       if (!subjects.has(subject.digest) || !known || known.size !== subject.size || known.mediaType !== subject.mediaType || manifest.artifactType !== d.artifactType || !Array.isArray(manifest.layers)) throw new Error("Artifact subject/type does not match the layout image");
       attachments.push({ subject, manifest: d, blobs: [descriptor(manifest.config), ...manifest.layers.map(descriptor)] });
     }
-    const publicationTags = tags.length || !roots[0]!.artifactType ? tags : [`bunko-artifact-sha256-${roots[0]!.digest.slice(7)}`];
-    publication = await publisher.publish(store, roots[0]!, publicationTags, undefined, false, tagConflict);
+    const retention = !tags.length && Boolean(roots[0]!.artifactType);
+    const publicationTags = retention ? [`bunko-artifact-sha256-${roots[0]!.digest.slice(7)}`] : tags;
+    publication = await publisher.publish(store, roots[0]!, publicationTags, undefined, false, retention ? "skip" : tagConflict);
+    if (retention && publication.skippedTags?.length) throw new PublicationError("Content-addressed artifact retention tag points at another digest", publication);
     await publishArtifacts(publisher, store, attachments, (transfers) => publication!.transfers.push(...transfers));
     if (report) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "success", publication });
     return publication;

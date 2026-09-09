@@ -38,7 +38,7 @@ test("same-digest immutable tags are reported as existing without a write", asyn
   expect(f.registry.requests.filter((r) => r.method === "PUT" && r.url.pathname.endsWith("/latest"))).toHaveLength(before);
 });
 
-test.each([400, 403, 409, 412])("generic status %s is never mistaken for immutable policy", async (status) => {
+test.each([400, 403, 405, 409, 412])("generic status %s is never mistaken for immutable policy", async (status) => {
   const f = await fixture(status, "Permission denied or invalid tag", "DENIED");
   await expect(f.publisher.publish(f.store, f.second, ["latest"], undefined, false, "skip")).rejects.toThrow(PublicationError);
 });
@@ -87,4 +87,12 @@ test("standalone artifact layouts receive a stable retention tag unless explicit
   const options = { fetcher: f.registry.fetch, credentials: async () => undefined };
   expect((await pushLayout(f.store.root, "registry.example/artifact", [], options)).tags).toEqual([`bunko-artifact-sha256-${root.digest.slice(7)}`]);
   expect((await pushLayout(f.store.root, "registry.example/artifact", ["explicit"], options)).tags).toEqual(["explicit"]);
+  const immutable = { ...options, fetcher: async (url: string | URL, init?: RequestInit) => {
+    if (init?.method === "PUT" && new URL(url).pathname.includes("/manifests/bunko-artifact-")) return Response.json({ errors: [{ code: "TAG_INVALID", message: "repository is immutable" }] }, { status: 400 });
+    return f.registry.fetch(url, init);
+  } };
+  expect((await pushLayout(f.store.root, "registry.example/artifact", [], immutable)).existingTags).toEqual([`bunko-artifact-sha256-${root.digest.slice(7)}`]);
+  f.registry.manifests.set(`registry.example/artifact/bunko-artifact-sha256-${root.digest.slice(7)}`, { bytes: await f.store.read(f.first), type: media.index });
+  await expect(pushLayout(f.store.root, "registry.example/artifact", [], immutable)).rejects.toThrow("retention tag points at another digest");
+
 });
