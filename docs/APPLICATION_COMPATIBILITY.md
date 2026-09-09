@@ -50,7 +50,8 @@ Only the two listed install settings are forwarded to the controlled frozen inst
   "bunko": {
     "external": ["ready-made-addon"],
     "deps": {
-      "allowIgnoredScripts": ["ready-made-addon"]
+      "allowIgnoredScripts": ["ready-made-addon"],
+      "undeclaredImports": "warn"
     },
     "build": {
       "allowUnresolved": [""]
@@ -61,6 +62,14 @@ Only the two listed install settings are forwarded to the controlled frozen inst
 ```
 
 `deps.allowIgnoredScripts` accepts exact resolved package names whose published files work without their declared install hooks. Hooks are always disabled. An allowance does not generate missing files, repair a native addon, or install a shared library. Prefer externalization for native and location-sensitive packages, and exercise their real behavior in a Linux runtime test. The resolved name/version and ignored hook names appear in inventory; policy and lock inputs affect dependency cache identity. Production, workspace, and closure packaging enforce the policy. Shared dependency layers require matching allowances across targets. Prepared dependency artifacts retain their separate validation contract.
+
+With the closure strategy each package instance sees only the dependencies it declares, so a package that `require()`s a name it does not declare, which hoisted installs mask everywhere else, builds cleanly and fails at runtime with `Cannot find module`. Closure builds therefore scan every packaged `.js`/`.cjs`/`.mjs` file for bare imports that are neither builtins, `#` subpath imports, the package itself, nor declared dependencies, optional dependencies or peers, and log one `BUNKO_UNDECLARED_IMPORT` line per package and missing name:
+
+```
+BUNKO_UNDECLARED_IMPORT grpc-gcp@1.0.1 imports "protobufjs" without declaring it (build/src/generated/grpc_gcp.js); the isolated layout cannot resolve it at runtime. Update the package, or declare it in the application's dependencies and bunko.external.
+```
+
+Upgrade the package when a fixed release exists. Otherwise add the missing name to the application's `dependencies` and `bunko.external`: the application alias under `workdir/node_modules` is reachable from every closure instance. The default is a warning because optional `try { require("supports-color") } catch {}` probes are legitimate and indistinguishable by syntax; `deps.undeclaredImports: "error"` fails the build instead, and `"off"` skips the scan. Computed specifiers, unparseable files and files above 4 MiB are not inspected, so a clean scan is not proof that every runtime import resolves.
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 

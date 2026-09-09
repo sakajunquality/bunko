@@ -42,6 +42,7 @@ import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependenc
 import { discover, workspaceAt } from "./workspace.ts";
 import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
+import { undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
@@ -561,7 +562,16 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
         await cp(source, runtime, { recursive: true });
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
-        return dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        const policy = undeclaredImportPolicy(selected);
+        // Peer contexts repeat one package version as several instances; identical findings are reported once.
+        const messages = [...new Set(content.undeclared.map(undeclaredImportMessage))];
+        if (messages.length && policy !== "off" && iteration === 1) {
+          for (const message of messages.slice(0, undeclaredImportLimit)) options.log?.(`${message}\n`);
+          if (messages.length > undeclaredImportLimit) options.log?.(`BUNKO_UNDECLARED_IMPORT: ${messages.length - undeclaredImportLimit} additional warnings omitted\n`);
+        }
+        if (messages.length && policy === "error") throw new Error(`BUNKO_UNDECLARED_IMPORT: ${messages.length} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
+        return content;
       })());
       return closures.get(key)!;
     };

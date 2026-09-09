@@ -69,7 +69,7 @@ Supported `package.json.bunko` configuration; all fields are optional:
   "base": "oven/bun:1.3.11-slim",
   "platforms": ["linux/amd64", "linux/arm64"],
   "external": ["@node-rs/xxhash"],
-  "deps": {"strategy": "production"},
+  "deps": {"strategy": "production", "undeclaredImports": "warn"},
   "assets": ["public"],
   "env": {"NODE_ENV": "production"},
   "ports": [3000],
@@ -180,6 +180,8 @@ Unsupported workspace forms: nested members, negative globs, file/link packages,
 `bunko.deps.strategy` / `--deps-strategy` accepts production (default) or closure. Closure installs the original manifests/lock for Linux without rewriting them, then follows dependencies, optionalDependencies, and peerDependencies from explicit externals using installed node_modules resolution. Missing optional/optional-peer edges are allowed; missing required edges fail. There is no independent semver resolver.
 
 Project each concrete instance's package files, including workspace source, JSON/data, licenses, and executable modes, under `workdir/.bunko-deps`. Add links for resolved dependency edges, except when a bundled dependency already occupies that exact nested path. Keep distinct versions and peer contexts as distinct instances. Exclude unreachable node_modules and dev dependencies. Preserve dependency bin links and reject bin-name collisions within a scope. Runtime imports must be declared dependencies, optional dependencies, or peers; accidental access to undeclared hoisted packages is unsupported.
+
+Projection scans each instance's `.js`, `.cjs` and `.mjs` files (nested node_modules and files above 4 MiB excluded) for bare specifiers in static imports, re-exports, `require()` literals and `import()` literals. A specifier resolves when it names a Node/Bun builtin, a `#` subpath import, the instance itself, or a declared dependency, optional dependency or peer (optional peers included). Every other package name is recorded once per instance and name, with the first file in walk order as witness, and logged as `BUNKO_UNDECLARED_IMPORT <name>@<version> imports "<package>" without declaring it (<file>)`; peer contexts of one version collapse into one line, and at most 100 lines are logged per closure. `bunko.deps.undeclaredImports` selects `warn` (default), `error` (the build fails when any are found) or `off` (no scan). The strictest policy among the targets sharing a closure applies. Unparseable files, computed specifiers and the try/catch wrapped optional requires some packages use are not distinguished: the scan is advisory syntax analysis, executes nothing and adds no cache inputs.
 
 Root `bunko.sharedDeps:true` or `--shared-deps` prepares the union of selected closures once. All targets must use closure and matching workdir/base/platforms. Closure is selected when no strategy was specified. Target aliases live in app layers; the shared dependency digest matches per platform. A single-target invocation shares only that target's closure.
 

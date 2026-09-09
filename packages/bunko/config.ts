@@ -104,6 +104,7 @@ export interface Project {
   labels: Record<string, string>;
   inheritBaseOciLabels?: boolean;
   allowIgnoredScripts?: string[];
+  undeclaredImports: "warn" | "error" | "off";
   annotations: Record<string, string>;
   dataPath?: string;
   ports?: number[];
@@ -210,9 +211,11 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
   if (mode === "source") external = Object.keys(production).sort();
   const deps = object(config.deps ?? {}, "deps");
-  knownKeys(deps, ["strategy", "allowIgnoredScripts"], "deps");
+  knownKeys(deps, ["strategy", "allowIgnoredScripts", "undeclaredImports"], "deps");
   const allowIgnoredScripts = [...new Set(strings(deps.allowIgnoredScripts, "deps.allowIgnoredScripts"))].sort();
   if (allowIgnoredScripts.some((name) => packageRoot(name) !== name)) throw new Error("deps.allowIgnoredScripts requires exact package names");
+  const undeclaredImports = deps.undeclaredImports ?? "warn";
+  if (undeclaredImports !== "warn" && undeclaredImports !== "error" && undeclaredImports !== "off") throw new Error("deps.undeclaredImports must be warn, error or off");
   if (config.inheritBaseOciLabels !== undefined && typeof config.inheritBaseOciLabels !== "boolean") throw new Error("inheritBaseOciLabels must be boolean");
   if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
   const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");
@@ -311,7 +314,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const runtimePath = absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath");
   if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
-    inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
+    inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts, undeclaredImports,
     runtimeCAs,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
     inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain),
