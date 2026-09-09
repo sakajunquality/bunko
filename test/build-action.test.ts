@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { buildArguments, buildSummary, imageResults, runBuildAction } from "../build/run.ts";
 import { prepareRelease } from "../scripts/release.ts";
 import { setup } from "../scripts/setup.ts";
@@ -19,6 +19,19 @@ test("build Action keeps arguments literal, exports local images and validates p
   expect(() => buildArguments({ otel: "yes" }, "/tmp/action")).toThrow("true or false");
   const published = buildArguments({ push: "true", repo: "registry.example/team" }, "/tmp/action");
   expect(published.layout).toBe(""); expect(published.args).toContain("--image-refs");
+});
+
+test("build Action forwards install cache, bare, image user and report inputs only when provided", () => {
+  const defaults = buildArguments({}, "/tmp/action");
+  for (const flag of ["--install-cache", "--bare", "--image-user"]) expect(defaults.args).not.toContain(flag);
+  expect(defaults.report).toBe(join("/tmp/action", "report.json")); expect(defaults.args).toContain(defaults.report);
+  expect(buildArguments({ bare: "false" }, "/tmp/action").args).not.toContain("--bare");
+  const explicit = buildArguments({ "install-cache": "install cache", bare: "true", "image-user": "65532:65532", report: "reports/build report.json" }, "/tmp/action");
+  const after = (flag: string) => explicit.args[explicit.args.indexOf(flag) + 1];
+  expect(after("--install-cache")).toBe("install cache"); expect(after("--image-user")).toBe("65532:65532"); expect(explicit.args).toContain("--bare");
+  expect(explicit.report).toBe(resolve("reports/build report.json")); expect(after("--report")).toBe(explicit.report);
+  expect(() => buildArguments({ bare: "yes" }, "/tmp/action")).toThrow("true or false");
+  expect(() => buildArguments({ report: "report\n.json" }, "/tmp/action")).toThrow("line breaks");
 });
 
 test("reports preserve all targets and summaries escape application-controlled labels", () => {

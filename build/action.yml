@@ -49,6 +49,18 @@ inputs:
   asset-contexts:
     description: 'Named asset bindings, NAME=DIR, one per line'
     default: ''
+  install-cache:
+    description: 'Bun package download cache directory, separate from cache-dir'
+    default: ''
+  bare:
+    description: 'Use repo as the exact image repository; requires exactly one target'
+    default: 'false'
+  image-user:
+    description: 'Override the runtime user, for example 65532:65532'
+    default: ''
+  report:
+    description: 'Build report path; defaults to a new file in the runner temporary directory'
+    default: ''
   registry-mirrors:
     description: 'Pull mirrors, ORIGIN=HOST[/PREFIX], one per line (requires a supporting CLI release)'
     default: ''
@@ -69,7 +81,7 @@ outputs:
     description: 'Published reference for exactly one target; otherwise empty'
     value: ${{ steps.build.outputs.reference }}
   report:
-    description: 'Path to the build report (may be absent on early failure)'
+    description: 'Path to the build report, the report input when set (may be absent on early failure)'
     value: ${{ steps.build.outputs.report }}
   layout:
     description: 'Local OCI layout path; empty when publishing without export-layout'
@@ -100,6 +112,10 @@ runs:
         BUNKO_INPUT_CACHE_FROM: ${{ inputs.cache-from }}
         BUNKO_INPUT_CACHE_WRITE: ${{ inputs.cache-write }}
         BUNKO_INPUT_ASSET_CONTEXTS: ${{ inputs.asset-contexts }}
+        BUNKO_INPUT_INSTALL_CACHE: ${{ inputs.install-cache }}
+        BUNKO_INPUT_BARE: ${{ inputs.bare }}
+        BUNKO_INPUT_IMAGE_USER: ${{ inputs.image-user }}
+        BUNKO_INPUT_REPORT: ${{ inputs.report }}
         BUNKO_INPUT_REGISTRY_MIRRORS: ${{ inputs.registry-mirrors }}
         BUNKO_INPUT_REGISTRY_CONFIG: ${{ inputs.registry-config }}
         BUNKO_INPUT_OTEL: ${{ inputs.otel }}
