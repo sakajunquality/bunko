@@ -14,8 +14,10 @@ import type { InjectedRuntime } from "./runtime-download.ts";
 export interface BaseNode { type: string; link?: string; mode: number; size: number }
 export type BaseFilesystem = Map<string, BaseNode>;
 function pathName(value: string): string {
+  if (Buffer.byteLength(value) > 8192) throw new Error("Base filesystem path exceeds inspection limits");
   const name = value.replace(/^(\.\/)+/, "").replace(/\/$/, "");
   if (!name || name === ".") return "";
+  if (Buffer.byteLength(name) > 4096 || name.split("/").length > 128) throw new Error("Base filesystem path exceeds inspection limits");
   if (name.startsWith("/") || /[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error("Unsupported path in runtime base filesystem");
   return name;
 }
@@ -33,6 +35,7 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
         await decodeLayer(store, descriptor, base.config.rootfs.diff_ids[index]!, file);
         const tar = extract();
         tar.on("entry", (header, stream, next) => {
+          stream.on("error", (error) => tar.destroy(error));
           try {
             if (++count > 200_000) throw new Error("Runtime base has too many entries");
             const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);

@@ -79,3 +79,9 @@ test("base inspection is shared across determinism passes", async () => {
     progress: (event) => { if (event.phase === "base-inspect" && event.status === "completed") scans++; } });
   expect(result.verifiedDeterministic).toBe(true); expect(scans).toBe(1);
 });
+
+
+test.each([Array(130).fill("a").join("/"), Array(25).fill("a".repeat(200)).join("/")])("base inspection bounds PAX path expansion", async (path) => {
+  const f = await fixture([{ path, type: "file", content: Buffer.from("bounded") }]);
+  await expect(build({ path: f.source, baseLayout: f.base, output: join(f.root, "image"), push: false, localCache: false, gitMetadata: false })).rejects.toThrow("Base filesystem path exceeds inspection limits");
+});
