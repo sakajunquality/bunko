@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { build as rawBuild } from "../packages/bunko/build.ts";
+import { build as rawBuild, writeReport } from "../packages/bunko/build.ts";
 import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { sha256 } from "../packages/oci/digest.ts";
@@ -122,7 +122,7 @@ describe("Bun to OCI layout", () => {
     expect((await cli(["version"])).stdout).toBe(`${VERSION}\n`);
   });
 
-  test("does not overwrite existing output or report files", async () => {
+  test("does not overwrite existing output, and replaces only regular report files", async () => {
     const { root, base } = await setup();
     const source = await project(join(root, "app"));
     const output = join(root, "out");
@@ -130,7 +130,38 @@ describe("Bun to OCI layout", () => {
     await writeFile(join(output, "keep"), "keep");
     await expect(build({ path: source, baseLayout: base, output })).rejects.toThrow("already exists");
     expect(await readFile(join(output, "keep"), "utf8")).toBe("keep");
-    await expect(build({ path: source, baseLayout: base, output: join(root, "new"), report: join(source, "src/server.ts") })).rejects.toThrow("Report already exists");
+    // A previous run's report is replaced atomically, so local iteration and CI re-runs need no cleanup.
+    const report = join(root, "report.json");
+    await writeFile(report, "stale");
+    const result = await build({ path: source, baseLayout: base, output: join(root, "new"), report });
+    expect(JSON.parse(await readFile(report, "utf8")).root.digest).toBe(result.root.digest);
+    // Anything that is not a regular file is refused before the build starts, and never written through.
+    const directory = join(root, "report-dir"), link = join(root, "report-link");
+    await mkdir(directory);
+    await symlink(report, link);
+    for (const path of [directory, link]) await expect(build({ path: source, baseLayout: base, output: join(root, "unused"), report: path })).rejects.toThrow("Report path is not a regular file");
+    expect((await readdir(directory)).length).toBe(0);
+    expect(JSON.parse(await readFile(report, "utf8")).root.digest).toBe(result.root.digest);
+  });
+
+  test("writeReport replaces regular files atomically and refuses other entries", async () => {
+    const root = await temporary(); directories.push(root);
+    const report = join(root, "nested", "report.json");
+    await writeReport(report, { first: true });
+    await writeReport(report, { second: true });
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ second: true });
+    expect((await readdir(join(root, "nested"))).sort()).toEqual(["report.json"]);
+    await mkdir(join(root, "dir"));
+    await symlink(report, join(root, "link"));
+    await writeFile(join(root, "target"), "keep");
+    await symlink(join(root, "target"), join(root, "target-link"));
+    for (const path of [join(root, "dir"), join(root, "link"), join(root, "target-link")]) await expect(writeReport(path, {})).rejects.toThrow("Report path is not a regular file");
+    expect(await readFile(join(root, "target"), "utf8")).toBe("keep");
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ second: true });
+    // Reports written by this invocation are recorded so a failure handler can leave them in place.
+    const written = new Set<string>();
+    await writeReport(report, { third: true }, written);
+    expect(written.has(report)).toBe(true);
   });
 
   test("fails before output on unsupported dependencies, macros, and source symlinks", async () => {

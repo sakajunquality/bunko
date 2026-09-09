@@ -22,10 +22,9 @@ THIS SOFTWARE.
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, join, resolve as absolute } from "node:path";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Node } from "yaml";
-import { assertFileAvailable } from "../oci/archive.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 import { repository, repositoryName } from "../oci/publish.ts";
-import { prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
+import { assertReportWritable, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
 import { loadProject, type BuildOptions } from "./config.ts";
 import { discover } from "./workspace.ts";
 
@@ -180,7 +179,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   if (local && options.imageRefs) throw new Error("--image-refs requires Registry publication");
   if (options.push === false && !local || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication or local/kind loading; export/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.cacheDir, options.installCache]);
   const inputs = await readInputs(options);
   const context = await realpath(absolute(options.context ?? "."));

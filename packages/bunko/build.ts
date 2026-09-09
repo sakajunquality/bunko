@@ -22,7 +22,7 @@ import { targetInputs } from "./inputs.ts";
 import { metric } from "./telemetry.ts";
 import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
-import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
@@ -96,13 +96,22 @@ export interface BuildResult {
   dryRun: boolean;
 }
 
-export async function writeReport(path: string, value: unknown) {
+/** A report may replace an earlier run's regular file; directories, symlinks and special files are refused so nothing is written through them. */
+export async function assertReportWritable(path: string): Promise<void> {
+  try { if (!(await lstat(path)).isFile()) throw new Error(`Report path is not a regular file: ${path}`); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+}
+
+/** The rename commits the complete report atomically; `written` records paths this invocation has already reported so a later failure handler does not replace them. */
+export async function writeReport(path: string, value: unknown, written?: Set<string>) {
   await mkdir(dirname(path), { recursive: true });
+  await assertReportWritable(path);
   const temporary = await mkdtemp(join(dirname(path), ".bunko-report-"));
   try {
     const file = join(temporary, "report.json");
     await writeFile(file, canonicalJSON(value));
-    await link(file, path);
+    await rename(file, path);
+    written?.add(path);
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
@@ -115,7 +124,7 @@ interface BuildContext {
   inputPaths?: Set<string>;
   cachePersistence: { disabled?: boolean };
   project: Project; runtimeCertificate?: Awaited<ReturnType<typeof runtimeCA>>; source: string; sourceDigest: Digest; plan: DependencyPlan;
-  toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
+  toolchain: Toolchain; git: Record<string, string>; multiple: boolean; reports: Set<string>;
   closureProjects: Project[];
   closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
   sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
@@ -139,7 +148,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (output) await assertOutputAvailable(output);
   if (archive) await assertFileAvailable(archive);
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   if (options.local && options.kind) throw new Error("--local and --kind are mutually exclusive");
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
@@ -416,7 +425,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
           catch (error) {
             if (error instanceof PublicationError && !result.publication) result.publication = error.result;
-            if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" });
+            if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" }, context.reports);
             throw error;
           }
           finally {
@@ -425,7 +434,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!options.dryRun) await cache.publish();
         }
         if (!push && !options.dryRun && result.supplyChain) result.supplyChain.status = "complete";
-        if (report && !context.multiple && !options.imageRefs) await writeReport(report, result);
+        if (report && !context.multiple && !options.imageRefs) await writeReport(report, result, context.reports);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
         if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)}\n`);
@@ -505,7 +514,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   const archive = options.tarball ? await canonicalOutput(options.tarball) : undefined;
   if (output) await assertOutputAvailable(output);
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   if (archive) await assertFileAvailable(archive);
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
@@ -519,13 +528,13 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
-  const finished = new Set<string>();
+  const finished = new Set<string>(), reports = new Set<string>();
   const dispose = async () => {
     await Promise.all(prepared.map((item) => item.dispose()));
     await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
-    if (report && !(await Bun.file(report).exists())) await writeReport(report, {
+    if (report && !reports.has(report)) await writeReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
       targets: projects.flatMap((project) => prepared.filter((item) => item.result.target === project.name).map((item) => item.result)),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
@@ -568,7 +577,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);
@@ -583,8 +592,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
         for (const item of prepared) { await phase(options.progress, "publish", () => item.finish(), item.result.target, undefined, item.targetKey); finished.add(item.result.target); }
         if (imageRefs) await writeReferences(imageRefs, results.map((result) => result.publication!.reference));
-        if (!multiple && report && imageRefs) await writeReport(report, results[0]);
-        if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });
+        if (!multiple && report && imageRefs) await writeReport(report, results[0], reports);
+        if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results }, reports);
         return results;
       } catch (error) { await failure(error); throw error; }
     } };
