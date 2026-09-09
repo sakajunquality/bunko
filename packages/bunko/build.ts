@@ -24,7 +24,7 @@ import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
 import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { dockerCredentials } from "../oci/credentials.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
@@ -550,18 +550,25 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
   const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
-  const assetExclusions: string[] = [];
-  const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions);
-  await assertReportNotInput(report, [...required.map((path) => join(discovered.directory, path)), ...exclusions.filter((path) => path !== report && path !== imageRefs)]);
+  await assertReportNotInput(report, [
+    ...["package.json", "bun.lock", "tsconfig.json", "jsconfig.json", ".npmrc", "bunfig.toml", ".bunkoignore"].map((name) => join(discovered.directory, name)),
+    ...projects.flatMap((project) => [join(project.directory, "package.json"), ...Object.values(project.entrypoints ?? { default: project.entrypoint }).map((path) => join(project.directory, path))]),
+    ...exclusions.filter((path) => path !== report && path !== imageRefs),
+  ]);
+  if (report) for (const project of projects) {
+    const local = relative(project.directory, report);
+    if (project.assets.some((pattern) => new Bun.Glob(pattern).match(local) || local.startsWith(`${pattern.replace(/\/$/, "")}/`))) throw new Error("Report overlaps a declared asset input");
+  }
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
   const finished = new Set<string>(), reports = new Set<string>();
+  let reportSafe = true;
   const dispose = async () => {
     await Promise.all(prepared.map((item) => item.dispose()));
     await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
-    if (report && !reports.has(report)) await writeReport(report, {
+    if (report && reportSafe && !reports.has(report)) await writeReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
       targets: projects.flatMap((project) => prepared.filter((item) => item.result.target === project.name).map((item) => item.result)),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
@@ -571,6 +578,10 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
+    const assetExclusions: string[] = [];
+    const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions);
+    try { await assertReportNotInput(report, required.map((path) => join(discovered.directory, path))); }
+    catch (error) { reportSafe = false; throw error; }
     const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source")));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");

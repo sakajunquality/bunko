@@ -244,3 +244,13 @@ test("report replacement preserves manifest, source, config, and layout inputs",
   const repeated = await build({ path: source, baseLayout: base, output: join(root, "second"), report, localCache: false, gitMetadata: false });
   expect(repeated.root.digest).toBe(result.root.digest);
 });
+
+
+test("missing assets replace a prior success report with the current failure", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { assets: ["missing-data"] } });
+  const report = join(source, "report.json");
+  await writeReport(report, { schemaVersion: 3, status: "success", targets: [] });
+  await expect(build({ path: source, baseLayout: await baseLayout(join(root, "base")), output: join(root, "out"), report, localCache: false, gitMetadata: false })).rejects.toThrow("Asset pattern matched no files");
+  expect(JSON.parse(await readFile(report, "utf8")).status).toBe("failed");
+});
