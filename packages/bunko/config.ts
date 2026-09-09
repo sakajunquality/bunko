@@ -314,7 +314,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
     runtimeCAs,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
-    inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain),
+    inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain, workspace ? ["package.json", join(relative(workspace.directory, directory), "package.json")] : []),
     mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,

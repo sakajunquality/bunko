@@ -2,12 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { supportedBunVersion } from "../packages/bunko/bun-version.ts";
-import { toolchainRequirements } from "../packages/bunko/toolchain-policy.ts";
+import { assertToolchain, toolchainRequirements } from "../packages/bunko/toolchain-policy.ts";
 import { assertLockToolchain, validateLock } from "../packages/bunko/deps.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { checkConfig, doctor } from "../packages/bunko/diagnostics.ts";
 import { build } from "../packages/bunko/build.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
+import { workspaceFixture } from "./workspace-fixture.ts";
 import { baseLayout, temporary } from "./helpers.ts";
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -21,6 +22,25 @@ test("stable Bun 1.3 and 1.4 declarations retain explicit range boundaries", () 
     expect(supportedBunVersion(version)).toBe(false);
     expect(() => toolchainRequirements([], { version })).toThrow();
   }
+});
+
+test("toolchain mismatch messages name the selected binary, both versions and the declaration source", async () => {
+  const selected = { path: "/opt/bun/bin/bun", version: "1.3.11", revision: "af24e281e" };
+  const pinned = toolchainRequirements([{ packageManager: "bun@1.3.13" }]);
+  expect(pinned).toEqual({ version: "1.3.13", versionSource: "package.json#packageManager", revision: undefined, ranges: [], rangeSources: [] });
+  expect(() => assertToolchain(pinned, selected)).toThrow("Selected Bun 1.3.11 (/opt/bun/bin/bun) does not match the declared version 1.3.13 (package.json#packageManager). Install Bun 1.3.13 and select it with --bun-path, or change the declaration.");
+  expect(() => assertToolchain(toolchainRequirements([], { version: "1.3.13" }), selected)).toThrow("declared version 1.3.13 (bunko.toolchain.version)");
+  expect(() => assertToolchain(toolchainRequirements([], { revision: "0123456789abcdef" }), selected)).toThrow("Selected Bun 1.3.11 (/opt/bun/bin/bun) revision af24e281e does not match the declared revision 0123456789abcdef (bunko.toolchain.revision). Install that Bun build and select it with --bun-path, or change the declaration.");
+  const ranged = toolchainRequirements([{ engines: { bun: ">=1.3.11" } }, { engines: { bun: ">=1.4.0" } }], undefined, ["package.json", "services/api/package.json"]);
+  expect(ranged.ranges).toEqual([">=1.3.11", ">=1.4.0"]); expect(ranged.rangeSources).toEqual(["package.json#engines.bun", "services/api/package.json#engines.bun"]);
+  expect(() => assertToolchain(ranged, selected)).toThrow("Selected Bun 1.3.11 (/opt/bun/bin/bun) does not satisfy engines.bun >=1.4.0 (services/api/package.json#engines.bun). Install a Bun version in that range and select it with --bun-path, or change the declaration.");
+  expect(() => toolchainRequirements([{ packageManager: "bun@1.3.11" }, { packageManager: "bun@1.3.13" }], { version: "1.3.12" }, ["package.json", "services/api/package.json"])).toThrow("Conflicting Bun toolchain version declarations: 1.3.12 (bunko.toolchain.version), 1.3.11 (package.json#packageManager), 1.3.13 (services/api/package.json#packageManager)");
+  expect(() => assertToolchain(toolchainRequirements([{ packageManager: "bun@1.3.11", engines: { bun: ">=1.3.11 <1.5" } }], { revision: selected.revision }), selected)).not.toThrow();
+  const root = await temporary(); roots.push(root); const fixture = await workspaceFixture(root);
+  const memberPath = join(fixture.source, "services/api/package.json"), member = JSON.parse(await readFile(memberPath, "utf8"));
+  member.packageManager = "bun@1.3.13"; member.engines = { bun: ">=1.3.11 <1.5" }; await writeFile(memberPath, JSON.stringify(member));
+  const requirements = (await checkConfig({ path: join(fixture.source, "services/api") })).targets[0]!.toolchainRequirements;
+  expect(requirements.versionSource).toBe("services/api/package.json#packageManager"); expect(requirements.rangeSources).toEqual(["services/api/package.json#engines.bun"]);
 });
 
 test("lock v2 retains integrity/source validation and fails on old toolchains before registry access", async () => {
