@@ -31,6 +31,8 @@ Inherited root base users (including zero-padded UID 0) now default to `65532:65
 
 ## Migration from earlier previews
 
+Moving an existing Dockerfile build to Bunko is covered in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md). Changes between Bunko previews:
+
 - `|` YAML block scalars preserve a trailing newline and are rejected as invalid bunko references. Use `|-` for an exact URI value.
 - Boolean options accept `--flag`, `--no-flag`, and explicit `--flag=true|false`. A known flag supplied to an unrelated command is now an error, including `push-layout --push=false`; use `build --push=false --oci-layout DIR` for an export.
 - Application cache entries are enabled by default and appear in reports/prune previews. Match cache events by `kind`, not positional index. Use `--no-app-cache` to bypass them.
