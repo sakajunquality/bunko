@@ -78,13 +78,13 @@ Supported `package.json.bunko` configuration; all fields are optional:
   "args": [],
   "labels": {},
   "runtime": {"bunPath": "/usr/local/bin/bun", "libc": "glibc"},
-  "build": {"minify": true, "sourcemap": "none", "define": {}}
+  "build": {"minify": true, "sourcemap": "none", "define": {}, "moduleLocations": "warn"}
 }
 ```
 
 Named bundle entrypoints and their command-override contract are described in [application compatibility](APPLICATION_COMPATIBILITY.md#multiple-entrypoints-in-one-image).
 
-`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. Source symlinks, macros, unsupported import attributes, and computed application require/import expressions are rejected. A trusted worker under the selected Bun executable validates loaded executable inputs before parsing. Application import checks use the syntax tree. Copy-only assets and unreachable modules are not executable inputs. Static json/text/file/toml attributes and import resolution-mode attributes are supported. See [application compatibility](APPLICATION_COMPATIBILITY.md) for bunfig settings and explicit dependency allowances.
+`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. `build.moduleLocations` / `--module-locations` accepts warn (default) or error; error fails the build after listing the `BUNKO_MODULE_LOCATION` diagnostics and their externalization hint, including on an application-cache hit. The diagnostics themselves are described in [application compatibility](APPLICATION_COMPATIBILITY.md#module-relative-runtime-files). Source symlinks, macros, unsupported import attributes, and computed application require/import expressions are rejected. A trusted worker under the selected Bun executable validates loaded executable inputs before parsing. Application import checks use the syntax tree. Copy-only assets and unreachable modules are not executable inputs. Static json/text/file/toml attributes and import resolution-mode attributes are supported. See [application compatibility](APPLICATION_COMPATIBILITY.md) for bunfig settings and explicit dependency allowances.
 
 Base/platform precedence: CLI > BUNKO_DEFAULT_BASE/BUNKO_DEFAULT_PLATFORMS > package.json > defaults. The default base is `oven/bun:<selected Bun version>-distroless`; automatic catalog pinning is not implemented. Native dependencies require an explicit base containing their shared libraries instead of implicit distroless.
 

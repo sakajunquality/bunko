@@ -9,7 +9,7 @@ import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
-import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
+import { locationHint, locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
@@ -337,6 +337,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (application.locations.total) log(`${locationMessage}\n`);
           for (const warning of application.locations.warnings) log(`${warning.code} ${warning.file}:${warning.line}:${warning.column} (${warning.expression})\n`);
           if (application.locations.total > application.locations.warnings.length) log(`BUNKO_MODULE_LOCATION: ${application.locations.total - application.locations.warnings.length} additional warnings omitted\n`);
+          const hint = locationHint(application.locations.packages);
+          if (hint) log(`${hint}\n`);
+          if (application.locations.total && project.moduleLocations === "error") throw new Error(`Module-location diagnostics fail this build (build.moduleLocations=error): ${application.locations.total} flagged reference${application.locations.total === 1 ? "" : "s"}`);
         }
         // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
