@@ -112,7 +112,7 @@ test("successful nonstandard 2xx upload and manifest responses still require ver
     const response = await registry.fetch(url, init);
     return init?.method === "PUT" && response.ok ? new Response(null, { status: 204, headers: response.headers }) : response;
   } });
-  await expect(corrupt.manifest(store, manifest, "verified")).rejects.toThrow("changed the published manifest bytes");
+  await expect(corrupt.manifest(store, manifest, "verified")).rejects.toThrow("published manifest bytes");
 });
 
 test("transient mount failures fall back and session creation retries are bounded", async () => {

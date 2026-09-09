@@ -397,7 +397,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`${options.dryRun ? "Estimating transfer to" : "Publishing to"} ${destination}\n`);
           try {
             const publisher = new Publisher(destination, registry);
-            result.publication = await stage("push", () => publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun));
+            result.publication = await stage("push", () => publisher.publish(store, root, tags, new Map(images.flatMap((image) => image.layers.map((l) => [l.descriptor.digest, l.kind] as const))), options.dryRun, options.tagConflict));
+            for (const skipped of result.publication.skippedTags ?? []) log(`Registry kept immutable tag ${skipped.tag} at ${skipped.digest}\n`);
             if (options.dryRun) {
               for (const item of attestations) {
                 const estimate = await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true);

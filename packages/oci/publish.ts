@@ -14,7 +14,8 @@ export function repositoryName(ref: RegistryReference): string {
 }
 
 export interface Transfer { digest: Digest; kind: string; size: number; uploaded: number; action: "reused" | "mounted" | "uploaded" | "would-upload" }
-export interface Publication { reference: string; published: boolean; tags: string[]; pendingTags: string[]; transfers: Transfer[] }
+export type TagConflict = "fail" | "skip";
+export interface Publication { existingTags?: string[]; skippedTags?: { tag: string; digest: Digest; status: number }[]; reference: string; published: boolean; tags: string[]; pendingTags: string[]; transfers: Transfer[] }
 export class PublicationError extends Error {
   constructor(message: string, readonly result: Publication, cause?: unknown) { super(message, { cause }); }
 }
@@ -37,6 +38,14 @@ export class Publisher {
     const size = response.headers.get("Content-Length");
     if ((digest && digest !== d.digest) || (size && Number(size) !== d.size)) throw new Error("Registry blob HEAD digest/size mismatch");
     return true;
+  }
+
+  private async confirmBlob(d: Descriptor): Promise<boolean> {
+    for (let attempt = 0; ; attempt++) {
+      if (await this.exists(d)) return true;
+      if (attempt >= 3) return false;
+      await this.client.backoff(attempt);
+    }
   }
 
   async blob(store: BlobStore, d: Descriptor, kind = "base", dryRun = false): Promise<Transfer> {
@@ -69,7 +78,7 @@ export class Publisher {
       if (response) {
         await response.body?.cancel();
         if (response.status === 201) {
-          if (!(await this.exists(d))) throw new Error("Mounted registry blob is missing");
+          if (!(await this.confirmBlob(d))) throw new Error("Mounted registry blob is missing");
           return { ...result, action: "mounted" };
         }
         if (response.status === 202) { location = this.location(response, path.toString()); negotiate(response); }
@@ -158,7 +167,7 @@ export class Publisher {
           }
         }
       }
-      if (!(await this.exists(d))) throw new Error("Uploaded registry blob is missing");
+      if (!(await this.confirmBlob(d))) throw new Error("Uploaded registry blob is missing");
       complete = true;
       return { ...result, action: "uploaded", uploaded: d.size };
     } finally {
@@ -224,11 +233,25 @@ export class Publisher {
     if (!response.ok) throw new Error("Registry did not accept manifest");
     const declared = response.headers.get("Docker-Content-Digest");
     if (declared && declared !== d.digest) throw new Error("Published manifest digest mismatch");
-    const check = await this.client.request(`/v2/${this.ref.repository}/manifests/${reference}`, {}, [this.scope]);
-    if (sha256(await responseBytes(check)) !== d.digest) throw new Error("Registry changed the published manifest bytes");
+    for (let attempt = 0; ; attempt++) {
+      const check = await this.client.request(`/v2/${this.ref.repository}/manifests/${reference}`, {}, [this.scope], [404]);
+      if (check.status === 404) await check.body?.cancel();
+      else if (sha256(await responseBytes(check)) === d.digest) return;
+      if (attempt >= 3) throw new Error("Registry did not return the published manifest bytes after bounded verification retries");
+      await this.client.backoff(attempt);
+    }
   }
 
-  async publish(store: BlobStore, root: Descriptor, tags: string[], kinds = new Map<Digest, string>(), dryRun = false): Promise<Publication> {
+  private async resolveTag(tag: string): Promise<Digest | undefined> {
+    const response = await this.client.request(`/v2/${this.ref.repository}/manifests/${tag}`, {}, [this.scope], [404]);
+    if (response.status === 404) { await response.body?.cancel(); return undefined; }
+    const digest = sha256(await responseBytes(response)), declared = response.headers.get("Docker-Content-Digest");
+    if (declared && declared !== digest) throw new Error("Registry tag digest header mismatch");
+    return digest;
+  }
+
+  async publish(store: BlobStore, root: Descriptor, tags: string[], kinds = new Map<Digest, string>(), dryRun = false, tagConflict: TagConflict = "fail"): Promise<Publication> {
+    if (!["fail", "skip"].includes(tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const result: Publication = { reference: `${repositoryName(this.ref)}@${root.digest}`, published: false, tags: [], pendingTags: [...tags], transfers: [] };
     const visited = new Set<Digest>();
@@ -256,7 +279,21 @@ export class Publisher {
       if (dryRun) return result;
       result.published = true;
       for (const tag of tags) {
-        await this.manifest(store, root, tag);
+        if (tagConflict === "skip" && await this.resolveTag(tag) === root.digest) {
+          (result.existingTags ??= []).push(tag);
+        } else {
+          try { await this.manifest(store, root, tag); }
+          catch (error) {
+            if (tagConflict !== "skip" || !(error instanceof RegistryError) || !error.immutableTag) throw error;
+            const existing = await this.resolveTag(tag);
+            if (!existing) throw error;
+            if (existing !== root.digest) {
+              (result.skippedTags ??= []).push({ tag, digest: existing, status: error.status });
+              result.pendingTags.shift(); continue;
+            }
+            (result.existingTags ??= []).push(tag);
+          }
+        }
         result.tags.push(tag);
         result.pendingTags.shift();
       }

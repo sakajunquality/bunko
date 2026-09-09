@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { descriptor, object } from "../oci/digest.ts";
-import { PublicationError, Publisher, type Publication } from "../oci/publish.ts";
+import { PublicationError, Publisher, type Publication, type TagConflict } from "../oci/publish.ts";
 import { LayoutSource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { publishArtifacts } from "../oci/artifacts.ts";
@@ -12,7 +12,8 @@ import { assertFileAvailable } from "../oci/archive.ts";
 import { writeReport } from "./build.ts";
 import { media, type Descriptor } from "../oci/types.ts";
 
-export async function pushLayout(directory: string, repository: string, tags: string[] = [], registry: RegistryOptions = {}, reportPath?: string) {
+export async function pushLayout(directory: string, repository: string, tags: string[] = [], registry: RegistryOptions = {}, reportPath?: string, tagConflict: TagConflict = "fail") {
+  if (!["fail", "skip"].includes(tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const report = reportPath ? await canonicalOutput(reportPath) : undefined;
   if (report) await assertFileAvailable(report, "Report");
   directory = resolve(directory);
@@ -55,7 +56,8 @@ export async function pushLayout(directory: string, repository: string, tags: st
       if (!subjects.has(subject.digest) || !known || known.size !== subject.size || known.mediaType !== subject.mediaType || manifest.artifactType !== d.artifactType || !Array.isArray(manifest.layers)) throw new Error("Artifact subject/type does not match the layout image");
       attachments.push({ subject, manifest: d, blobs: [descriptor(manifest.config), ...manifest.layers.map(descriptor)] });
     }
-    publication = await publisher.publish(store, roots[0]!, tags);
+    const publicationTags = tags.length || !roots[0]!.artifactType ? tags : [`bunko-artifact-sha256-${roots[0]!.digest.slice(7)}`];
+    publication = await publisher.publish(store, roots[0]!, publicationTags, undefined, false, tagConflict);
     await publishArtifacts(publisher, store, attachments, (transfers) => publication!.transfers.push(...transfers));
     if (report) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "success", publication });
     return publication;
