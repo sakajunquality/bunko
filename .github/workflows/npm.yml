@@ -97,7 +97,7 @@ jobs:
         env:
           NPM_DIST_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          npm publish candidate/*.tgz --access public --tag "$NPM_DIST_TAG" --provenance --ignore-scripts
+          npm publish ./candidate/*.tgz --access public --tag "$NPM_DIST_TAG" --provenance --ignore-scripts
 
   verify-published:
     timeout-minutes: 15

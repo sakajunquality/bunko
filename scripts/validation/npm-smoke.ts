@@ -23,6 +23,9 @@ try {
   const packed = JSON.parse(await run(["npm", "pack", directory, "--ignore-scripts", "--json", "--pack-destination", root]))[0];
   if (JSON.stringify(packed.files.map((file: { path: string }) => file.path).sort()) !== JSON.stringify([...npmPackageFiles].sort())) throw new Error("Unexpected files in npm tarball");
   if (packed.bundled.length) throw new Error("Unexpected bundled npm dependencies");
+  await mkdir(join(root, "candidate"));
+  await copyFile(join(root, packed.filename), join(root, "candidate", packed.filename));
+  await run(["npm", "publish", `./candidate/${packed.filename}`, "--dry-run", "--offline", "--ignore-scripts", "--json", "--access", "public", "--tag", metadata.publishConfig.tag]);
   const tarball = join(root, packed.filename), project = join(root, "project with spaces"); await mkdir(project);
   await writeFile(join(project, "package.json"), '{"name":"npm-consumer","private":true}');
   await run(["npm", "install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", tarball], project);
@@ -39,7 +42,7 @@ try {
   if (await run([join(prefix, "bin/bunko"), "version"]) !== metadata.version) throw new Error("Global installation failed");
   await mkdir(destination, { recursive: false });
   await copyFile(tarball, join(destination, packed.filename));
-  const report = { status: "passed", name: metadata.name, version: metadata.version, filename: packed.filename, integrity: packed.integrity, cliDigest: `sha256:${digest}`, files: packed.files.map((file: { path: string }) => file.path).sort(), localNpmInstall: true, globalNpmInstall: true, npmExec: true, localBunx: true, argumentsContainingSpaces: true };
+  const report = { status: "passed", name: metadata.name, version: metadata.version, filename: packed.filename, integrity: packed.integrity, cliDigest: `sha256:${digest}`, files: packed.files.map((file: { path: string }) => file.path).sort(), publishDryRun: true, localNpmInstall: true, globalNpmInstall: true, npmExec: true, localBunx: true, argumentsContainingSpaces: true };
   await writeFile(join(destination, "validation.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } finally { await rm(root, { recursive: true, force: true }); }
