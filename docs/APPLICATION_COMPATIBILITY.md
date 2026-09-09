@@ -50,7 +50,7 @@ Only the two listed install settings are forwarded to the controlled frozen inst
   "bunko": {
     "external": ["ready-made-addon"],
     "deps": {
-      "allowIgnoredScripts": ["ready-made-addon"]
+      "allowIgnoredScripts": ["protobufjs", "ready-made-addon"]
     },
     "build": {
       "allowUnresolved": [""]
@@ -60,7 +60,15 @@ Only the two listed install settings are forwarded to the controlled frozen inst
 }
 ```
 
-`deps.allowIgnoredScripts` accepts exact resolved package names whose published files work without their declared install hooks. Hooks are always disabled. An allowance does not generate missing files, repair a native addon, or install a shared library. Prefer externalization for native and location-sensitive packages, and exercise their real behavior in a Linux runtime test. The resolved name/version and ignored hook names appear in inventory; policy and lock inputs affect dependency cache identity. Production, workspace, and closure packaging enforce the policy. Shared dependency layers require matching allowances across targets. Prepared dependency artifacts retain their separate validation contract.
+`deps.allowIgnoredScripts` accepts exact resolved package names whose published files work without their declared install hooks. Hooks are always disabled. The most common trigger is `protobufjs`, pulled in by `@google-cloud/*` and `@grpc/proto-loader`: its published files work without its `postinstall` hook. A build fails until the package is allowed:
+
+```
+Runtime package protobufjs@7.5.5 declares install scripts (postinstall). Bunko never runs install hooks. If the published files work without them, allow the package explicitly in the target's package.json:
+  "bunko": { "deps": { "allowIgnoredScripts": ["protobufjs"] } }
+Otherwise use prepared dependency artifacts (docs/OPERATIONS.md) or an external base that provides the package.
+```
+
+`check-config` and `doctor` list allowances that match no package in `bun.lock` under `unmatchedAllowances`; a non-empty list usually means a typo or a stale allowance, and it never fails the check. An allowance does not generate missing files, repair a native addon, or install a shared library. Prefer externalization for native and location-sensitive packages, and exercise their real behavior in a Linux runtime test. The resolved name/version and ignored hook names appear in inventory; policy and lock inputs affect dependency cache identity. Production, workspace, and closure packaging enforce the policy. Shared dependency layers require matching allowances across targets. Prepared dependency artifacts retain their separate validation contract.
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 
