@@ -1,3 +1,4 @@
+import { assertCosign } from "./cosign.ts";
 import { gitLabels } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
 import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
@@ -464,7 +465,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (options.signKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
   if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
-  if ((options.signKey || options.depsVerifyKey) && !Bun.which(options.cosignPath ?? "cosign")) throw new Error("Signing or dependency verification requires cosign on PATH or --cosign-path");
+  if (options.signKey || options.depsVerifyKey) await assertCosign(options.cosignPath);
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;

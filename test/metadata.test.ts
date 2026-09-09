@@ -77,7 +77,7 @@ test("signing keys are excluded from snapshots and rejected inside required asse
   await mkdir(join(source, "bunkodata"));
   const key = join(source, "bunkodata/signing.key"), exe = join(root, "cosign");
   await writeFile(key, "private signing material one");
-  await writeFile(exe, `#!${process.execPath}\nprocess.exit(0);`, { mode: 0o755 });
+  await writeFile(exe, `#!${process.execPath}\nif (process.argv[2] === "version") console.log(JSON.stringify({gitVersion:"v3.1.3"}));\nprocess.exit(0);`, { mode: 0o755 });
   const mock = new MockRegistry(), options = { path: source, baseLayout: await baseLayout(join(root, "base")), repo: "registry.test/signed", bare: true,
     localCache: false, registryCache: false, gitMetadata: false, signKey: key, cosignPath: exe, registry: { fetcher: mock.fetch, credentials: async () => undefined } };
   await expect(build(options)).rejects.toThrow("exclusion overlaps bunkodata");
