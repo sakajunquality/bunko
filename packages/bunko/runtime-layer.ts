@@ -2,7 +2,7 @@ import { runtimeNotices } from "./runtime-notices.ts";
 import { canonicalJSON } from "../oci/digest.ts";
 import { extract } from "tar-stream";
 import { createReadStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { join, posix } from "node:path";
 import { decodeLayer } from "../oci/decode.ts";
@@ -14,8 +14,10 @@ import type { InjectedRuntime } from "./runtime-download.ts";
 export interface BaseNode { type: string; link?: string; mode: number; size: number }
 export type BaseFilesystem = Map<string, BaseNode>;
 function pathName(value: string): string {
+  if (Buffer.byteLength(value) > 8192) throw new Error("Base filesystem path exceeds inspection limits");
   const name = value.replace(/^(\.\/)+/, "").replace(/\/$/, "");
   if (!name || name === ".") return "";
+  if (Buffer.byteLength(name) > 4096 || name.split("/").length > 128) throw new Error("Base filesystem path exceeds inspection limits");
   if (name.startsWith("/") || /[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error("Unsupported path in runtime base filesystem");
   return name;
 }
@@ -24,33 +26,37 @@ function ancestors(path: string) { const parts = path.split("/"); return parts.m
 /** Inspect metadata without extracting or following paths on the build host. */
 export async function baseFilesystem(store: BlobStore, base: BaseImage, temporary: string): Promise<BaseFilesystem> {
   const tree: BaseFilesystem = new Map(); let count = 0;
-  for (const [index, descriptor] of base.manifest.layers.entries()) {
-    const file = join(temporary, `runtime-base-${index}.tar`);
-    const overlay: BaseFilesystem = new Map(), removed = new Set<string>(), opaque = new Set<string>();
-    try {
-      await decodeLayer(store, descriptor, base.config.rootfs.diff_ids[index]!, file);
-      const tar = extract();
-      tar.on("entry", (header, stream, next) => {
-        try {
-          if (++count > 200_000) throw new Error("Runtime base has too many entries");
-          const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);
-          if (path) {
-            if (leaf === ".wh..wh..opq") opaque.add(parent === "." ? "" : parent);
-            else if (leaf.startsWith(".wh.")) removed.add(parent === "." ? leaf.slice(4) : `${parent}/${leaf.slice(4)}`);
-            else overlay.set(path, { type: header.type ?? "file", link: header.linkname, mode: header.mode ?? 0, size: header.size ?? 0 });
-          }
-          stream.on("end", next); stream.resume();
-        } catch (error) { stream.destroy(error as Error); tar.destroy(error as Error); }
-      });
-      await pipeline(createReadStream(file), tar);
-      for (const path of tree.keys()) {
-        const chain = ancestors(path);
-        if (opaque.has("") || chain.some((p) => removed.has(p)) || chain.slice(0, -1).some((p) => opaque.has(p) || overlay.has(p) && overlay.get(p)!.type !== "directory")) tree.delete(path);
-      }
-      for (const [path, entry] of overlay) tree.set(path, entry);
-    } finally { await rm(file, { force: true }); }
-  }
-  return tree;
+  const directory = await mkdtemp(join(temporary, "base-inspect-"));
+  try {
+    for (const [index, descriptor] of base.manifest.layers.entries()) {
+      const file = join(directory, `${index}.tar`);
+      const overlay: BaseFilesystem = new Map(), removed = new Set<string>(), opaque = new Set<string>();
+      try {
+        await decodeLayer(store, descriptor, base.config.rootfs.diff_ids[index]!, file);
+        const tar = extract();
+        tar.on("entry", (header, stream, next) => {
+          stream.on("error", (error) => tar.destroy(error));
+          try {
+            if (++count > 200_000) throw new Error("Runtime base has too many entries");
+            const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);
+            if (path) {
+              if (leaf === ".wh..wh..opq") opaque.add(parent === "." ? "" : parent);
+              else if (leaf.startsWith(".wh.")) removed.add(parent === "." ? leaf.slice(4) : `${parent}/${leaf.slice(4)}`);
+              else overlay.set(path, { type: header.type ?? "file", link: header.linkname, mode: header.mode ?? 0, size: header.size ?? 0 });
+            }
+            stream.on("end", next); stream.resume();
+          } catch (error) { stream.destroy(error as Error); tar.destroy(error as Error); }
+        });
+        await pipeline(createReadStream(file), tar);
+        for (const path of tree.keys()) {
+          const chain = ancestors(path);
+          if (opaque.has("") || chain.some((p) => removed.has(p)) || chain.slice(0, -1).some((p) => opaque.has(p) || overlay.has(p) && overlay.get(p)!.type !== "directory")) tree.delete(path);
+        }
+        for (const [path, entry] of overlay) tree.set(path, entry);
+      } finally { await rm(file, { force: true }); }
+    }
+    return tree;
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
 /** Resolve image links in memory, never against the host filesystem. */

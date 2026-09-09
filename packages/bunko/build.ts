@@ -1,7 +1,6 @@
 import { gitLabels } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
-import { systemFontPath } from "./font-assets.ts";
-import { runtimeCA, assertBaseDataPaths, type RuntimeCA } from "./runtime-ca.ts";
+import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
 import { assetPolicy } from "./asset-policy.ts";
 import { assertToolchain } from "./toolchain-policy.ts";
 import { sourceApplication } from "./source-application.ts";
@@ -118,7 +117,7 @@ interface BuildContext {
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
   closureProjects: Project[];
   closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
-  sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor } }>>;
+  sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
 }
 interface PreparedBuild {
   targetKey: string; result: BuildResult; store: BlobStore; descriptors: Descriptor[]; refName: string;
@@ -178,9 +177,13 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
       const source = options.baseLayout ? new LayoutSource(resolve(options.baseLayout)) : new RegistrySource(baseRef, registry);
-      return { source, pinned: await source.root() };
+      return { source, pinned: await source.root(), trees: new Map<Digest, Promise<BaseFilesystem>>() };
     })());
-    const { source, pinned } = await context.sources.get(sourceKey)!;
+    const { source, pinned, trees } = await context.sources.get(sourceKey)!;
+    const filesystem = (base: BaseImage) => {
+      if (!trees.has(base.descriptor.digest)) trees.set(base.descriptor.digest, stage("base-inspect", () => baseFilesystem(store, base, temporary), project.platforms.find((platform) => platform.architecture === base.config.architecture)));
+      return trees.get(base.descriptor.digest)!;
+    };
     const fixedSource = { root: async () => pinned, blob: source.blob.bind(source) };
     const bases: BaseImage[] = [];
     for (const platform of project.platforms) {
@@ -189,6 +192,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       bases.push(base);
       for (const layer of base.manifest.layers) if (!basePlatforms.has(layer.digest)) basePlatforms.set(layer.digest, platform);
     }
+    for (const base of bases) assertBaseWorkdir(await filesystem(base), project.workdir);
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
     if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
@@ -196,7 +200,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       for (const [index, platform] of project.platforms.entries()) {
         const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform);
         runtime.metadata.path = project.bunPath;
-        const tree = await baseFilesystem(store, bases[index]!, temporary);
+        const tree = await filesystem(bases[index]!);
         runtimes.push({ ...runtime, tree });
       }
     }
@@ -233,8 +237,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const inherited = base.config.config?.Env?.find((value) => value.startsWith("NODE_EXTRA_CA_CERTS="))?.slice("NODE_EXTRA_CA_CERTS=".length);
           if (configured !== undefined && configured !== ca.metadata.path || inherited && inherited !== ca.metadata.path) throw new Error("runtime.caCertificates conflicts with an existing NODE_EXTRA_CA_CERTS path");
         }
-        const protectedData = [...context.mappedAssets.entries.filter((entry) => systemFontPath(entry.path)), ...ca ? [ca.entry] : []];
-        if (protectedData.length) assertBaseDataPaths(runtimes[index]?.tree ?? await baseFilesystem(store, base, temporary), protectedData);
+        const tree = await filesystem(base);
+        if (assets.length) assertBaseDataPaths(tree, assets);
         const inputRuntime = runtimes[index];
         const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {

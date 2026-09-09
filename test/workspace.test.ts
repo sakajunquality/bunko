@@ -111,7 +111,9 @@ describe("workspace builds", () => {
   });
 
   test("exports and runs two services with distinct versions, peers, and an external workspace", async () => {
-    const f = await fixture(), result = await buildTargets({ ...options(f), verifyDeterministic: true, report: join(f.root, "report.json") });
+    const f = await fixture(); let scans = 0;
+    const result = await buildTargets({ ...options(f), jobs: 2, verifyDeterministic: true, report: join(f.root, "report.json"), progress: (event) => { if (event.phase === "base-inspect" && event.status === "completed") scans++; } });
+    expect(scans).toBe(1);
     expect(result.map((r) => r.target)).toEqual(["fixture-api", "fixture-worker"]);
     expect(await runImage(result[0]!, join(f.root, "run-api"))).toBe("api shared one one");
     expect(await runImage(result[1]!, join(f.root, "run-worker"))).toBe("worker shared two two");
