@@ -180,3 +180,13 @@ Tags are always resolved at the origin. Once a digest is known, Bunko tries the 
 
 Each mirror uses its own Docker credential lookup, tokens and host-scoped TLS settings. No origin Authorization header is forwarded to a mirror. Mirrors receive only pull operations; publication and cache writes use their explicit destination. Configure `--registry-config` and `--insecure-registry` for the actual mirror host if needed. A mirror is a content source, not a replacement for origin availability when resolving mutable tags. The immutable rc.3 CLI does not include this option.
 
+
+## Failure recovery and diagnostics
+
+Changes after rc.4 renew a cached, expired scoped token before transmitting another request body. Bearer challenges accept quoted or unquoted parameters and reject duplicate parameter names. Authentication remains scoped to the original registry; redirects do not receive its Authorization header.
+
+Chunked uploads query the committed offset after transient failures and back off before recovery. A missing or expired session (404/410) starts again from byte zero, with a separate bound on session restarts even when earlier chunks succeeded. Permission, TLS-policy and local validation errors fail immediately. Upload-session creation alone can retry transient POST failures; other POST operations do not acquire blanket replay behavior. A lost session-creation response may leave an empty registry-managed session for garbage collection. Transient mount failures can fall back to uploading the verified local blob.
+
+Successful finalization responses in the 2xx range are accepted only with subsequent blob existence/digest-size checks or exact manifest-byte verification. This tolerates providers with nonstandard success codes without treating the status alone as proof of publication.
+
+Terminal errors retain recognized [OCI Distribution error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes), such as `DENIED` or `MANIFEST_UNKNOWN`. Error responses are bounded to 64 KiB and one second. Arbitrary upstream messages, details, and unknown codes are omitted because they may echo credentials, signed URLs, or private input. Offline transport policy errors retain their explicit diagnostic and bypass connection retries. These changes do not alter the immutable rc.4 release.
