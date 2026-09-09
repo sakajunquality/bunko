@@ -7,8 +7,9 @@ import { join } from "node:path";
 export function signingEnvironment(): Record<string, string> {
   const env: Record<string, string> = { HOME: homedir(), PATH: process.env.PATH ?? "" };
   const allowed = ["HOME", "PATH", "COSIGN_PASSWORD", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"];
+  for (const key of allowed) if (process.env[key] !== undefined) env[key] = process.env[key]!;
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined &&
-    (/^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key) || allowed.includes(key))) env[key] = value;
+    /^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key)) env[key] = value;
   return env;
 }
 
