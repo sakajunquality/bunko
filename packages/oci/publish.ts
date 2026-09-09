@@ -1,6 +1,6 @@
 import { BlobStore } from "./blob-store.ts";
 import { descriptor, object, sha256 } from "./digest.ts";
-import { RegistryClient, RegistryError, responseBytes, type RegistryOptions } from "./registry.ts";
+import { RegistryClient, registryClient, RegistryError, responseBytes, type RegistryOptions } from "./registry.ts";
 import { parseReference, type RegistryReference } from "./source.ts";
 import { media, type Descriptor, type Digest } from "./types.ts";
 
@@ -25,7 +25,7 @@ export class Publisher {
   readonly scope: string;
   constructor(value: string, options: RegistryOptions = {}) {
     this.ref = repository(value);
-    this.client = new RegistryClient(this.ref.registry, options);
+    this.client = registryClient(this.ref.registry, options);
     this.scope = `repository:${this.ref.repository}:pull,push`;
   }
 

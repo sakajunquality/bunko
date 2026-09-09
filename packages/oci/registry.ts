@@ -15,6 +15,7 @@ export interface RegistryOptions {
   retries?: number;
   /** Deadline for GET/HEAD response headers; it never limits body transfers. */
   headersTimeoutMs?: number;
+  maxRetryDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -102,6 +103,7 @@ export class RegistryClient {
     const http = new URL(`http://${registry}`).origin;
     this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
     if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
+    if (options.maxRetryDelayMs !== undefined && (!Number.isFinite(options.maxRetryDelayMs) || options.maxRetryDelayMs < 0 || options.maxRetryDelayMs > 30_000)) throw new Error("Registry retry delay limit must be between 0 and 30000 ms");
     const transport = options.fetcher ?? fetch;
     this.fetcher = (url, init) => {
       const origin = new URL(url).origin;
@@ -229,6 +231,22 @@ export class RegistryClient {
   async backoff(attempt: number, retryAfter?: string | null) {
     const requested = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : NaN;
     const delay = Number.isFinite(requested) ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
-    await (this.options.sleep ?? Bun.sleep)(delay);
+    await (this.options.sleep ?? Bun.sleep)(Math.min(delay, this.options.maxRetryDelayMs ?? 30_000));
   }
+}
+
+
+const clients = new WeakMap<RegistryOptions, Map<string, RegistryClient>>();
+
+/** Reuse scoped tokens only within the same immutable transport/credential options. */
+export function registryClient(registry: string, options: RegistryOptions = {}, mirror = false): RegistryClient {
+  let pool = clients.get(options);
+  if (!pool) { pool = new Map(); clients.set(options, pool); }
+  const key = `${mirror ? "mirror" : "origin"}:${registry}`;
+  let client = pool.get(key);
+  if (!client) {
+    client = new RegistryClient(registry, mirror ? { ...options, retries: Math.min(options.retries ?? 1, 1), headersTimeoutMs: Math.min(options.headersTimeoutMs ?? 5000, 5000), maxRetryDelayMs: Math.min(options.maxRetryDelayMs ?? 250, 250) } : options);
+    pool.set(key, client);
+  }
+  return client;
 }

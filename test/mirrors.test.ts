@@ -60,3 +60,23 @@ test("explicit mirror port 443 retains HTTP opt-in and credential identity", asy
     fetcher: async (value, init) => { expect(new URL(value).origin).toBe("http://mirror.example:443"); return new Headers(init?.headers).has("authorization") ? new Response(bytes) : new Response(null, {status:401,headers:{"www-authenticate":'Basic realm="fixture"'}}); } });
   expect((await source.root()).descriptor.digest).toBe(digest);
 });
+
+test("failed mirrors have a short retry budget and a circuit shared by readers", async () => {
+  let mirror = 0, origin = 0, warnings = 0;
+  const waits: number[] = [];
+  const options = { mirrors: { "origin.example": ["mirror.example"] }, credentials: async () => undefined, sleep: async (ms: number) => { waits.push(ms); }, onMirrorFallback: () => { warnings++; },
+    fetcher: async (value: string | URL) => { if (new URL(value).host === "mirror.example") { mirror++; return new Response(null, { status: 503, headers: { "Retry-After": "99999" } }); } origin++; return new Response(bytes); } };
+  for (let i = 0; i < 3; i++) expect((await new RegistrySource(`origin.example/team/app@${digest}`, options).root()).descriptor.digest).toBe(digest);
+  expect(mirror).toBe(2); expect(origin).toBe(3); expect(warnings).toBe(1); expect(waits).toEqual([250]);
+  await new RegistrySource(`origin.example/team/app@${digest}`, { ...options }).root();
+  expect(mirror).toBe(4);
+});
+
+test("a mirror cache miss does not disable other digest lookups", async () => {
+  let calls = 0, warnings = 0;
+  const options = { mirrors: { "origin.example": ["mirror.example"] }, onMirrorFallback: () => { warnings++; }, fetcher: async (value: string | URL) => {
+    if (new URL(value).host === "mirror.example" && ++calls < 3) return new Response(null, { status: 404 }); return new Response(bytes);
+  } };
+  for (let i = 0; i < 3; i++) await new RegistrySource(`origin.example/team/app@${digest}`, options).root();
+  expect(calls).toBe(3); expect(warnings).toBe(1);
+});
