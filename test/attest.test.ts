@@ -81,6 +81,7 @@ test("base metadata inspection does not claim runtime verification", async () =>
 test("attachment failure records an incomplete supply-chain phase after image publication", async () => {
   const root = await fixture(), f = await dependencyFixture(root, false), base = await baseLayout(join(root, "base"));
   const mock = new MockRegistry(), report = join(root, "failed.json");
+  mock.acknowledgeSubjects = true;
   await expect(build({ path: f.source, baseLayout: base, repo: "registry.test/demo", bare: true, sbom: true, report,
     installCache: f.cache, localCache: false, registryCache: false, registry: { credentials: async () => undefined,
       fetcher: async (url, init) => String(url).includes("/referrers/") ? new Response(JSON.stringify({ mediaType: "application/vnd.oci.image.index.v1+json", manifests: [] })) : mock.fetch(url, init) },
@@ -102,6 +103,7 @@ test("referrer verification follows same-subject pages and rejects foreign pagin
   const root = await fixture(), store = new BlobStore(root), mock = new MockRegistry();
   const subject = { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: `sha256:${"b".repeat(64)}` as const, size: 123 };
   const item = await artifact(store, subject, sbomType, {});
+  mock.acknowledgeSubjects = true;
   let foreign = false;
   const publisher = new Publisher("registry.test/demo", { credentials: async () => undefined, fetcher: async (input, init) => {
     const url = new URL(input);

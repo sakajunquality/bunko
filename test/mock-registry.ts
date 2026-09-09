@@ -13,6 +13,7 @@ export class MockRegistry {
   disconnectFinish = false;
   disconnectManifest = false;
   failTag?: string;
+  acknowledgeSubjects = false;
   cacheWritable = true;
   private counter = 0;
   fetch: Fetcher = async (input, init = {}) => {
@@ -33,7 +34,7 @@ export class MockRegistry {
         this.manifests.set(`${key}/${ref}`, data);
         this.manifests.set(`${key}/${digest}`, data);
         if (this.disconnectManifest) { this.disconnectManifest = false; throw new Error("connection closed after storing manifest"); }
-        return new Response(null, { status: 201, headers: { "Docker-Content-Digest": digest } });
+        return new Response(null, { status: 201, headers: { "Docker-Content-Digest": digest, ...(this.acknowledgeSubjects && value.subject ? { "OCI-Subject": value.subject.digest } : {}) } });
       }
       const data = this.manifests.get(`${key}/${ref}`);
       return data ? new Response(method === "HEAD" ? null : Buffer.from(data.bytes), { headers: { "Content-Type": data.type, "Docker-Content-Digest": sha256(data.bytes), "Content-Length": String(data.bytes.length) } }) : new Response(null, { status: 404 });

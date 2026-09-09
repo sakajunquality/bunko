@@ -14,8 +14,19 @@ export async function artifact(store: BlobStore, subject: Descriptor, type: stri
   return { subject, manifest, blobs: [config, data] };
 }
 
-/** A batch serializes tag-fallback updates per subject. Cross-process tag writes
- * are not transactional; verify each update and fail rather than claim success. */
+const fallbackUpdates = new Map<string, Promise<void>>();
+async function updateFallback(key: string, update: () => Promise<void>): Promise<void> {
+  const previous = fallbackUpdates.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  fallbackUpdates.set(key, current);
+  await previous;
+  try { await update(); }
+  finally { release(); if (fallbackUpdates.get(key) === current) fallbackUpdates.delete(key); }
+}
+
+/** Serialize fallback updates within this process. OCI tags have no universal
+ * compare-and-swap, so independent publishers must coordinate externally. */
 export async function publishArtifacts(publisher: Publisher, store: BlobStore, artifacts: Artifact[], record: (transfers: Transfer[]) => void = () => {}): Promise<void> {
   for (const item of artifacts) {
     try {
@@ -28,27 +39,38 @@ export async function publishArtifacts(publisher: Publisher, store: BlobStore, a
     const path = `/v2/${publisher.ref.repository}/referrers/${item.subject.digest}`;
     let url = new URL(path, publisher.client.origin);
     url.searchParams.set("artifactType", item.manifest.artifactType!);
-    let response = await publisher.client.request(url, {}, [publisher.scope], [404, 405]);
+    // A successful endpoint probe alone does not establish referrers support.
+    let response = publisher.acceptsSubject(item.manifest, item.subject)
+      ? await publisher.client.request(url, {}, [publisher.scope], [404, 405])
+      : new Response(null, { status: 404 });
     if (response.ok) {
-      const pages = new Set<string>();
-      let found = false;
-      while (true) {
-        if (pages.has(url.href) || pages.size >= 100) throw new Error("Invalid referrers pagination");
-        pages.add(url.href);
-        const index = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Referrers index");
-        if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid referrers response");
-        found ||= index.manifests.some((value) => descriptor(value).digest === item.manifest.digest);
-        const link = response.headers.get("Link");
-        if (!link) break;
-        const next = /<([^>]+)>;\s*rel="?next"?/.exec(link)?.[1];
-        if (!next) throw new Error("Invalid referrers pagination Link");
-        const destination = new URL(next, url);
-        if (destination.origin !== url.origin || destination.pathname !== path) throw new Error("Referrers pagination escaped its registry subject");
-        url = destination;
-        response = await publisher.client.request(url, {}, [publisher.scope]);
+      for (let attempt = 0; ; attempt++) {
+        const pages = new Set<string>();
+        let found = false;
+        while (true) {
+          if (pages.has(url.href) || pages.size >= 100) throw new Error("Invalid referrers pagination");
+          pages.add(url.href);
+          const index = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Referrers index");
+          if (index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid referrers response");
+          found ||= index.manifests.some((value) => descriptor(value).digest === item.manifest.digest);
+          const link = response.headers.get("Link");
+          if (!link) break;
+          const next = /<([^>]+)>;\s*rel="?next"?/.exec(link)?.[1];
+          if (!next) throw new Error("Invalid referrers pagination Link");
+          const destination = new URL(next, url);
+          if (destination.origin !== url.origin || destination.pathname !== path) throw new Error("Referrers pagination escaped its registry subject");
+          url = destination;
+          response = await publisher.client.request(url, {}, [publisher.scope]);
+        }
+        if (found) break;
+        if (attempt >= 3) throw new Error("Registry referrers API did not retain the published attachment after bounded verification retries");
+        await publisher.client.backoff(attempt);
+        url = new URL(path, publisher.client.origin);
+        url.searchParams.set("artifactType", item.manifest.artifactType!);
+        response = await publisher.client.request(url, {}, [publisher.scope], [404, 405]);
+        if (!response.ok) break;
       }
-      if (!found) throw new Error("Registry referrers API did not retain the published attachment");
-      continue;
+      if (response.ok) continue;
     }
     await response.body?.cancel();
     const tag = item.subject.digest.replace(":", "-");
@@ -64,16 +86,18 @@ export async function publishArtifacts(publisher: Publisher, store: BlobStore, a
         return d;
       });
     };
-    let retained = await read();
-    for (let attempt = 0; ; attempt++) {
-      const merged = new Map([...retained, item.manifest].map((d) => [d.digest, d]));
-      const manifests = [...merged.values()].sort((a, b) => a.digest.localeCompare(b.digest));
-      const index = await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests }), media.index);
-      await publisher.manifest(store, index, tag);
-      retained = await read();
-      if (manifests.every((d) => retained.some((actual) => actual.digest === d.digest))) break;
-      if (attempt === 2) throw new Error("Concurrent referrers update did not retain the attachment");
-      retained.push(...manifests);
-    }
+    await updateFallback(`${publisher.client.origin}/${publisher.ref.repository}/${item.subject.digest}`, async () => {
+      let retained = await read();
+      for (let attempt = 0; ; attempt++) {
+        const merged = new Map([...retained, item.manifest].map((d) => [d.digest, d]));
+        const manifests = [...merged.values()].sort((a, b) => a.digest.localeCompare(b.digest));
+        const index = await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests }), media.index);
+        await publisher.manifest(store, index, tag);
+        retained = await read();
+        if (manifests.every((d) => retained.some((actual) => actual.digest === d.digest))) break;
+        if (attempt === 2) throw new Error("Concurrent referrers update did not retain the attachment");
+        retained.push(...manifests);
+      }
+    });
   }
 }
