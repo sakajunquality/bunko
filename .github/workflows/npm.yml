@@ -1,0 +1,138 @@
+name: npm distribution
+
+on:
+  pull_request:
+    paths:
+      - scripts/npm-package.ts
+      - scripts/validation/npm-smoke.ts
+      - scripts/distribution.ts
+      - scripts/verify-release.ts
+      - test/npm-package.test.ts
+      - .github/workflows/npm.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing attested GitHub release to package
+        required: true
+        default: v0.1.0-rc.5
+      publish:
+        description: Publish the verified tarball using npm trusted publishing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-${{ github.event.pull_request.number || 'publication' }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      tag: ${{ steps.package.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Select a release from main history
+        env:
+          SELECTED_VERSION: ${{ inputs.version || 'v0.1.0-rc.5' }}
+        run: |
+          bun -e 'import {releaseTag} from "./scripts/distribution.ts"; import {appendFileSync} from "node:fs"; appendFileSync(process.env.GITHUB_ENV!, "RELEASE_TAG="+releaseTag(process.env.SELECTED_VERSION!)+"\n");'
+      - name: Verify the published release before executing it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source_commit=$(git rev-parse "$RELEASE_TAG^{commit}")
+          git merge-base --is-ancestor "$source_commit" origin/main
+          mkdir -p dist/release
+          gh release download "$RELEASE_TAG" --repo sakajunquality/bunko --dir dist/release
+          BUNKO_ATTESTATION_SOURCE_DIGEST="$source_commit" bun scripts/verify-release.ts dist/release "$RELEASE_TAG"
+      - name: Package unchanged release bytes
+        id: package
+        run: |
+          bun scripts/npm-package.ts dist/release dist/npm "$RELEASE_TAG"
+          bun -e 'import {appendFileSync} from "node:fs"; const p=await Bun.file("dist/npm/package.json").json(); appendFileSync(process.env.GITHUB_OUTPUT!, "version="+p.version+"\ntag="+p.publishConfig.tag+"\n");'
+      - name: Test the packed npm and bunx consumer
+        run: bun scripts/validation/npm-smoke.ts dist/npm dist/npm-artifact
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-candidate
+          path: dist/npm-artifact/
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-candidate
+          path: candidate
+      - name: Check the npm client and candidate integrity
+        run: |
+          node --input-type=module -e 'import {execFileSync} from "node:child_process"; const [major,minor,patch]=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(!(major>11 || major===11 && (minor>5 || minor===5 && patch>=1))) throw new Error("npm >=11.5.1 is required");'
+          node --input-type=module -e 'import {readFileSync,readdirSync} from "node:fs"; import {createHash} from "node:crypto"; const p=JSON.parse(readFileSync("candidate/validation.json")); const files=readdirSync("candidate").filter(name=>name.endsWith(".tgz")); if(files.length!==1 || files[0]!==p.filename) throw new Error("Unexpected candidate tarball"); const digest="sha512-"+createHash("sha512").update(readFileSync("candidate/"+files[0])).digest("base64"); if(digest!==p.integrity) throw new Error("Candidate integrity mismatch");'
+      - name: Publish the tested tarball with provenance
+        env:
+          NPM_DIST_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          npm publish candidate/*.tgz --access public --tag "$NPM_DIST_TAG" --provenance --ignore-scripts
+
+  verify-published:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-candidate
+          path: candidate
+      - name: Download and compare the exact published tarball
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir downloaded
+          for attempt in 1 2 3 4 5; do
+            if npm pack "@sakajunquality/bunko@$PACKAGE_VERSION" --ignore-scripts --json --pack-destination downloaded > downloaded/pack.json; then break; fi
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep 5
+          done
+          node --input-type=module -e 'import {readFileSync} from "node:fs"; import {createHash} from "node:crypto"; const expected=JSON.parse(readFileSync("candidate/validation.json")); const result=JSON.parse(readFileSync("downloaded/pack.json"))[0]; const actual="sha512-"+createHash("sha512").update(readFileSync("downloaded/"+result.filename)).digest("base64"); if(actual!==expected.integrity) throw new Error("Published tarball differs from tested candidate");'
+      - name: Execute the published package in a clean consumer
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir consumer
+          cd consumer
+          npm install --ignore-scripts --no-audit --no-fund ../downloaded/*.tgz
+          test "$(./node_modules/.bin/bunko version)" = "$PACKAGE_VERSION"
+          mkdir ../bunx-consumer
+          cd ../bunx-consumer
+          test "$(bun x "@sakajunquality/bunko@$PACKAGE_VERSION" version)" = "$PACKAGE_VERSION"
