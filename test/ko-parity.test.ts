@@ -122,3 +122,15 @@ test("OCI layout uses the first selected tag and a qualified local image name", 
   const index = await Bun.file(join(output, "index.json")).json();
   expect(index.manifests[0].annotations["org.opencontainers.image.ref.name"]).toBe("bunko.local/hello:test-tag");
 });
+
+test("mapped asset roots do not change the parent metadata emitted by the application layer", async () => {
+  const f = await fixture(), context = join(f.root, "context");
+  await mkdir(join(context, "payload"), { recursive: true }); await writeFile(join(context, "payload/marker.txt"), "asset");
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ name: "root-boundary", module: "src/server.ts", bunko: { workdir: "/srv/app/service", assetMappings: [{ context: "data", from: "payload", to: "/srv/app" }] } }));
+  const output = join(f.root, "root-boundary");
+  const result = await build({ path: f.source, baseLayout: f.base, output, push: false, assetContexts: { data: context }, localCache: false, gitMetadata: false });
+  const layer = result.layers.find((layer) => layer.kind === "app")!;
+  const entries = await inspectTar(new BlobStore(output).path(layer.descriptor.digest));
+  expect(entries.some((entry) => entry.name === "srv" || entry.name === "srv/app")).toBe(false);
+  expect(entries.some((entry) => entry.name === "srv/app/service")).toBe(true);
+});
