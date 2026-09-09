@@ -8,7 +8,7 @@ import { LayoutSource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { publishArtifacts } from "../oci/artifacts.ts";
 import { canonicalOutput } from "../oci/layout.ts";
-import { assertReportWritable, writeReport } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeReport } from "./build.ts";
 import { media, type Descriptor } from "../oci/types.ts";
 
 export async function pushLayout(directory: string, repository: string, tags: string[] = [], registry: RegistryOptions = {}, reportPath?: string, tagConflict: TagConflict = "fail") {
@@ -16,7 +16,8 @@ export async function pushLayout(directory: string, repository: string, tags: st
   const report = reportPath ? await canonicalOutput(reportPath) : undefined;
   if (report) await assertReportWritable(report);
   const written = new Set<string>();
-  directory = resolve(directory);
+  directory = await canonicalOutput(directory);
+  await assertReportNotInput(report, [directory]);
   const source = new LayoutSource(directory), index = object(JSON.parse(Buffer.from((await source.root()).bytes).toString()), "Layout index");
   if (!Array.isArray(index.manifests) || index.manifests.length > 100_000) throw new Error("Invalid layout index");
   const descriptors = index.manifests.map(descriptor), images = descriptors.filter((d) => !d.artifactType);

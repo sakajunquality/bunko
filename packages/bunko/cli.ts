@@ -142,7 +142,7 @@ Options:
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
-  --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing regular file
+  --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
 
 Boolean options accept --flag, --no-flag, and --flag=true|false.

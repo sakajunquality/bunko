@@ -96,10 +96,34 @@ export interface BuildResult {
   dryRun: boolean;
 }
 
-/** A report may replace an earlier run's regular file; directories, symlinks and special files are refused so nothing is written through them. */
+/** Replace only a recognizable prior Bunko report, never an arbitrary regular input file. */
 export async function assertReportWritable(path: string): Promise<void> {
-  try { if (!(await lstat(path)).isFile()) throw new Error(`Report path is not a regular file: ${path}`); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  let info;
+  try { info = await lstat(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  if (!info.isFile()) throw new Error(`Report path is not a regular file: ${path}`);
+  let value: Record<string, unknown> | undefined;
+  if (info.size <= 32 * 1024 * 1024) {
+    try { value = JSON.parse(await readFile(path, "utf8")); } catch { /* Non-report files must stay untouched. */ }
+  }
+  const status = value?.status === "success" || value?.status === "failed";
+  const report = value && (
+    value.schemaVersion === 2 && typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root ||
+    value.schemaVersion === 3 && status && Array.isArray(value.targets) ||
+    value.schemaVersion === 1 && status && value.command === "push-layout" ||
+    value.schemaVersion === 4 && status && value.command === "resolve" ||
+    value.schemaVersion === 5 && status && value.command === "apply"
+  );
+  if (!report) throw new Error(`Existing report path does not contain a Bunko report: ${path}`);
+}
+
+/** Input roles take precedence even when their bytes happen to resemble a report. */
+export async function assertReportNotInput(report: string | undefined, inputs: string[]): Promise<void> {
+  if (!report) return;
+  for (const input of inputs) {
+    const path = await canonicalOutput(input);
+    if (report === path || report.startsWith(`${path}/`)) throw new Error(`Report overlaps an input: ${path}`);
+  }
 }
 
 /** The rename commits the complete report atomically; `written` records paths this invocation has already reported so a later failure handler does not replace them. */
@@ -526,6 +550,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
   const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
+  const assetExclusions: string[] = [];
+  const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions);
+  await assertReportNotInput(report, [...required.map((path) => join(discovered.directory, path)), ...exclusions.filter((path) => path !== report && path !== imageRefs)]);
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
   const finished = new Set<string>(), reports = new Set<string>();
@@ -544,8 +571,6 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
-    const assetExclusions: string[] = [];
-    const required = await requiredInputs(discovered.directory, projects, exclusions, assetExclusions);
     const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source")));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");

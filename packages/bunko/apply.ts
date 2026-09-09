@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDocuments, type ResolveOptions } from "./resolve.ts";
-import { assertReportWritable, writeReport } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeReport } from "./build.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 
 export interface ApplyOptions extends ResolveOptions {
@@ -26,6 +26,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   if (options.kubeDryRun !== undefined && !["none", "client", "server"].includes(options.kubeDryRun)) throw new Error("--kube-dry-run must be none, client or server");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (report) await assertReportWritable(report);
+  await assertReportNotInput(report, options.files.filter((file) => file !== "-"));
   const written = new Set<string>();
   const temporary = await mkdtemp(join(tmpdir(), "bunko-apply-report-"));
   const resolutionReport = join(temporary, "resolve.json");

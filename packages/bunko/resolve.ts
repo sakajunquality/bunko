@@ -24,7 +24,7 @@ import { extname, join, resolve as absolute } from "node:path";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Node } from "yaml";
 import { canonicalOutput } from "../oci/layout.ts";
 import { repository, repositoryName } from "../oci/publish.ts";
-import { assertReportWritable, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
 import { loadProject, type BuildOptions } from "./config.ts";
 import { discover } from "./workspace.ts";
 
@@ -182,6 +182,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   if (report) await assertReportWritable(report);
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.cacheDir, options.installCache]);
   const inputs = await readInputs(options);
+  await assertReportNotInput(report, inputs.filter((input) => input.name !== "-").map((input) => input.name));
   const context = await realpath(absolute(options.context ?? "."));
   const uriTargets = new Map<string, string>(), names = new Map<string, string>();
   const groups = new Map<string, { directory: string; paths: Set<string>; workspace: boolean }>();

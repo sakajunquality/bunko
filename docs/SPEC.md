@@ -43,7 +43,7 @@ bunko version
 | `--verify-deterministic` | Bypass layer caches and compare two staging builds. |
 | `--git-metadata=false` | Omit automatic Git labels and Git-derived tags. |
 | `--no-index` | Use a single manifest as the image root. |
-| `--report FILE` | JSON results; replaces an existing regular file atomically, rejects directories/symlinks and paths within the exported layout. |
+| `--report FILE` | JSON results; replaces an existing Bunko report (regular file) atomically, rejects directories/symlinks and paths within the exported layout. |
 
 Supported environment variables: `BUNKO_REPO`, `BUNKO_CACHE_DIR`, `BUNKO_CACHE_REPO`, `BUNKO_JOBS`, `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, `BUNKO_DEFAULT_BASE`, `BUNKO_DEFAULT_PLATFORMS`, `SOURCE_DATE_EPOCH`, `XDG_CACHE_HOME`, and `KIND_CLUSTER_NAME`. Explicit CLI values take precedence. Unknown or unsupported options fail rather than being ignored.
 

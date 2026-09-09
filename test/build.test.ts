@@ -132,7 +132,7 @@ describe("Bun to OCI layout", () => {
     expect(await readFile(join(output, "keep"), "utf8")).toBe("keep");
     // A previous run's report is replaced atomically, so local iteration and CI re-runs need no cleanup.
     const report = join(root, "report.json");
-    await writeFile(report, "stale");
+    await writeFile(report, JSON.stringify({ schemaVersion: 3, status: "failed", targets: [] }));
     const result = await build({ path: source, baseLayout: base, output: join(root, "new"), report });
     expect(JSON.parse(await readFile(report, "utf8")).root.digest).toBe(result.root.digest);
     // Anything that is not a regular file is refused before the build starts, and never written through.
@@ -147,9 +147,9 @@ describe("Bun to OCI layout", () => {
   test("writeReport replaces regular files atomically and refuses other entries", async () => {
     const root = await temporary(); directories.push(root);
     const report = join(root, "nested", "report.json");
-    await writeReport(report, { first: true });
-    await writeReport(report, { second: true });
-    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ second: true });
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], first: true });
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], second: true });
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ schemaVersion: 3, status: "success", targets: [], second: true });
     expect((await readdir(join(root, "nested"))).sort()).toEqual(["report.json"]);
     await mkdir(join(root, "dir"));
     await symlink(report, join(root, "link"));
@@ -157,10 +157,10 @@ describe("Bun to OCI layout", () => {
     await symlink(join(root, "target"), join(root, "target-link"));
     for (const path of [join(root, "dir"), join(root, "link"), join(root, "target-link")]) await expect(writeReport(path, {})).rejects.toThrow("Report path is not a regular file");
     expect(await readFile(join(root, "target"), "utf8")).toBe("keep");
-    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ second: true });
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ schemaVersion: 3, status: "success", targets: [], second: true });
     // Reports written by this invocation are recorded so a failure handler can leave them in place.
     const written = new Set<string>();
-    await writeReport(report, { third: true }, written);
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], third: true }, written);
     expect(written.has(report)).toBe(true);
   });
 
@@ -227,4 +227,20 @@ describe("configuration", () => {
     await writeFile(join(source, "index.ts"), "console.log(1)");
     await expect(loadProject({ path: source, output: join(root, "out") })).rejects.toThrow();
   });
+});
+
+
+test("report replacement preserves manifest, source, config, and layout inputs", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source")), base = await baseLayout(join(root, "base"));
+  const config = join(source, "settings.json"); await writeFile(config, JSON.stringify({ setting: true }));
+  for (const report of [join(source, "package.json"), join(source, "src/server.ts"), config, join(base, "index.json")]) {
+    const before = await readFile(report, "utf8");
+    await expect(build({ path: source, baseLayout: base, output: join(root, "out"), report, localCache: false, gitMetadata: false })).rejects.toThrow("does not contain a Bunko report");
+    expect(await readFile(report, "utf8")).toBe(before);
+  }
+  const report = join(source, "report.json");
+  const result = await build({ path: source, baseLayout: base, output: join(root, "first"), report, localCache: false, gitMetadata: false });
+  const repeated = await build({ path: source, baseLayout: base, output: join(root, "second"), report, localCache: false, gitMetadata: false });
+  expect(repeated.root.digest).toBe(result.root.digest);
 });
