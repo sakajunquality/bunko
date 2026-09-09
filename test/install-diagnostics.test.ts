@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { installerOutputTail, redactInstallerOutput } from "../packages/bunko/install-diagnostics.ts";
+import { installerCredentials, installerOutputTail, redactInstallerOutput } from "../packages/bunko/install-diagnostics.ts";
 import { dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
@@ -48,15 +48,15 @@ test("a failing install surfaces the redacted tail of the installer output", asy
   const root = await temporary(); roots.push(root);
   const fixture = await dependencyFixture(root), toolchain = await selectToolchain();
   const plan = await dependencyPlan(await loadProject({ path: fixture.source }), fixture.source);
-  // An empty download cache forces registry access; the registry is unreachable
-  // (a port that was just released) or answers 401 through a query-string URL
-  // that the planner would reject but the installer echoes.
-  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(null, { status: 404 }) }), unreachable = `http://127.0.0.1:${probe.port}/`;
-  await probe.stop(true);
+  // A live 404 fixture avoids connection-refused retry timing and port reuse races.
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(null, { status: 404 }) });
+  const unreachable = `http://127.0.0.1:${probe.port}/`;
+  try {
   const stage = join(root, "stage"); await cp(fixture.source, stage, { recursive: true });
   const failure = await installDependencies(stage, { ...plan, registry: unreachable }, toolchain, undefined, join(root, "empty-cache")).then(() => "", (error: Error) => error.message);
   expect(failure).toContain("Bun build dependency install failed (exit 1); check the lock, registry access, and package availability\nInstaller output (redacted");
   expect(failure).toContain("fixture-msg"); expect(failure).not.toContain(stage);
+  } finally { await probe.stop(true); }
   const registry = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response(`Authorization: Bearer npm_${"z".repeat(36)}`, { status: 401 }) });
   try {
     const production = join(root, "production"); await cp(fixture.source, production, { recursive: true });
@@ -64,4 +64,13 @@ test("a failing install surfaces the redacted tail of the installer output", asy
     expect(denied).toContain("Bun Linux production dependency install failed (exit 1)"); expect(denied).toContain("Installer output (redacted");
     expect(denied).toContain(`http://127.0.0.1:${registry.port}/?<redacted>`); expect(denied).not.toContain("query-secret"); expect(denied).not.toContain("z".repeat(36));
   } finally { await registry.stop(true); }
+});
+
+test("quoted headers and expanded custom credentials never survive diagnostics", () => {
+  const raw = JSON.stringify({ Authorization: "Basic dXNlcjpwYXNz", _authToken: "private-custom-secret", _password: "another-secret" });
+  const redacted = redactInstallerOutput(raw);
+  for (const value of ["dXNlcjpwYXNz", "private-custom-secret", "another-secret"]) expect(redacted).not.toContain(value);
+  const secrets = installerCredentials("//npm.example/:_authToken=custom+token/secret\n_password=" + Buffer.from("private-password").toString("base64") + "\n");
+  const tail = installerOutputTail("rejected custom+token/secret and custom%2Btoken%2Fsecret and private-password", "", "/tmp/stage", 20, secrets);
+  for (const value of ["custom+token/secret", "custom%2Btoken%2Fsecret", "private-password"]) expect(tail).not.toContain(value);
 });
