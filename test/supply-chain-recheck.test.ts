@@ -64,3 +64,32 @@ test("unknown Git dirty state never produces a clean-looking revision tag", () =
   expect(revisionTag({ ...revision, "org.bunko.git.dirty": "false" })).toBe("a".repeat(12));
   expect(revisionTag({ ...revision, "org.bunko.git.dirty": "true" })).toBe(`${"a".repeat(12)}-dirty`);
 });
+
+test("base inventory discovery has a cumulative metadata budget", async () => {
+  const root = await fixture(), store = new BlobStore(root), manifests = [];
+  for (let i = 0; i < 6; i++) manifests.push(await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, annotations: { fixture: String(i), padding: "x".repeat(6 * 1024 ** 2) } }), media.manifest));
+  await writeFile(join(root, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
+  await writeFile(join(root, "index.json"), canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests }));
+  await expect(baseInventory(`layout:${root}`, [`sha256:${"a".repeat(64)}`], {})).rejects.toThrow("cumulative metadata byte budget");
+});
+
+test("a second matching base inventory fails before its missing payload is read", async () => {
+  const root = await fixture(), store = new BlobStore(root);
+  const subject = { mediaType: media.manifest, digest: `sha256:${"a".repeat(64)}` as const, size: 123 };
+  const config = await store.put(Buffer.from("{}"), "application/vnd.oci.empty.v1+json");
+  const payload = await store.put(canonicalJSON({ spdxVersion: "SPDX-2.3", SPDXID: "SPDXRef-DOCUMENT", documentNamespace: "urn:fixture:base", packages: [{ SPDXID: "SPDXRef-Base" }], documentDescribes: ["SPDXRef-Base"] }), sbomType);
+  const first = await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: sbomType, subject, config, layers: [payload] }), media.manifest);
+  const second = await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: sbomType, subject, config, layers: [{ ...payload, digest: `sha256:${"b".repeat(64)}` }] }), media.manifest);
+  await writeFile(join(root, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
+  await writeFile(join(root, "index.json"), canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests: [first, second] }));
+  await expect(baseInventory(`layout:${root}`, [subject.digest], {})).rejects.toThrow("exactly one SPDX artifact");
+});
+
+test("local layout metadata reads stop at their byte limits", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "oci-layout"), " ".repeat(64 * 1024 + 1));
+  await expect(new LayoutSource(root).root()).rejects.toThrow("Layout metadata exceeds size limit");
+  await writeFile(join(root, "oci-layout"), canonicalJSON({ imageLayoutVersion: "1.0.0" }));
+  await writeFile(join(root, "index.json"), " ".repeat(8 * 1024 ** 2 + 1));
+  await expect(new LayoutSource(root).root()).rejects.toThrow("Layout metadata exceeds size limit");
+});

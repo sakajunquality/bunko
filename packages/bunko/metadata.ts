@@ -43,17 +43,28 @@ export async function baseInventory(reference: string, subjects: string[], regis
   try {
     const source = reference.startsWith("layout:") ? new LayoutSource(resolve(reference.slice(7))) : new RegistrySource(reference, registry);
     const store = new BlobStore(temporary), root = await source.root(), accepted = new Set(subjects), candidates: MetadataRecord[] = [], visited = new Set<string>();
+    let total = 0;
+    const charged = new Set<string>();
+    const charge = (d: Descriptor) => {
+      if (d.size > maximum) throw new Error("Base SBOM metadata exceeds individual size limit");
+      if (charged.has(d.digest)) return;
+      if (total + d.size > 32 * 1024 ** 2) throw new Error("Base SBOM graph exceeds cumulative metadata byte budget");
+      charged.add(d.digest); total += d.size;
+    };
+    charge(root.descriptor);
+    const bounded: ImageSource = { root: async () => root, blob: async (d) => { charge(d); return source.blob(d); } };
     await store.put(root.bytes, root.descriptor.mediaType);
     const walk = async (d: Descriptor, depth = 0): Promise<void> => {
       if (visited.has(d.digest)) return;
       if (depth > 5 || visited.size >= 1000) throw new Error("Base SBOM graph exceeds limit");
       visited.add(d.digest);
-      const value = d.digest === root.descriptor.digest ? object(JSON.parse(Buffer.from(root.bytes).toString()), "Base SBOM root") : await json(source, store, d);
+      const value = d.digest === root.descriptor.digest ? object(JSON.parse(Buffer.from(root.bytes).toString()), "Base SBOM root") : await json(bounded, store, d);
       if ([media.index, media.dockerIndex].includes(d.mediaType as typeof media.index)) {
         if (value.schemaVersion !== 2 || !Array.isArray(value.manifests)) throw new Error("Invalid base SBOM index");
         for (const child of value.manifests) await walk(descriptor(child), depth + 1);
       } else if (value.subject && accepted.has(descriptor(value.subject).digest) && Array.isArray(value.layers) && value.layers.some((layer: any) => layer?.mediaType === sbomType)) {
-        candidates.push(await attachment(source, store, d, accepted));
+        if (candidates.length) throw new Error("Base SBOM must contain exactly one SPDX artifact for the selected base subject");
+        candidates.push(await attachment(bounded, store, d, accepted));
       }
     };
     await walk(root.descriptor);
