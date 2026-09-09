@@ -45,7 +45,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.0-rc.5 on the preparation commit; an explicit version, never latest |
+| version | v0.1.0 on main after verified promotion; an explicit version, never latest |
 | bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |

@@ -10,9 +10,9 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/bunko@caca067151d2d4e0d18397dcf5846a0b09dc7fd8
+  - uses: sakajunquality/bunko@9ea6580b719049f4afa3fcc8cf3ae2f21b8cc722
     with:
-      version: v0.1.0-rc.5
+      version: v0.1.0
       bun-version: 1.4.2
       verify-attestation: 'true'
   - name: Authenticate to GHCR
@@ -41,7 +41,7 @@ To export telemetry, set `otel: 'true'` and configure the supported `OTEL_*` env
 
 Persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
 
-On main after promotion, setup defaults to the verified rc.5 release and Bun 1.4.2. The immutable `v0.1.0-rc.5` Action tag still defaults to rc.4 and Bun 1.4.2; pass `version: v0.1.0-rc.5` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+On main after promotion, setup defaults to the verified 0.1.0 release and Bun 1.4.2. The immutable `v0.1.0` Action tag still defaults to rc.5 and Bun 1.4.2; pass `version: v0.1.0` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## Invocation constants
 

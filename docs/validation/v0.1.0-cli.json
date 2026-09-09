@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "sourceCommit": "9ea6580b719049f4afa3fcc8cf3ae2f21b8cc722",
+  "sourceRef": "refs/tags/v0.1.0",
+  "digest": "sha256:c9839f9e0756ae43ba921d754cdd429f85824ee8e5329847342f6fd0ddee4d08",
+  "size": 7863753,
+  "anonymousDownload": true,
+  "signedProvenance": true,
+  "wrongRefRejected": true,
+  "versionExecuted": true
+}

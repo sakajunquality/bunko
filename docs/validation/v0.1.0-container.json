@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "reference": "ghcr.io/sakajunquality/bunko@sha256:1f31e7756fb93926de29b2fce46b5070e35d268b7c48415d27d10725c5e1a8e9",
+  "digest": "sha256:1f31e7756fb93926de29b2fce46b5070e35d268b7c48415d27d10725c5e1a8e9",
+  "sourceCommit": "72d9ac859fd1c499c2d1856a11891101f25f99df",
+  "sourceRef": "refs/heads/main",
+  "workflowRun": 34318353999,
+  "provenanceVerified": true,
+  "anonymousPull": true,
+  "platforms": [
+    {
+      "platform": "linux/amd64",
+      "version": "0.1.0",
+      "cliDigest": "sha256:c9839f9e0756ae43ba921d754cdd429f85824ee8e5329847342f6fd0ddee4d08",
+      "user": "65532:65532",
+      "readOnly": true,
+      "network": false,
+      "capabilitiesDropped": true
+    },
+    {
+      "platform": "linux/arm64",
+      "version": "0.1.0",
+      "cliDigest": "sha256:c9839f9e0756ae43ba921d754cdd429f85824ee8e5329847342f6fd0ddee4d08",
+      "user": "65532:65532",
+      "readOnly": true,
+      "network": false,
+      "capabilitiesDropped": true
+    }
+  ]
+}
