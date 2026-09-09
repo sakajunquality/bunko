@@ -37,6 +37,10 @@ test("toolchain declarations constrain local selection without provisioning or n
   const selected = await selectToolchain();
   expect(() => assertToolchain(toolchainRequirements([{ packageManager: `bun@${selected.version}`, engines: { bun: ">=1.3.11 <1.5" } }], { revision: selected.revision }), selected)).not.toThrow();
   expect(() => toolchainRequirements([{ packageManager: "bun@1.3.11" }], { version: "1.3.12" })).toThrow("Conflicting");
+  expect(() => assertToolchain({ revision: "0".repeat(40), ranges: [] }, selected)).toThrow("declared revision");
+  expect(() => toolchainRequirements([{ packageManager: `bun@${selected.version}+sha512.fixture` }])).toThrow("exact supported version");
+  expect(() => toolchainRequirements([{ packageManager: "bun@1.4.0-rc.1" }])).toThrow("exact supported version");
+
   expect(() => assertToolchain(toolchainRequirements([{ engines: { bun: "<1.0.0" } }]), selected)).toThrow("engines.bun");
   const directory = await temporary(); roots.push(directory); const source = await project(join(directory, "source"), { packageManager: "bun@1.3.999" });
   let requests = 0;

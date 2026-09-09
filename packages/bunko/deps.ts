@@ -1,4 +1,4 @@
-import { certificatePEM, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
+import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
 import { readBunfig, installConfig, type InstallPolicy } from "./bunfig.ts";
 import { catalogs } from "./catalogs.ts";
@@ -231,8 +231,8 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   const network = installNetworkEnvironment();
   try {
+    const extra = await validateInstallCertificates(network);
     if (plan.npmCertificate) {
-      const extra = network.NODE_EXTRA_CA_CERTS ? await certificatePEM(network.NODE_EXTRA_CA_CERTS, "NODE_EXTRA_CA_CERTS") : "";
       await writeFile(certificateFile, plan.npmCertificate.pem + "\n" + extra, { mode: 0o600, flag: "wx" });
       // Bun 1.3.11 also needs process-level trust for TLS inside CONNECT tunnels.
       network.NODE_EXTRA_CA_CERTS = certificateFile;
