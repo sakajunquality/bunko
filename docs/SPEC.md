@@ -207,7 +207,7 @@ Resolve publishes by default, or loads local Docker/kind images with --local/--k
 
 Existing reports are recognized by their command/schema and result structure and must be at most 32 MiB. Other existing files and declared input paths are refused before failure handlers can write a report.
 
-Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation, leaving any earlier report in place. Reports replace an earlier recognizable Bunko report in a regular file atomically and never write through symlinks.
+Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation, leaving any earlier report in place. Always check the command exit code; a retained success report can describe a previous invocation. Reports replace an earlier recognizable Bunko report in a regular file atomically and never write through symlinks.
 
 `resolveDocuments(options)` returns `{output,targets}` without writing stdout. The preparation API returns finish/dispose functions. Finish may be called once; callers must always dispose.
 

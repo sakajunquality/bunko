@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { build as rawBuild, writeReport } from "../packages/bunko/build.ts";
+import { build as rawBuild, writeFailureReport, writeReport } from "../packages/bunko/build.ts";
 import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
 import { validateCommandOptions } from "../packages/bunko/command-options.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
@@ -283,4 +283,15 @@ test("missing assets replace a prior success report with the current failure", a
   await writeReport(report, { schemaVersion: 3, status: "success", targets: [] });
   await expect(build({ path: source, baseLayout: await baseLayout(join(root, "base")), output: join(root, "out"), report, localCache: false, gitMetadata: false })).rejects.toThrow("Asset pattern matched no files");
   expect(JSON.parse(await readFile(report, "utf8")).status).toBe("failed");
+});
+
+
+test("failure-report errors preserve the original error identity and message", async () => {
+  const root = await temporary(); directories.push(root);
+  const destination = join(root, "report"); await mkdir(destination);
+  const original = new Error("original publication failure");
+  await writeFailureReport(destination, { schemaVersion: 3, status: "failed", targets: [] }, original);
+  expect(original.message).toContain("original publication failure");
+  expect(original.message).toContain("failure report could not be written");
+  await writeFailureReport(destination, {}, Object.freeze(new Error("immutable failure")));
 });
