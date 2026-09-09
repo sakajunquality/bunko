@@ -63,8 +63,8 @@ test("closure builds warn about undeclared runtime imports once per package and 
   await build({ ...options, output: join(root, "warn"), log: (text) => { logs += text; } });
   const lines = logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT"));
   expect(lines).toEqual([
-    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "supports-color" without declaring it (index.js); the isolated layout cannot resolve it at runtime. Update the package, or declare it in the application\'s dependencies and bunko.external.',
-    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "@scope/undeclared" without declaring it (lib.mjs); the isolated layout cannot resolve it at runtime. Update the package, or declare it in the application\'s dependencies and bunko.external.',
+    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "supports-color" without declaring it (index.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.',
+    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "@scope/undeclared" without declaring it (lib.mjs); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.',
   ]);
   const manifest = JSON.parse(await Bun.file(join(f.source, "package.json")).text());
   await writeFile(join(f.source, "package.json"), JSON.stringify({ ...manifest, bunko: { ...manifest.bunko, deps: { undeclaredImports: "error" } } }));
@@ -81,5 +81,24 @@ test("sharedDeps scans the union closure and collapses identical findings across
   await writeFile(join(f.cache, "fixture-adapter@1.0.0@@@1/index.js"), 'module.exports=require("fixture-msg"); try { require("undeclared-helper") } catch {}');
   let logs = "";
   await buildTargets({ path: f.source, baseLayout: base, push: false, localCache: false, gitMetadata: false, installCache: f.cache, sharedDeps: true, output: join(root, "out"), log: (text) => { logs += text; } });
-  expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT"))).toEqual(['BUNKO_UNDECLARED_IMPORT fixture-adapter@1.0.0 imports "undeclared-helper" without declaring it (index.js); the isolated layout cannot resolve it at runtime. Update the package, or declare it in the application\'s dependencies and bunko.external.']);
+  expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT"))).toEqual(['BUNKO_UNDECLARED_IMPORT fixture-adapter@1.0.0 imports "undeclared-helper" without declaring it (index.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.']);
+});
+
+
+test("application externals do not repair an importing package's strict declaration", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  const manifest = JSON.parse(await Bun.file(join(f.source, "package.json")).text());
+  manifest.dependencies["fixture-dev"] = "1.0.0"; delete manifest.devDependencies;
+  manifest.bunko.external = ["fixture-msg", "fixture-dev"];
+  manifest.bunko.deps = { strategy: "closure", undeclaredImports: "error" };
+  const lock = f.lock as any; lock.workspaces[""].dependencies = manifest.dependencies; delete lock.workspaces[""].devDependencies;
+  await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
+  await writeFile(join(f.source, "bun.lock"), JSON.stringify(lock));
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports = require("fixture-dev");');
+  let logs = "";
+  await expect(build({ path: f.source, baseLayout: base, output: join(root, "out"), installCache: f.cache, localCache: false, gitMetadata: false, log: (text) => { logs += text; } })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT");
+  expect(logs).toContain("strict declaration policy requires fixing the importing package manifest");
+  expect(logs).toContain("deps.undeclaredImports=warn");
+  expect(logs).not.toContain("cannot resolve it at runtime");
 });

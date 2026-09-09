@@ -16,7 +16,7 @@ export function undeclaredImportPolicy(projects: Pick<Project, "undeclaredImport
 }
 
 export function undeclaredImportMessage(item: UndeclaredImport): string {
-  return `${item.code} ${item.package}@${item.version} imports ${JSON.stringify(item.name)} without declaring it (${item.file}); the isolated layout cannot resolve it at runtime. Update the package, or declare it in the application's dependencies and bunko.external.`;
+  return `${item.code} ${item.package}@${item.version} imports ${JSON.stringify(item.name)} without declaring it (${item.file}); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application's dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.`;
 }
 
 /** Package name of a bare specifier, or undefined for relative, absolute, protocol, subpath-import and malformed specifiers. */
