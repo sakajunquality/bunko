@@ -63,7 +63,7 @@ test("runtime options cannot consume or replace the configured entrypoint", asyn
     } catch (error) { expect(String(error)).toContain("runtime.args"); expect(String(error)).not.toContain("SECRET_SCRIPT"); }
     expect(requests).toBe(0);
   }
-  expect((await loadProject({ path: source, runtimeArgs: ["--preload", "./preload.ts", "--conditions=custom", "--title=-worker", "--inspect=localhost:9229"] })).runtimeArgs).toHaveLength(5);
+  expect((await loadProject({ path: source, runtimeArgs: ["--preload", "./preload.ts", "--conditions=custom", "--title=-worker", "--inspect=localhost:9229"] })).runtimeArgs).toEqual(["--preload=./preload.ts", "--conditions=custom", "--title=-worker", "--inspect=localhost:9229"]);
 });
 
 test("Bun executes a preload/value pair and then the configured source entrypoint", async () => {
@@ -92,4 +92,18 @@ test("diagnostics expose inherited policy keys without values and account for me
   member.bunko.runtime = null; member.bunko.deps = { allowIgnoredScripts: [] }; member.bunko.env = { PRIVATE_VALUE: "MEMBER_VALUE" };
   await writeFile(path, JSON.stringify(member));
   expect((await checkConfig(options)).targets[0]!.inheritedDefaults).toEqual(["user"]);
+});
+
+test("environment overrides remove inherited base and platform keys in check-config and doctor", async () => {
+  const directory = await temporary(); roots.push(directory); const fixture = await workspaceFixture(directory);
+  const path = join(fixture.source, "package.json"), manifest = JSON.parse(await readFile(path, "utf8"));
+  manifest.bunko = { defaults: { base: "registry.example/default:latest", platforms: ["linux/amd64"] } };
+  await writeFile(path, JSON.stringify(manifest));
+  for (const command of ["check-config", "doctor"]) {
+    const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), command, join(fixture.source, "services/api")], { env: { ...process.env, BUNKO_DEFAULT_BASE: "registry.example/override:latest", BUNKO_DEFAULT_PLATFORMS: "linux/arm64" }, stdout: "pipe", stderr: "pipe" });
+    const [out, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(exit).toBe(0); expect(error).toBe("");
+    const target = JSON.parse(out).targets[0];
+    expect(target.inheritedDefaults).not.toContain("base"); expect(target.inheritedDefaults).not.toContain("platforms"); expect(target.platforms[0].architecture).toBe("arm64");
+  }
 });

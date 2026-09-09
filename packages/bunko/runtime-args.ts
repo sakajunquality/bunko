@@ -18,19 +18,21 @@ const valued = new Set([
 const optional = new Set(["--inspect", "--inspect-wait", "--inspect-brk"]);
 const aliases: Record<string, string> = { "-r": "--preload", "-c": "--config", "-d": "--define", "-l": "--loader" };
 
-export function validateRuntimeArgs(args: string[]): void {
+export function validateRuntimeArgs(args: string[]): string[] {
+  const normalized: string[] = [];
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     const equal = argument.indexOf("="), raw = equal < 0 ? argument : argument.slice(0, equal);
-    const flag = aliases[raw] ?? raw;
-    if (booleans.has(flag) && equal < 0) continue;
-    if (optional.has(flag) && equal < 0) continue;
+    const flag = Object.hasOwn(aliases, raw) ? aliases[raw]! : raw;
+    if (booleans.has(flag) && equal < 0) { normalized.push(flag); continue; }
+    if (optional.has(flag) && equal < 0) { normalized.push(flag); continue; }
     if (valued.has(flag) || optional.has(flag)) {
       const value = equal < 0 ? args[++index] : argument.slice(equal + 1);
-      if (value && (equal >= 0 || !value.startsWith("-")) && !value.includes("\0")) continue;
+      if (value && (equal >= 0 || !value.startsWith("-")) && !value.includes("\0")) { normalized.push(`${flag}=${value}`); continue; }
       throw new Error(`runtime.args requires a non-empty value for ${flag}; use --option=value`);
     }
     // Never echo an unrecognized argument: it may contain a secret or script body.
     throw new Error(`Invalid runtime.args at index ${index}: expected a supported Bun runtime option; put application arguments in args`);
   }
+  return normalized;
 }

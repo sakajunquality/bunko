@@ -190,8 +190,8 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const config = workspaceDefaults(memberConfig, workspace?.packages[0]?.manifest.bunko, Boolean(workspace && directory === workspace.directory));
   const inherited = inheritedWorkspaceDefaults(memberConfig, workspace?.packages[0]?.manifest.bunko);
   const replaced = [
-    ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined ? ["base"] : []),
-    ...(options.platform !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
+    ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined || process.env.BUNKO_DEFAULT_BASE !== undefined ? ["base"] : []),
+    ...(options.platform !== undefined || process.env.BUNKO_DEFAULT_PLATFORMS !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
     ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
     ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []),
     ...Object.keys(options.define ?? {}).map((name) => `build.define.${name}`),
@@ -229,8 +229,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   knownKeys(runtime, ["caCertificates", "args", "bunPath", "libc", "inject"], "runtime");
   const runtimeCAs = strings(runtime.caCertificates, "runtime.caCertificates").map((path) => relativePath(path, "runtime CA path"));
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
-  const runtimeArgs = options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs");
-  validateRuntimeArgs(runtimeArgs);
+  const runtimeArgs = validateRuntimeArgs(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
   if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
