@@ -129,7 +129,7 @@ A base's explicit root user remains root. Examples explicitly select nonroot. Re
 
 See [REGISTRIES.md](REGISTRIES.md) for authentication and provider setup. After every platform builds, publish blobs/configs, platform manifests, the root index, then tags. GET/HEAD have bounded retries. PATCH normally uses 8 MiB chunks; ambiguous results are reconciled using upload offsets and destination HEAD. GHCR and Artifact Registry use a streamed full-file PUT, with digest reconciliation and a fresh upload session for bounded transient retries. Manifest PUT results are read back and checked by digest. Partial failures retain published-state details in reports without rolling tags back.
 
-Complete layouts collect every reachable blob in a temporary directory and rename it into place. Docker archives contain manifest.json, configs, and verified uncompressed layer.tar entries. Tarballs never overwrite existing files. Reports are written to a temporary file in the destination directory and renamed into place, replacing an earlier regular file; directories, symlinks and other special entries are rejected before the build starts. Local loading performs Docker load plus inspect. Kind loading uses image-archive and verifies every node with crictl inspecti.
+Complete layouts collect every reachable blob in a temporary directory and rename it into place. Docker archives contain manifest.json, configs, and verified uncompressed layer.tar entries. Tarballs never overwrite existing files. Reports are written to a temporary file in the destination directory and renamed into place, replacing an earlier recognizable Bunko report in a regular file; directories, symlinks and other special entries are rejected before the build starts. Local loading performs Docker load plus inspect. Kind loading uses image-archive and verifies every node with crictl inspecti.
 
 ## 6. Cache
 
@@ -203,7 +203,9 @@ Parse all inputs, deduplicate canonical targets, validate settings, prepare ever
 
 Resolve publishes by default, or loads local Docker/kind images with --local/--kind. It rejects standalone push=false, layout/tarball/dry-run/--target. Inputs with no references need no Registry access. No publication or loading begins before all builds finish and output is rendered. Only successful completion of every target emits stdout. Earlier published or loaded images can remain after a later failure.
 
-Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation, leaving any earlier report in place. Reports replace an earlier regular file atomically and never write through symlinks.
+Existing reports are recognized by their command/schema and result structure and must be at most 32 MiB. Other existing files and declared input paths are refused before failure handlers can write a report.
+
+Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation, leaving any earlier report in place. Reports replace an earlier recognizable Bunko report in a regular file atomically and never write through symlinks.
 
 `resolveDocuments(options)` returns `{output,targets}` without writing stdout. The preparation API returns finish/dispose functions. Finish may be called once; callers must always dispose.
 
