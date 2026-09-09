@@ -131,7 +131,7 @@ test("read-header timeouts retry within bounds and caller cancellation remains e
   await expect(client.request("/v2/")).rejects.toThrow("connection failed");
   expect(attempts).toBe(2);
   await expect(client.request("/v2/", { signal: AbortSignal.abort(new Error("caller cancelled")) })).rejects.toThrow("caller cancelled");
-  expect(attempts).toBe(3);
+  expect(attempts).toBe(2); // A pre-aborted request never reaches the transport.
 });
 
 test.each([false, true])("upload recovery preserves the last URL when status omits Location (empty=%s)", async (empty) => {
