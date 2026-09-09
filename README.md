@@ -81,7 +81,7 @@ bun run dev build examples/workspace --push=false \
 
 Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. rc.4 and later support explicit `bunko.defaults`; see [configuration](docs/CONFIGURATION.md).
 
-Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures. `--bare` and `--tarball` require a single target.
+Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures and replaces an earlier run's report file. `--bare` and `--tarball` require a single target.
 
 Shared packages are bundled by default. Explicitly external workspace packages retain Bun's concrete versions and peer contexts. The production strategy includes the **entire workspace production tree**, including other services' dependencies. Select only reachable runtime instances with `--deps-strategy closure` or each service's `bunko.deps.strategy: "closure"`:
 
@@ -112,7 +112,7 @@ Layer order is `base → deps (if needed) → assets (if present) → app`. The 
 
 ## Cache and local execution
 
-The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate. Cache access failures are diagnostic and recoverable; image publication failures are errors.
+The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache access failures are diagnostic and recoverable; image publication failures are errors.
 
 ```sh
 # Export a single-platform Docker archive.
@@ -190,6 +190,7 @@ bun run test:bundled-smoke
 Ordinary tests need no network or Docker and include independent Python 3 tarfile checks. CI runs typechecks, tests, and CLI bundling on Linux/macOS, plus real Registry integration on Linux. Smoke tests create and remove their own Registries, containers, and image tags. Runtime tests default to amd64 and arm64; set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict supported target selection. Some multi-platform publication fixtures still build both platforms.
 
 - [Current implementation specification](docs/SPEC.md)
+- [Migrating from a Dockerfile](docs/MIGRATING_FROM_DOCKERFILE.md)
 - [Registry configuration and verification status](docs/REGISTRIES.md)
 - [Public repository readiness review](docs/PUBLIC_READINESS.md)
 - [Review follow-up and syntax-scan measurements](docs/REVIEW_FOLLOWUP.md)

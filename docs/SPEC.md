@@ -36,14 +36,14 @@ bunko version
 | `--cache-dir DIR` / `--cache-repo REPO` | Local and Registry layer-cache destinations. |
 | `--no-cache` | Disable persistent reuse of both layer caches. |
 | `--no-local-cache` / `--no-registry-cache` | Disable the respective cache. |
-| `--install-cache DIR` | Bun package download cache, separate from the layer cache. |
+| `--install-cache DIR` | Bun package download cache, separate from the layer cache (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`). |
 | `--insecure-registry HOST:PORT` | Explicitly permit HTTP for a host; repeatable. |
 | `--dry-run` | Build and estimate transfers with Registry reads; no Registry writes, export, or loading. |
 | `--reproducible` | Require an explicit base digest or local base layout. |
 | `--verify-deterministic` | Bypass layer caches and compare two staging builds. |
 | `--git-metadata=false` | Omit automatic Git labels and Git-derived tags. |
 | `--no-index` | Use a single manifest as the image root. |
-| `--report FILE` | JSON results; reject existing files and paths within the exported layout. |
+| `--report FILE` | JSON results; replaces an existing Bunko report (regular file) atomically, rejects directories/symlinks and paths within the exported layout. |
 
 Supported environment variables: `BUNKO_REPO`, `BUNKO_CACHE_DIR`, `BUNKO_CACHE_REPO`, `BUNKO_JOBS`, `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, `BUNKO_DEFAULT_BASE`, `BUNKO_DEFAULT_PLATFORMS`, `SOURCE_DATE_EPOCH`, `XDG_CACHE_HOME`, and `KIND_CLUSTER_NAME`. Explicit CLI values take precedence. Unknown or unsupported options fail rather than being ignored.
 
@@ -69,7 +69,7 @@ Supported `package.json.bunko` configuration; all fields are optional:
   "base": "oven/bun:1.3.11-slim",
   "platforms": ["linux/amd64", "linux/arm64"],
   "external": ["@node-rs/xxhash"],
-  "deps": {"strategy": "production"},
+  "deps": {"strategy": "production", "undeclaredImports": "warn"},
   "assets": ["public"],
   "env": {"NODE_ENV": "production"},
   "ports": [3000],
@@ -78,25 +78,25 @@ Supported `package.json.bunko` configuration; all fields are optional:
   "args": [],
   "labels": {},
   "runtime": {"bunPath": "/usr/local/bin/bun", "libc": "glibc"},
-  "build": {"minify": true, "sourcemap": "none", "define": {}}
+  "build": {"minify": true, "sourcemap": "none", "define": {}, "moduleLocations": "warn"}
 }
 ```
 
 Named bundle entrypoints and their command-override contract are described in [application compatibility](APPLICATION_COMPATIBILITY.md#multiple-entrypoints-in-one-image).
 
-`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. Source symlinks, macros, unsupported import attributes, and computed application require/import expressions are rejected. A trusted worker under the selected Bun executable validates loaded executable inputs before parsing. Application import checks use the syntax tree. Copy-only assets and unreachable modules are not executable inputs. Static json/text/file/toml attributes and import resolution-mode attributes are supported. See [application compatibility](APPLICATION_COMPATIBILITY.md) for bunfig settings and explicit dependency allowances.
+`build.bytecode:false`, `build.target:"bun"`, and `enabled:true` are also accepted. Unknown keys and unsupported values fail. Sourcemaps support none/external. `build.moduleLocations` / `--module-locations` accepts warn (default) or error; error fails the build after listing the `BUNKO_MODULE_LOCATION` diagnostics and their externalization hint, including on an application-cache hit. The diagnostics themselves are described in [application compatibility](APPLICATION_COMPATIBILITY.md#module-relative-runtime-files). Source symlinks, macros, unsupported import attributes, and computed application require/import expressions are rejected. A trusted worker under the selected Bun executable validates loaded executable inputs before parsing. Application import checks use the syntax tree. Copy-only assets and unreachable modules are not executable inputs. Static json/text/file/toml attributes and import resolution-mode attributes are supported. See [application compatibility](APPLICATION_COMPATIBILITY.md) for bunfig settings and explicit dependency allowances.
 
 Base/platform precedence: CLI > BUNKO_DEFAULT_BASE/BUNKO_DEFAULT_PLATFORMS > package.json > defaults. The default base is `oven/bun:<selected Bun version>-distroless`; automatic catalog pinning is not implemented. Native dependencies require an explicit base containing their shared libraries instead of implicit distroless.
 
 A nonempty dependencies/devDependencies/optionalDependencies/peerDependencies field requires a text `bun.lock`. Only v1 text locks are accepted. Root declarations, optional peer metadata, overrides/resolutions, and patchedDependencies are cross-checked. Entries without integrity, unknown schemas, and file/link/git/tarball specifications are rejected. Workspace protocol support is constrained by §8. Patch contents participate in dependency identity.
 
-Build dependencies are installed for the host in a copy of the source snapshot. Runtime externals use a separate `--production --os=linux --cpu=x64|arm64` install. Both use `--ignore-scripts --linker=isolated --backend=copyfile` and verify that manifest and lock bytes did not change. Checkout node_modules are never copied, and the original source is not modified. Always set an explicit Bun download-cache directory; without `--install-cache`, use temporary build staging outside node_modules.
+Build dependencies are installed for the host in a copy of the source snapshot. Runtime externals use a separate `--production --os=linux --cpu=x64|arm64` install. Both use `--ignore-scripts --linker=isolated --backend=copyfile` and verify that manifest and lock bytes did not change. Checkout node_modules are never copied, and the original source is not modified. Bun's download-cache directory is always set explicitly and kept outside node_modules: `--install-cache DIR`, otherwise a persistent `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1` shared across builds so repeated installs do not re-download every package, or temporary build staging when `--no-cache`/`--no-local-cache` disables local caching. The download cache is excluded from source snapshots like the layer cache. Extracted package entries are trusted input and are not independently integrity-checked on reuse; never restore caches writable by untrusted pull requests into trusted builds. Use temporary staging when that trust boundary cannot be maintained.
 
 The production strategy preserves the complete production tree; closure reduction is described in §9. Package data, peer contexts, and internal symlinks are retained. Escaping or dangling links and runtime packages declaring preinstall/install/postinstall are rejected. External roots must be declared production/optional/peer dependencies. Unresolved imports and typos are never automatically externalized.
 
 A packaged `.node` file must be a little-endian ELF64 shared object with System V/GNU OSABI for the target architecture; DT_NEEDED is recorded. Prebuilt `.node` files for other platforms that ship in the same package (for example one file per target triple) and links to them are omitted from the image and counted when runtime files are walked; a named package whose addons include none for the target fails. Unknown addon formats and corrupt target ELF files fail instead of being classified as foreign. If Bun installs both glibc and musl optional variants, the tree is preserved. Arbitrary base ABI/shared-library checks and native source compilation are not performed. The glibc prebuilt addon in examples/dependencies has run on amd64/arm64.
 
-Private npm configuration comes from HTTPS registries, scoped registries, and credentials in `.npmrc`, with `${ENV_NAME}` expansion. Credential files exist only in install staging with mode 0600 and are removed afterward. Credentials do not enter snapshots, cache keys, images, reports, or raw install-error logs. Noncredential registry settings affecting resolution participate in production cache keys.
+Private npm configuration comes from HTTPS registries, scoped registries, and credentials in `.npmrc`, with `${ENV_NAME}` expansion. Credential files exist only in install staging with mode 0600 and are removed afterward. Credentials do not enter snapshots, cache keys, images, or reports. A failed install reports only the last 20 lines of installer output, labelled as such, after redacting npmrc credential values, `Authorization`/bearer values, URL userinfo and query strings, npm/GitHub token shapes, and the staging path; raw installer output is never surfaced. Noncredential registry settings affecting resolution participate in production cache keys.
 
 ## 4. Snapshot, bundle, and layers
 
@@ -121,15 +121,15 @@ Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary l
 - Entrypoint: `[runtime.bunPath, workdir + emitted server path]`.
 - Cmd: configured args, default `[]`.
 - WorkingDir: configured value or `/app`.
-- User: explicit setting, then nonempty base User, then `65532:65532`.
+- User: explicit setting, then the base User unless it is root, then `65532:65532`. A base User counts as root when it is empty or its user part (before any `:`) is a numeric zero (including `00`) or `root`, for example `0`, `0:0`, `00:00`, `root`, `root:root`, `root:0` or `0:root`; other values such as `1000`, `nonroot` or `65532:65532` are inherited.
 - Env: base, then NODE_ENV=production, then application overrides; ordered by key.
 - History: preserve and append only when the base has history; verify empty_layer/DiffID counts.
 
-A base's explicit root user remains root. Examples explicitly select nonroot. Read-only rootfs is a runtime setting.
+An inherited root user is replaced by `65532:65532` and the build logs that replacement once per platform image; a base that must run as root requires an explicit `user` setting such as `0:0` (or `--image-user 0:0`). Read-only rootfs is a runtime setting.
 
 See [REGISTRIES.md](REGISTRIES.md) for authentication and provider setup. After every platform builds, publish blobs/configs, platform manifests, the root index, then tags. GET/HEAD have bounded retries. PATCH normally uses 8 MiB chunks; ambiguous results are reconciled using upload offsets and destination HEAD. GHCR and Artifact Registry use a streamed full-file PUT, with digest reconciliation and a fresh upload session for bounded transient retries. Manifest PUT results are read back and checked by digest. Partial failures retain published-state details in reports without rolling tags back.
 
-Complete layouts collect every reachable blob in a temporary directory and rename it into place. Docker archives contain manifest.json, configs, and verified uncompressed layer.tar entries. Tarballs/reports never overwrite existing files. Local loading performs Docker load plus inspect. Kind loading uses image-archive and verifies every node with crictl inspecti.
+Complete layouts collect every reachable blob in a temporary directory and rename it into place. Docker archives contain manifest.json, configs, and verified uncompressed layer.tar entries. Tarballs never overwrite existing files. Reports are written to a temporary file in the destination directory and renamed into place, replacing an earlier recognizable Bunko report in a regular file; directories, symlinks and other special entries are rejected before the build starts. Local loading performs Docker load plus inspect. Kind loading uses image-archive and verifies every node with crictl inspecti.
 
 ## 6. Cache
 
@@ -181,6 +181,8 @@ Unsupported workspace forms: nested members, negative globs, file/link packages,
 
 Project each concrete instance's package files, including workspace source, JSON/data, licenses, and executable modes, under `workdir/.bunko-deps`. Add links for resolved dependency edges, except when a bundled dependency already occupies that exact nested path. Keep distinct versions and peer contexts as distinct instances. Exclude unreachable node_modules and dev dependencies. Preserve dependency bin links and reject bin-name collisions within a scope. Runtime imports must be declared dependencies, optional dependencies, or peers; accidental access to undeclared hoisted packages is unsupported.
 
+Projection scans each instance's `.js`, `.cjs` and `.mjs` files (nested node_modules and files above 4 MiB excluded) for bare specifiers in static imports, re-exports, `require()` literals and `import()` literals. A specifier resolves when it names a Node/Bun builtin, a `#` subpath import, the instance itself, or a declared dependency, optional dependency or peer (optional peers included). Every other package name is recorded once per instance and name, with the first file in walk order as witness, and logged as `BUNKO_UNDECLARED_IMPORT <name>@<version> imports "<package>" without declaring it (<file>)`; peer contexts of one version collapse into one line, and at most 100 lines are logged per closure. `bunko.deps.undeclaredImports` selects `warn` (default), `error` (the build fails when any are found) or `off` (no scan). The strictest policy among the targets sharing a closure applies. Unparseable files, computed specifiers and the try/catch wrapped optional requires some packages use are not distinguished: the scan is advisory syntax analysis, executes nothing and adds no cache inputs.
+
 Root `bunko.sharedDeps:true` or `--shared-deps` prepares the union of selected closures once. All targets must use closure and matching workdir/base/platforms. Closure is selected when no strategy was specified. Target aliases live in app layers; the shared dependency digest matches per platform. A single-target invocation shares only that target's closure.
 
 File hashing is limited to 16 concurrent reads and preserves input order. Closure keys hash every projected file's SHA256, mode, path, links, layout version, toolchain, platform, base digest, workdir, epoch, and pack format. The full lock is excluded from the key, but lock validation and frozen Linux install still run every time. Cache hits reuse layer compression/transfers while retaining install/graph verification. Production cache hits continue to skip the Linux install. Different sources or patches yielding identical projected bytes can reuse a closure layer.
@@ -203,7 +205,9 @@ Parse all inputs, deduplicate canonical targets, validate settings, prepare ever
 
 Resolve publishes by default, or loads local Docker/kind images with --local/--kind. It rejects standalone push=false, layout/tarball/dry-run/--target. Inputs with no references need no Registry access. No publication or loading begins before all builds finish and output is rendered. Only successful completion of every target emits stdout. Earlier published or loaded images can remain after a later failure.
 
-Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation. Reports never overwrite existing files.
+Existing reports are recognized by their command/schema and result structure and must be at most 32 MiB. Other existing files and declared input paths are refused before failure handlers can write a report.
+
+Reports use schemaVersion 4, command=resolve, status, and targets. Success adds URI-to-immutable-reference mappings. Preparation/publication failure adds error and canonical pendingTargets. Syntax/discovery errors happen before report creation, leaving any earlier report in place. Always check the command exit code; a retained success report can describe a previous invocation. Reports replace an earlier recognizable Bunko report in a regular file atomically and never write through symlinks.
 
 `resolveDocuments(options)` returns `{output,targets}` without writing stdout. The preparation API returns finish/dispose functions. Finish may be called once; callers must always dispose.
 

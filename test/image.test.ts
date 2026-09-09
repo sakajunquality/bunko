@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canonicalJSON, sha256 } from "../packages/oci/digest.ts";
-import { imageConfig, type ImageOptions } from "../packages/oci/image.ts";
+import { imageConfig, isRootUser, type ImageOptions } from "../packages/oci/image.ts";
 import { media, type ImageConfig, type Layer } from "../packages/oci/types.ts";
 import { validateImageConfig } from "../packages/oci/source.ts";
 
@@ -35,10 +35,15 @@ describe("image composition", () => {
     expect(imageConfig(configured, [], options).config?.Env).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/base-cache");
     expect(imageConfig(configured, [], { ...options, env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "/tmp/app-cache" } }).config?.Env).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=/tmp/app-cache");
   });
-  test("preserves explicit root, defaults absent user to nonroot, allows an explicit override", () => {
-    expect(imageConfig({ ...base, config: { User: "0" } }, [], options).config?.User).toBe("0");
+  test("replaces an inherited root user with nonroot, inherits other users, and honours explicit settings", () => {
+    for (const User of ["0", "0:0", "00", "000:001", "00:00", "root", "root:root", "root:0", "0:root", "0:1000", ""]) expect(imageConfig({ ...base, config: { User } }, [], options).config?.User).toBe("65532:65532");
     expect(imageConfig({ ...base, config: {} }, [], options).config?.User).toBe("65532:65532");
+    for (const User of ["1000", "1000:1000", "nonroot", "65532:65532"]) expect(imageConfig({ ...base, config: { User } }, [], options).config?.User).toBe(User);
+    expect(imageConfig({ ...base, config: { User: "0" } }, [], { ...options, user: "0:0" }).config?.User).toBe("0:0");
+    expect(imageConfig({ ...base, config: { User: "0" } }, [], { ...options, user: "root" }).config?.User).toBe("root");
     expect(imageConfig(base, [], { ...options, user: "2000:2000" }).config?.User).toBe("2000:2000");
+    expect(imageConfig(base, [], { ...options, user: "00:00" }).config?.User).toBe("00:00");
+    expect(isRootUser(undefined)).toBe(true); expect(isRootUser("root:1000")).toBe(true); expect(isRootUser("1000:0")).toBe(false);
   });
   test("omits history when the base has none", () => {
     expect(imageConfig({ ...base, history: undefined }, [app], options).history).toBeUndefined();

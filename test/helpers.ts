@@ -17,13 +17,13 @@ export async function project(root: string, extra: Record<string, unknown> = {},
   return root;
 }
 
-export async function baseLayout(root: string, platform: Platform = { os: "linux", architecture: "amd64" }): Promise<string> {
+export async function baseLayout(root: string, platform: Platform = { os: "linux", architecture: "amd64" }, user = "65532:65532"): Promise<string> {
   const store = new BlobStore(root);
   const layer = (await packLayer(store, [{ path: "base-marker", type: "file", content: Buffer.from("base contents\n") }], "assets", 0))!;
   const config: ImageConfig = {
     ...platform,
     config: {
-      User: "65532:65532", Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "BASE_FLAG=retained"],
+      User: user, Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "BASE_FLAG=retained"],
       Entrypoint: ["old-entry"], Cmd: ["old-argument"], WorkingDir: "/old-workdir",
       Labels: { "base.label": "retained" }, StopSignal: "SIGTERM",
     },

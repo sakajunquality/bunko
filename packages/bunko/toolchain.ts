@@ -40,7 +40,9 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   const worker = join(root, OUTPUT_DIRECTORY, "worker.js");
   const settings = join(root, OUTPUT_DIRECTORY, "worker.json");
   await writeFile(worker, await workerCode(), { mode: 0o600 });
-  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved }), { mode: 0o600 });
+  const manifest = object(JSON.parse(project.manifestText), "package.json");
+  const dependencies = [...new Set(["dependencies", "optionalDependencies", "peerDependencies"].flatMap((field) => Object.keys(object(manifest[field] ?? {}, field))))].sort();
+  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved, dependencies }), { mode: 0o600 });
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   const child = Bun.spawn(args, {

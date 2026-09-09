@@ -1,9 +1,9 @@
 /** Reject explicitly supplied options that a command would otherwise ignore. */
 export function validateCommandOptions(command: string, names: string[]): void {
-  const build = "runtime-arg registry-mirror define otel asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config progress image-label image-annotation image-user image-refs repo bare tag tag-conflict push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-write local-cache registry-cache app-cache install-cache runtime-inject runtime-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom provenance sign-key cosign-path report target deps-strategy shared-deps";
+  const build = "runtime-arg registry-mirror define otel asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config progress image-label image-annotation image-user image-refs repo bare tag tag-conflict push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-write local-cache registry-cache app-cache install-cache runtime-inject runtime-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom provenance sign-key cosign-path report target deps-strategy shared-deps module-locations";
   const input = "filename context recursive selector";
   const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run";
-  const diagnostic = "runtime-arg define asset-context target platform mode deps-strategy shared-deps";
+  const diagnostic = "runtime-arg define asset-context target platform mode module-locations deps-strategy shared-deps";
   const allowed: Record<string, string> = {
     build: `offline ${build} deps-artifact`, resolve: `${build} ${input}`, apply: `${build} ${input} ${kube}`,
     "cache-info": "cache-dir",

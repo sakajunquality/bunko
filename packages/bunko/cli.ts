@@ -115,11 +115,11 @@ Options:
   --bun-path <file>        Bun executable used for bundling and installation
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
   --cache-repo <repo>      Registry cache repository (default: image repository)
-  --no-cache               Disable persistent local and registry layer caches
+  --no-cache               Disable persistent local/registry layer caches and download caches
   --no-app-cache           Disable reusable application output
-  --no-local-cache         Disable persistent local layer cache
+  --no-local-cache         Disable persistent local layer and download caches
   --no-registry-cache      Disable registry cache reads/writes
-  --install-cache <dir>    Bun package download cache (separate from layer cache)
+  --install-cache <dir>    Bun package download cache (default: ~/.cache/bunko/install/v1)
   --insecure-registry <host:port>  Allow HTTP for this registry; repeatable
   --dry-run                Build/estimate with registry reads only; no export/load/push
   --reproducible            Require a digest-pinned base or local base layout
@@ -128,6 +128,7 @@ Options:
   --no-index               Produce one manifest (single platform only)
   --jobs <count>          Concurrent target builds, 1–32 (default: 1 or BUNKO_JOBS)
   --mode <mode>           bundle (default) or compile (Linux executable)
+  --module-locations <warn|error>  Fail on BUNKO_MODULE_LOCATION diagnostics (default: warn)
   --sbom                   Attach per-platform SPDX package inventories
   --provenance             Attach SLSA provenance to the image root
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
@@ -142,7 +143,7 @@ Options:
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
-  --report <file>          Write a JSON result, including transfers/cache/partial publication
+  --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
 
 Boolean options accept --flag, --no-flag, and --flag=true|false.
@@ -223,6 +224,7 @@ export async function main(argv: string[]): Promise<number> {
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
       mode: { type: "string" },
+      "module-locations": { type: "string" },
       sbom: { type: "boolean" },
       provenance: { type: "boolean" },
       "sign-key": { type: "string" },
@@ -273,11 +275,12 @@ export async function main(argv: string[]): Promise<number> {
     validateCommandOptions(command ?? "", parsed.tokens.filter((token) => token.kind === "option").map((token) => token.name));
     if (values["tag-conflict"] !== undefined && !["fail", "skip"].includes(values["tag-conflict"])) throw new Error("Tag conflict policy must be fail or skip");
     const tagConflict = values["tag-conflict"] as "fail" | "skip" | undefined;
+    if (values["module-locations"] !== undefined && !["warn", "error"].includes(values["module-locations"])) throw new Error("--module-locations must be warn or error");
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
     const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
-      const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
     }
     if (command === "metadata") {
@@ -365,7 +368,7 @@ export async function main(argv: string[]): Promise<number> {
       jobs: jobsText === undefined ? undefined : Number(jobsText),
       externalDepsByTarget: values["deps-map"] ? await dependencyMap(values["deps-map"]) : undefined,
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
-      mode: values.mode, sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
+      mode: values.mode, moduleLocations: values["module-locations"], sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,

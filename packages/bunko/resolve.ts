@@ -22,10 +22,9 @@ THIS SOFTWARE.
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, join, resolve as absolute } from "node:path";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Node } from "yaml";
-import { assertFileAvailable } from "../oci/archive.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 import { repository, repositoryName } from "../oci/publish.ts";
-import { prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeFailureReport, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
 import { loadProject, type BuildOptions } from "./config.ts";
 import { discover } from "./workspace.ts";
 
@@ -180,9 +179,10 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   if (local && options.imageRefs) throw new Error("--image-refs requires Registry publication");
   if (options.push === false && !local || options.output || options.tarball || options.dryRun || options.targets) throw new Error("resolve requires Registry publication or local/kind loading; export/dry-run/--target are not supported");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.cacheDir, options.installCache]);
   const inputs = await readInputs(options);
+  await assertReportNotInput(report, inputs.filter((input) => input.name !== "-").map((input) => input.name));
   const context = await realpath(absolute(options.context ?? "."));
   const uriTargets = new Map<string, string>(), names = new Map<string, string>();
   const groups = new Map<string, { directory: string; paths: Set<string>; workspace: boolean }>();
@@ -228,7 +228,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     return { output, targets };
   } catch (error) {
     for (const batch of batches) for (const target of batch.results) if (target.localReference || target.publication?.published && !target.publication.pendingTags.length && (!target.supplyChain || target.supplyChain.status === "complete")) completed.add(names.get(target.target)!);
-    if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) });
+    if (report) await writeFailureReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) }, error);
     throw error;
   } finally { await Promise.all(batches.map((batch) => batch.dispose())); }
 }

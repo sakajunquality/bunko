@@ -2,7 +2,10 @@ import * as ts from "typescript";
 
 export const locationMessage = "Bundling may relocate this module-relative path. Use an explicit runtime asset root and verify file reads in the image.";
 export interface LocationWarning { code: "BUNKO_MODULE_LOCATION"; file: string; line: number; column: number; expression: string }
-export interface LocationDiagnostics { total: number; warnings: LocationWarning[] }
+/** A flagged dependency package: declared by the target itself, or reached through the declared dependencies in `via`. */
+export interface LocationPackage { name: string; declared: boolean; via: string[] }
+export interface LocationDiagnostics { total: number; warnings: LocationWarning[]; packages?: LocationPackage[] }
+const packageName = /^(?:@[a-zA-Z0-9_.-]+\/)?[a-zA-Z0-9_.-]+$/;
 const expressions = new Set(["dir", "dirname", "path", "filename", "url"]);
 const globals = new Set(["__dirname", "__filename"]);
 export const diagnosticLimit = 100;
@@ -72,6 +75,46 @@ export function moduleLocations(code: string, file: string): LocationWarning[] {
   return [...found.values()];
 }
 
+/** Package owning a context-relative file, or undefined for application code. Isolated layouts nest packages as node_modules/.bun/<id>/node_modules/<name>, so the final node_modules segment is authoritative. */
+export function locationPackage(file: string): string | undefined {
+  const parts = file.split("/"), index = parts.lastIndexOf("node_modules");
+  if (index < 0) return undefined;
+  const width = parts[index + 1]?.startsWith("@") ? 2 : 1, name = parts.slice(index + 1, index + 1 + width).join("/");
+  return parts.length > index + 1 + width && packageName.test(name) && !name.startsWith(".") ? name : undefined;
+}
+
+/** Resolve flagged packages against the target's declared dependencies using package-level import edges; an undefined importer is application code. */
+export function locationPackages(flagged: Iterable<string>, declared: Iterable<string>, edges: Iterable<[importer: string | undefined, imported: string]>): LocationPackage[] {
+  const known = new Set(declared), direct = new Set<string>(), graph = new Map<string, Set<string>>();
+  for (const [importer, imported] of edges) {
+    if (importer === undefined) { if (known.has(imported)) direct.add(imported); continue; }
+    if (importer !== imported) (graph.get(importer) ?? graph.set(importer, new Set()).get(importer)!).add(imported);
+  }
+  const reach = new Map<string, Set<string>>();
+  for (const root of direct) {
+    const seen = new Set<string>(), queue = [root];
+    for (let name = queue.pop(); name !== undefined; name = queue.pop()) if (!seen.has(name)) { seen.add(name); queue.push(...graph.get(name) ?? []); }
+    reach.set(root, seen);
+  }
+  return [...new Set(flagged)].sort().map((name) => ({ name, declared: known.has(name), via: known.has(name) ? [] : [...reach].filter(([, seen]) => seen.has(name)).map(([root]) => root).sort() }));
+}
+
+/** One actionable sentence naming the declared dependencies to externalize, or undefined when no dependency package was flagged. */
+export function locationHint(packages: LocationPackage[] | undefined): string | undefined {
+  if (!packages?.length) return undefined;
+  const externals = new Set<string>(), reached = new Map<string, string[]>(), unknown: string[] = [];
+  for (const item of packages) {
+    if (item.declared) externals.add(item.name);
+    else if (item.via.length) { const key = item.via.join(", "); for (const name of item.via) externals.add(name); (reached.get(key) ?? reached.set(key, []).get(key)!).push(item.name); }
+    else unknown.push(item.name);
+  }
+  const quoted = (names: Iterable<string>) => [...names].sort().map((name) => JSON.stringify(name)).join(", ");
+  const parts: string[] = [];
+  if (externals.size) parts.push(`Add ${quoted(externals)} to bunko.external so ${externals.size === 1 ? "it stays" : "they stay"} in node_modules with ${externals.size === 1 ? "its" : "their"} module-relative files${reached.size ? ` (${[...reached].map(([via, names]) => `${names.join(", ")} reached through ${via}`).join("; ")})` : ""}`);
+  if (unknown.length) parts.push(`${quoted(unknown)} ${unknown.length === 1 ? "is" : "are"} flagged inside node_modules without a declared dependency path; externalize the declared dependency that loads ${unknown.length === 1 ? "it" : "them"}`);
+  return parts.join(". ");
+}
+
 export function validateLocations(input: unknown): LocationDiagnostics {
   const value = input as LocationDiagnostics;
   if (!value || !Number.isSafeInteger(value.total) || value.total < 0 || !Array.isArray(value.warnings) || value.warnings.length !== Math.min(value.total, diagnosticLimit)) throw new Error("Invalid module-location diagnostics");
@@ -82,6 +125,15 @@ export function validateLocations(input: unknown): LocationDiagnostics {
     const key = `${item.file}\0${item.expression}`;
     if (seen.has(key)) throw new Error("Duplicate module-location warning");
     seen.add(key);
+  }
+  if (value.packages !== undefined) {
+    if (!Array.isArray(value.packages) || value.packages.length > 10_000) throw new Error("Invalid module-location packages");
+    let previous = "";
+    for (const item of value.packages) {
+      if (!item || typeof item.name !== "string" || !packageName.test(item.name) || item.name <= previous || typeof item.declared !== "boolean" || !Array.isArray(item.via) || item.via.length > 10_000
+        || item.via.some((name, index) => typeof name !== "string" || !packageName.test(name) || index && name <= item.via[index - 1]!) || item.declared && item.via.length) throw new Error("Invalid module-location package");
+      previous = item.name;
+    }
   }
   return value;
 }

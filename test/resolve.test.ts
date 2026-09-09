@@ -156,14 +156,16 @@ test("target identity changes during preparation cannot misroute another image r
   expect(f.registry.requests.every((r) => ["GET", "HEAD"].includes(r.method))).toBe(true);
 });
 
-test("syntax and image name collisions fail before registry access; existing reports are preserved", async () => {
+test("syntax and image name collisions fail before registry access; earlier reports survive early failures", async () => {
   const f = await fixture();
   await project(join(f.root, "other"));
   await expect(resolveDocuments({ ...f.options, stdin: async () => "images: [bunko://app, bunko://other]\n" })).rejects.toThrow("name collision");
-  await expect(resolveDocuments({ ...f.options, stdin: async () => "image: bunko://app\n---\ninvalid: [" })).rejects.toThrow();
   const report = join(f.root, "report.json"); await writeFile(report, "keep");
-  await expect(resolveDocuments({ ...f.options, report, stdin: async () => "image: bunko://app\n" })).rejects.toThrow();
+  // Syntax errors happen before report creation, so an earlier run's report is left untouched rather than replaced.
+  await expect(resolveDocuments({ ...f.options, report, stdin: async () => "image: bunko://app\n---\ninvalid: [" })).rejects.toThrow();
   expect(await readFile(report, "utf8")).toBe("keep");
+  await mkdir(join(f.root, "report-dir"));
+  await expect(resolveDocuments({ ...f.options, report: join(f.root, "report-dir"), stdin: async () => "image: bunko://app\n" })).rejects.toThrow("Report path is not a regular file");
   expect(f.registry.requests).toHaveLength(0);
 });
 

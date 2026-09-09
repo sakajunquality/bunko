@@ -8,15 +8,16 @@ import { LayoutSource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { publishArtifacts } from "../oci/artifacts.ts";
 import { canonicalOutput } from "../oci/layout.ts";
-import { assertFileAvailable } from "../oci/archive.ts";
-import { writeReport } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeFailureReport, writeReport } from "./build.ts";
 import { media, type Descriptor } from "../oci/types.ts";
 
 export async function pushLayout(directory: string, repository: string, tags: string[] = [], registry: RegistryOptions = {}, reportPath?: string, tagConflict: TagConflict = "fail") {
   if (!["fail", "skip"].includes(tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const report = reportPath ? await canonicalOutput(reportPath) : undefined;
-  if (report) await assertFileAvailable(report, "Report");
-  directory = resolve(directory);
+  if (report) await assertReportWritable(report);
+  const written = new Set<string>();
+  directory = await canonicalOutput(directory);
+  await assertReportNotInput(report, [directory]);
   const source = new LayoutSource(directory), index = object(JSON.parse(Buffer.from((await source.root()).bytes).toString()), "Layout index");
   if (!Array.isArray(index.manifests) || index.manifests.length > 100_000) throw new Error("Invalid layout index");
   const descriptors = index.manifests.map(descriptor), images = descriptors.filter((d) => !d.artifactType);
@@ -61,11 +62,11 @@ export async function pushLayout(directory: string, repository: string, tags: st
     publication = await publisher.publish(store, roots[0]!, publicationTags, undefined, false, retention ? "skip" : tagConflict);
     if (retention && publication.skippedTags?.length) throw new PublicationError("Content-addressed artifact retention tag points at another digest", publication);
     await publishArtifacts(publisher, store, attachments, (transfers) => publication!.transfers.push(...transfers));
-    if (report) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "success", publication });
+    if (report) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "success", publication }, written);
     return publication;
   } catch (error) {
     if (!publication && error instanceof PublicationError) publication = error.result;
-    if (report && !await Bun.file(report).exists()) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "failed", publication, error: error instanceof Error ? error.message : "Layout publication failed" });
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "push-layout", status: "failed", publication, error: error instanceof Error ? error.message : "Layout publication failed" }, error);
     if (publication?.published) throw new PublicationError(`Layout publication incomplete; image root was published at ${publication.reference}: ${error instanceof Error ? error.message : "attachment failure"}`, publication, error);
     throw error;
   } finally { await rm(temporary, { recursive: true, force: true }); }

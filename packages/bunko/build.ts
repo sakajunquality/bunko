@@ -7,9 +7,10 @@ import { assertToolchain } from "./toolchain-policy.ts";
 import { sourceApplication } from "./source-application.ts";
 import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
+import { installCachePath } from "./install-cache.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
-import { locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
+import { locationHint, locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
@@ -22,14 +23,14 @@ import { targetInputs } from "./inputs.ts";
 import { metric } from "./telemetry.ts";
 import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
-import { cp, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { dockerCredentials } from "../oci/credentials.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
-import { assembleImage } from "../oci/image.ts";
+import { assembleImage, isRootUser, nonrootUser } from "../oci/image.ts";
 import { assertOutputAvailable, canonicalOutput, exportLayout, exportLayouts } from "../oci/layout.ts";
 import { Publisher, PublicationError, repository, repositoryName, type Publication } from "../oci/publish.ts";
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
@@ -42,6 +43,7 @@ import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependenc
 import { discover, workspaceAt } from "./workspace.ts";
 import { dependencyClosure, closureDirectory } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
+import { undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
@@ -96,14 +98,57 @@ export interface BuildResult {
   dryRun: boolean;
 }
 
-export async function writeReport(path: string, value: unknown) {
+/** Replace only a recognizable prior Bunko report, never an arbitrary regular input file. */
+export async function assertReportWritable(path: string): Promise<void> {
+  let info;
+  try { info = await lstat(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  if (!info.isFile()) throw new Error(`Report path is not a regular file: ${path}`);
+  let value: Record<string, unknown> | undefined;
+  if (info.size <= 32 * 1024 * 1024) {
+    try { value = JSON.parse(await readFile(path, "utf8")); } catch { /* Non-report files must stay untouched. */ }
+  }
+  const status = value?.status === "success" || value?.status === "failed";
+  const report = value && (
+    value.schemaVersion === 2 && typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root ||
+    value.schemaVersion === 3 && status && Array.isArray(value.targets) ||
+    value.schemaVersion === 1 && status && value.command === "push-layout" ||
+    value.schemaVersion === 4 && status && value.command === "resolve" ||
+    value.schemaVersion === 5 && status && value.command === "apply"
+  );
+  if (!report) throw new Error(`Existing report path does not contain a Bunko report: ${path}`);
+}
+
+/** Input roles take precedence even when their bytes happen to resemble a report. */
+export async function assertReportNotInput(report: string | undefined, inputs: string[]): Promise<void> {
+  if (!report) return;
+  for (const input of inputs) {
+    const path = await canonicalOutput(input);
+    if (report === path || report.startsWith(`${path}/`)) throw new Error(`Report overlaps an input: ${path}`);
+  }
+}
+
+/** The rename commits the complete report atomically; `written` records paths this invocation has already reported so a later failure handler does not replace them. */
+export async function writeReport(path: string, value: unknown, written?: Set<string>) {
   await mkdir(dirname(path), { recursive: true });
+  await assertReportWritable(path);
   const temporary = await mkdtemp(join(dirname(path), ".bunko-report-"));
   try {
     const file = join(temporary, "report.json");
     await writeFile(file, canonicalJSON(value));
-    await link(file, path);
+    await rename(file, path);
+    written?.add(path);
   } finally { await rm(temporary, { recursive: true, force: true }); }
+}
+
+/** A secondary report failure must not replace the original build/publication error. */
+export async function writeFailureReport(path: string, value: unknown, original: unknown, written?: Set<string>): Promise<void> {
+  try { await writeReport(path, value, written); }
+  catch {
+    if (original instanceof Error) {
+      try { original.message += " (failure report could not be written)"; } catch { /* Preserve immutable errors too. */ }
+    }
+  }
 }
 
 interface BuildContext {
@@ -115,7 +160,7 @@ interface BuildContext {
   inputPaths?: Set<string>;
   cachePersistence: { disabled?: boolean };
   project: Project; runtimeCertificate?: Awaited<ReturnType<typeof runtimeCA>>; source: string; sourceDigest: Digest; plan: DependencyPlan;
-  toolchain: Toolchain; git: Record<string, string>; multiple: boolean;
+  toolchain: Toolchain; git: Record<string, string>; multiple: boolean; reports: Set<string>;
   closureProjects: Project[];
   closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
   sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
@@ -139,7 +184,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (output) await assertOutputAvailable(output);
   if (archive) await assertFileAvailable(archive);
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   if (options.local && options.kind) throw new Error("--local and --kind are mutually exclusive");
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
@@ -156,6 +201,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   if (repo) repository(options.bare ? repo : `${repo}/bunko-validation`);
   const registry = options.registry ?? { credentials: dockerCredentials() };
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
+  const installCache = await installCachePath(options);
   const toolchain = context.toolchain;
   const baseRef = project.base ?? `oven/bun:${toolchain.version}-distroless`;
   if (options.reproducible && !options.baseLayout && !/@sha256:[a-f0-9]{64}$/.test(baseRef)) throw new Error("--reproducible requires --base with a sha256 digest, or --base-layout");
@@ -287,7 +333,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             log(`Installing Linux production dependencies (${platform.architecture})\n`);
             const runtime = join(temporary, `runtime-${iteration}-${platform.architecture}`);
             await cp(snapshotRoot, runtime, { recursive: true });
-            await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
+            await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             noteOmittedAddons(content.omitted);
@@ -313,7 +359,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
           log(`Preparing build dependencies (${platform.architecture})\n`);
-          if (!sharedBundle && project.mode !== "source") await installDependencies(root, plan, toolchain, undefined, options.installCache, options.offline);
+          if (!sharedBundle && project.mode !== "source") await installDependencies(root, plan, toolchain, undefined, installCache, options.offline);
           log(`${project.mode === "source" ? "Packaging source for" : "Bundling"} ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
           const built = project.mode === "source" ? await sourceApplication(project, root) : sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           if (project.mode === "bundle") sharedBundle = built;
@@ -337,6 +383,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (application.locations.total) log(`${locationMessage}\n`);
           for (const warning of application.locations.warnings) log(`${warning.code} ${warning.file}:${warning.line}:${warning.column} (${warning.expression})\n`);
           if (application.locations.total > application.locations.warnings.length) log(`BUNKO_MODULE_LOCATION: ${application.locations.total - application.locations.warnings.length} additional warnings omitted\n`);
+          const hint = locationHint(application.locations.packages);
+          if (hint) log(`${hint}\n`);
+          if (application.locations.total && project.moduleLocations === "error") throw new Error(`Module-location diagnostics fail this build (build.moduleLocations=error): ${application.locations.total} flagged reference${application.locations.total === 1 ? "" : "s"}`);
         }
         // Reserve runtime namespaces even when the corresponding trees are lazy.
         if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
@@ -345,6 +394,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
+        const baseUser = base.config.config?.User;
+        if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,
@@ -416,7 +467,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
           catch (error) {
             if (error instanceof PublicationError && !result.publication) result.publication = error.result;
-            if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" });
+            if (report && !context.multiple) await writeFailureReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" }, error, context.reports);
             throw error;
           }
           finally {
@@ -425,7 +476,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!options.dryRun) await cache.publish();
         }
         if (!push && !options.dryRun && result.supplyChain) result.supplyChain.status = "complete";
-        if (report && !context.multiple && !options.imageRefs) await writeReport(report, result);
+        if (report && !context.multiple && !options.imageRefs) await writeReport(report, result, context.reports);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
         if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)}\n`);
@@ -505,38 +556,51 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   const archive = options.tarball ? await canonicalOutput(options.tarball) : undefined;
   if (output) await assertOutputAvailable(output);
-  if (report) await assertFileAvailable(report, "Report");
+  if (report) await assertReportWritable(report);
   if (archive) await assertFileAvailable(archive);
   for (const path of [archive, report].filter((p): p is string => Boolean(p))) if (output && (path === output || path.startsWith(`${output}/`))) throw new Error("Tarball and report must be outside the OCI layout");
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
+  const installCache = await installCachePath(options);
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
   const runtimeCertificates = new Map(await Promise.all(projects.map(async (project) => [project.directory, await runtimeCA(project)] as const)));
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
-  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), options.installCache ? await canonicalOutput(options.installCache) : undefined].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
+  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
+  await assertReportNotInput(report, [
+    ...["package.json", "bun.lock", "tsconfig.json", "jsconfig.json", ".npmrc", "bunfig.toml", ".bunkoignore"].map((name) => join(discovered.directory, name)),
+    ...projects.flatMap((project) => [join(project.directory, "package.json"), ...Object.values(project.entrypoints ?? { default: project.entrypoint }).map((path) => join(project.directory, path))]),
+    ...exclusions.filter((path) => path !== report && path !== imageRefs),
+  ]);
+  if (report) for (const project of projects) {
+    const local = relative(project.directory, report);
+    if (project.assets.some((pattern) => new Bun.Glob(pattern).match(local) || local.startsWith(`${pattern.replace(/\/$/, "")}/`))) throw new Error("Report overlaps a declared asset input");
+  }
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-invocation-")));
   const prepared: PreparedBuild[] = [];
-  const finished = new Set<string>();
+  const finished = new Set<string>(), reports = new Set<string>();
+  let reportSafe = true;
   const dispose = async () => {
     await Promise.all(prepared.map((item) => item.dispose()));
     await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
-    if (report && !(await Bun.file(report).exists())) await writeReport(report, {
+    if (report && reportSafe && !reports.has(report)) await writeFailureReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
       targets: projects.flatMap((project) => prepared.filter((item) => item.result.target === project.name).map((item) => item.result)),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
-    });
+    }, error, reports);
   };
   try {
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
     const assetExclusions: string[] = [];
-    const required = await requiredInputs(discovered.directory, projects, exclusions, assetExclusions);
+    const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions);
+    try { await assertReportNotInput(report, required.map((path) => join(discovered.directory, path))); }
+    catch (error) { reportSafe = false; throw error; }
     const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source")));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
@@ -560,15 +624,24 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         const runtime = join(temporary, `closure-${closures.size}`);
         options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
         await cp(source, runtime, { recursive: true });
-        await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, options.installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
-        return dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
+        const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        const policy = undeclaredImportPolicy(selected);
+        // Peer contexts repeat one package version as several instances; identical findings are reported once.
+        const messages = [...new Set(content.undeclared.map(undeclaredImportMessage))];
+        if (messages.length && policy !== "off" && iteration === 1) {
+          for (const message of messages.slice(0, undeclaredImportLimit)) options.log?.(`${message}\n`);
+          if (messages.length > undeclaredImportLimit) options.log?.(`BUNKO_UNDECLARED_IMPORT: ${messages.length - undeclaredImportLimit} additional warnings omitted\n`);
+        }
+        if (messages.length && policy === "error") throw new Error(`BUNKO_UNDECLARED_IMPORT: ${messages.length} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
+        return content;
       })());
       return closures.get(key)!;
     };
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);
@@ -583,8 +656,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         if (multiple && output && !options.dryRun) await exportLayouts(output, prepared.map((item) => ({ source: item.store, root: item.result.root, all: item.descriptors, refName: item.refName })));
         for (const item of prepared) { await phase(options.progress, "publish", () => item.finish(), item.result.target, undefined, item.targetKey); finished.add(item.result.target); }
         if (imageRefs) await writeReferences(imageRefs, results.map((result) => result.publication!.reference));
-        if (!multiple && report && imageRefs) await writeReport(report, results[0]);
-        if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results });
+        if (!multiple && report && imageRefs) await writeReport(report, results[0], reports);
+        if (multiple && report) await writeReport(report, { schemaVersion: 3, status: "success", targets: results }, reports);
         return results;
       } catch (error) { await failure(error); throw error; }
     } };

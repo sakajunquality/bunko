@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { build as rawBuild } from "../packages/bunko/build.ts";
+import { build as rawBuild, writeFailureReport, writeReport } from "../packages/bunko/build.ts";
 import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
+import { validateCommandOptions } from "../packages/bunko/command-options.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { sha256 } from "../packages/oci/digest.ts";
 import { media, type Descriptor, type ImageConfig, type ImageIndex, type ImageManifest } from "../packages/oci/types.ts";
@@ -122,7 +123,7 @@ describe("Bun to OCI layout", () => {
     expect((await cli(["version"])).stdout).toBe(`${VERSION}\n`);
   });
 
-  test("does not overwrite existing output or report files", async () => {
+  test("does not overwrite existing output, and replaces only regular report files", async () => {
     const { root, base } = await setup();
     const source = await project(join(root, "app"));
     const output = join(root, "out");
@@ -130,7 +131,38 @@ describe("Bun to OCI layout", () => {
     await writeFile(join(output, "keep"), "keep");
     await expect(build({ path: source, baseLayout: base, output })).rejects.toThrow("already exists");
     expect(await readFile(join(output, "keep"), "utf8")).toBe("keep");
-    await expect(build({ path: source, baseLayout: base, output: join(root, "new"), report: join(source, "src/server.ts") })).rejects.toThrow("Report already exists");
+    // A previous run's report is replaced atomically, so local iteration and CI re-runs need no cleanup.
+    const report = join(root, "report.json");
+    await writeFile(report, JSON.stringify({ schemaVersion: 3, status: "failed", targets: [] }));
+    const result = await build({ path: source, baseLayout: base, output: join(root, "new"), report });
+    expect(JSON.parse(await readFile(report, "utf8")).root.digest).toBe(result.root.digest);
+    // Anything that is not a regular file is refused before the build starts, and never written through.
+    const directory = join(root, "report-dir"), link = join(root, "report-link");
+    await mkdir(directory);
+    await symlink(report, link);
+    for (const path of [directory, link]) await expect(build({ path: source, baseLayout: base, output: join(root, "unused"), report: path })).rejects.toThrow("Report path is not a regular file");
+    expect((await readdir(directory)).length).toBe(0);
+    expect(JSON.parse(await readFile(report, "utf8")).root.digest).toBe(result.root.digest);
+  });
+
+  test("writeReport replaces regular files atomically and refuses other entries", async () => {
+    const root = await temporary(); directories.push(root);
+    const report = join(root, "nested", "report.json");
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], first: true });
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], second: true });
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ schemaVersion: 3, status: "success", targets: [], second: true });
+    expect((await readdir(join(root, "nested"))).sort()).toEqual(["report.json"]);
+    await mkdir(join(root, "dir"));
+    await symlink(report, join(root, "link"));
+    await writeFile(join(root, "target"), "keep");
+    await symlink(join(root, "target"), join(root, "target-link"));
+    for (const path of [join(root, "dir"), join(root, "link"), join(root, "target-link")]) await expect(writeReport(path, {})).rejects.toThrow("Report path is not a regular file");
+    expect(await readFile(join(root, "target"), "utf8")).toBe("keep");
+    expect(JSON.parse(await readFile(report, "utf8"))).toEqual({ schemaVersion: 3, status: "success", targets: [], second: true });
+    // Reports written by this invocation are recorded so a failure handler can leave them in place.
+    const written = new Set<string>();
+    await writeReport(report, { schemaVersion: 3, status: "success", targets: [], third: true }, written);
+    expect(written.has(report)).toBe(true);
   });
 
   test("fails before output on unsupported dependencies, macros, and source symlinks", async () => {
@@ -196,4 +228,70 @@ describe("configuration", () => {
     await writeFile(join(source, "index.ts"), "console.log(1)");
     await expect(loadProject({ path: source, output: join(root, "out") })).rejects.toThrow();
   });
+  test("build.moduleLocations accepts warn or error, follows the invocation override, and unknown build keys still fail", async () => {
+    const { root } = await setup();
+    const source = await project(join(root, "app"), { bunko: { build: { moduleLocations: "error" } } });
+    expect((await loadProject({ path: source })).moduleLocations).toBe("error");
+    expect((await loadProject({ path: source, moduleLocations: "warn" })).moduleLocations).toBe("warn");
+    expect((await loadProject({ path: await project(join(root, "default")) })).moduleLocations).toBe("warn");
+    await expect(loadProject({ path: source, moduleLocations: "fatal" })).rejects.toThrow("build.moduleLocations must be warn or error");
+    for (const build of [{ moduleLocations: "strict" }, { moduleLocations: true }, { strict: true }]) {
+      await writeFile(join(source, "package.json"), JSON.stringify({ name: "hello", module: "src/server.ts", bunko: { build } }));
+      await expect(loadProject({ path: source })).rejects.toThrow(/moduleLocations must be warn or error|Unsupported build setting: strict/);
+    }
+    expect((await cli(["build", source, "--module-locations=fatal"])).stderr).toContain("--module-locations must be warn or error");
+    validateCommandOptions("check-config", ["module-locations"]);
+    expect(() => validateCommandOptions("prune", ["module-locations"])).toThrow("--module-locations is not supported by prune");
+  });
+});
+
+describe("image user", () => {
+  test("replaces an inherited root base user with nonroot, logs it once per platform, and honours an explicit root setting", async () => {
+    const root = await temporary(); directories.push(root);
+    const base = await baseLayout(join(root, "base"), undefined, "0");
+    const logs: string[] = [];
+    const result = await build({ path: await project(join(root, "app")), baseLayout: base, output: join(root, "out"), gitMetadata: false, verifyDeterministic: true, log: (message) => logs.push(message) });
+    expect((await readJSON<ImageConfig>(result.layout!, result.config)).config?.User).toBe("65532:65532");
+    expect(logs.filter((message) => message.startsWith("Base image declares User 0; running as 65532:65532"))).toHaveLength(1);
+    const explicit = await build({ path: await project(join(root, "explicit"), { bunko: { user: "0:0" } }), baseLayout: base, output: join(root, "out-root"), gitMetadata: false, log: (message) => logs.push(message) });
+    expect((await readJSON<ImageConfig>(explicit.layout!, explicit.config)).config?.User).toBe("0:0");
+    expect(logs.filter((message) => message.startsWith("Base image declares"))).toHaveLength(1);
+  });
+});
+
+
+test("report replacement preserves manifest, source, config, and layout inputs", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source")), base = await baseLayout(join(root, "base"));
+  const config = join(source, "settings.json"); await writeFile(config, JSON.stringify({ setting: true }));
+  for (const report of [join(source, "package.json"), join(source, "src/server.ts"), config, join(base, "index.json")]) {
+    const before = await readFile(report, "utf8");
+    await expect(build({ path: source, baseLayout: base, output: join(root, "out"), report, localCache: false, gitMetadata: false })).rejects.toThrow("does not contain a Bunko report");
+    expect(await readFile(report, "utf8")).toBe(before);
+  }
+  const report = join(source, "report.json");
+  const result = await build({ path: source, baseLayout: base, output: join(root, "first"), report, localCache: false, gitMetadata: false });
+  const repeated = await build({ path: source, baseLayout: base, output: join(root, "second"), report, localCache: false, gitMetadata: false });
+  expect(repeated.root.digest).toBe(result.root.digest);
+});
+
+
+test("missing assets replace a prior success report with the current failure", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { assets: ["missing-data"] } });
+  const report = join(source, "report.json");
+  await writeReport(report, { schemaVersion: 3, status: "success", targets: [] });
+  await expect(build({ path: source, baseLayout: await baseLayout(join(root, "base")), output: join(root, "out"), report, localCache: false, gitMetadata: false })).rejects.toThrow("Asset pattern matched no files");
+  expect(JSON.parse(await readFile(report, "utf8")).status).toBe("failed");
+});
+
+
+test("failure-report errors preserve the original error identity and message", async () => {
+  const root = await temporary(); directories.push(root);
+  const destination = join(root, "report"); await mkdir(destination);
+  const original = new Error("original publication failure");
+  await writeFailureReport(destination, { schemaVersion: 3, status: "failed", targets: [] }, original);
+  expect(original.message).toContain("original publication failure");
+  expect(original.message).toContain("failure report could not be written");
+  await writeFailureReport(destination, {}, Object.freeze(new Error("immutable failure")));
 });

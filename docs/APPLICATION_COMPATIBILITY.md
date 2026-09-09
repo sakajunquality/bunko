@@ -28,6 +28,10 @@ Builds report advisory `BUNKO_MODULE_LOCATION` diagnostics for loaded references
 
 Each image report includes `locations.total` and up to 100 deterministic `locations.warnings`, deduplicated by source file and expression. Warnings include context-relative paths and positions, not source excerpts or absolute host paths. Application-cache hits replay the same diagnostics. The diagnostic scan does not execute code or modify paths. `check-config` and `doctor` continue to mark source analysis and module-relative file behavior as unchecked. Test exact file contents inside the final image.
 
+When a flagged file lives inside a dependency package, the build derives the package name from the final `node_modules/<name>` segment (Bun's isolated layout nests packages under `node_modules/.bun/<name>@<version>/node_modules/<name>`) and appends one hint after the warning list, for example `Add "@google-cloud/spanner" to bunko.external so it stays in node_modules with its module-relative files (@grpc/grpc-js, google-gax reached through @google-cloud/spanner)`. Only dependencies declared by the selected target are suggested; packages reached transitively are attributed to the declared dependency that loads them using the bundle's import graph, and flagged packages without a declared dependency path are listed separately. The report carries the same data as `locations.packages` (`name`, `declared`, `via`), and `--progress=json` emits the hint as a `log` event, so CI can act on it without parsing prose. Externalized packages are not scanned, so externalizing a dependency clears its warnings; application files never produce a hint.
+
+`bunko.build.moduleLocations: "error"` or `--module-locations=error` fails the build after listing the warnings and the hint. The default remains `"warn"`.
+
 ## bunfig.toml
 
 Supported settings:
@@ -50,7 +54,8 @@ Only the two listed install settings are forwarded to the controlled frozen inst
   "bunko": {
     "external": ["ready-made-addon"],
     "deps": {
-      "allowIgnoredScripts": ["protobufjs", "ready-made-addon"]
+      "allowIgnoredScripts": ["protobufjs", "ready-made-addon"],
+      "undeclaredImports": "warn"
     },
     "build": {
       "allowUnresolved": [""]
@@ -69,6 +74,14 @@ Otherwise use prepared dependency artifacts (docs/OPERATIONS.md) or an external 
 ```
 
 `check-config` and `doctor` list allowances that match no package in `bun.lock` under `unmatchedAllowances`; a non-empty list usually means a typo or a stale allowance, and it never fails the check. An allowance does not generate missing files, repair a native addon, or install a shared library. Prefer externalization for native and location-sensitive packages, and exercise their real behavior in a Linux runtime test. The resolved name/version and ignored hook names appear in inventory; policy and lock inputs affect dependency cache identity. Production, workspace, and closure packaging enforce the policy. Shared dependency layers require matching allowances across targets. Prepared dependency artifacts retain their separate validation contract.
+
+With the closure strategy each package instance has aliases for its declared dependencies and can fall back to application-level aliases. A package that `require()`s a name it does not declare, which hoisted installs mask everywhere else, can build cleanly and fail at runtime with `Cannot find module`. Closure builds therefore scan every packaged `.js`/`.cjs`/`.mjs` file for bare imports that are neither builtins, `#` subpath imports, the package itself, nor declared dependencies, optional dependencies or peers, and log one `BUNKO_UNDECLARED_IMPORT` line per package and missing name:
+
+```text
+BUNKO_UNDECLARED_IMPORT grpc-gcp@1.0.1 imports "protobufjs" without declaring it (build/src/generated/grpc_gcp.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application's dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.
+```
+
+Upgrade the package when a fixed release exists. Otherwise add the missing name to the application's `dependencies` and `bunko.external`: the application alias under `workdir/node_modules` is reachable from every closure instance. The default is a warning because optional `try { require("supports-color") } catch {}` probes are legitimate and indistinguishable by syntax; `deps.undeclaredImports: "error"` fails the build instead, and `"off"` skips the scan. Computed specifiers, unparseable files and files above 4 MiB are not inspected, so a clean scan is not proof that every runtime import resolves.
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 
@@ -148,3 +161,5 @@ Reports and provenance record logical context names, selected relative paths, ex
 ## Before workload validation
 
 Follow [application validation](APPLICATION_VALIDATION.md) for a disposable functional fixture, private output handling, and the remote acceptance checklist. `check-config` and `doctor` require bindings for selected asset mappings and inspect selected filesystem entries without copying or hashing their contents. They report named entries, the default command, logical mappings, and selected entry counts. They reject missing inputs, normal source omissions, context-root `.bunkoignore` exclusions, symlinks, mapping collisions, and overlap with the configured runtime. Build-specific output/cache/staging-directory exclusions are checked only during a build. Regular project assets, bundle/dependency collisions, file content, and actual runtime behavior still require a build and runtime checks.
+
+Strict undeclared-import checks enforce the importing package's manifest, not the availability of an application-level fallback. Adding an application dependency and external does not repair that declaration; use the advisory policy for this workaround and test the runtime. Optional probes and unused shipped files can also produce findings.

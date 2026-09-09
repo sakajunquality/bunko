@@ -28,6 +28,22 @@ Entrypoints, entrypoint names, image names, target enablement and sharedDeps are
 
 After rc.4, `check-config` and `doctor` report `inheritedDefaults` for each target, and build logs list inherited leaf keys. Member resets and invocation overrides are reflected in that list. Values are not logged. Review the workspace root when keys such as `user`, `deps.allowIgnoredScripts`, `runtime.inject`, or `runtime.caCertificates` are inherited: defaults are explicit shared policy, including an explicitly configured root user.
 
+## Image user
+
+`bunko.user` (or `--image-user`) sets the OCI `User` of the built image. Without it, a base image `User` other than root is inherited; a base `User` that is absent, empty or root (`0`, `0:0`, `00:00`, `root`, `root:root` and similar spellings) is replaced by `65532:65532`, the `nonroot` account shipped by `oven/bun:<version>-distroless`. The build logs `Base image declares User 0; running as 65532:65532` once per platform image when that replacement occurs. Set `"user": "0:0"` explicitly for a base that must run as root, and pick another user (for example `"1000:1000"`) when the base defines it.
+
+## Undeclared runtime imports
+
+```json
+{
+  "bunko": {
+    "deps": { "strategy": "closure", "undeclaredImports": "warn" }
+  }
+}
+```
+
+`deps.undeclaredImports` controls the closure-strategy scan for packages that import a name they do not declare (see [APPLICATION_COMPATIBILITY.md](APPLICATION_COMPATIBILITY.md)). `warn` (default) logs one `BUNKO_UNDECLARED_IMPORT` line per package and missing name and continues; `error` fails the build when any are found; `off` skips the scan. The key is a dependency-policy map entry, so a workspace root can set it in `bunko.defaults.deps` and members can override it. Targets sharing one closure under `sharedDeps` are governed by the strictest of their policies. The production strategy is unaffected: hoisted production installs resolve undeclared names the same way local development does.
+
 ## Bun runtime arguments
 
 `bunko.runtime.args` is an array of arguments placed after the Bun executable and before the entry script. Use it for runtime flags such as `--smol` or runtime export conditions. Repeat `--runtime-arg=VALUE` to replace that array for an invocation; using `=` allows values beginning with `--`.
@@ -41,13 +57,19 @@ bunko build . --mode source --runtime-arg=--smol \
 
 After rc.4, runtime arguments are validated before registry access. Bunko accepts supported runtime options, including value pairs such as `["--preload", "./preload.ts"]` or inline values such as `--conditions=custom`. Debugger options with optional values use the inline form (`--inspect=localhost:9229`) to avoid consuming the application path. Values beginning with `-` also require the inline form. Accepted value pairs and short aliases are normalized to `--flag=value`, so no value becomes a positional argument; diagnostic counts describe the normalized argv. Empty arguments, standalone scripts/subcommands, `--`, evaluation/print modes, help/version exits, and unsupported options are rejected. Use `bunko.args` for application arguments. Bun 1.3 and 1.4 have different runtime flag support; select a runtime that implements the configured options. Preload paths refer to files in the resulting image. Auto-install controls (`--install`, `-i`) and script-runner switches (`--bun`, `--if-present`) are outside the supported runtime option set. Debugger wait/break options intentionally delay application startup until a debugger attaches.
 
+## Module-location diagnostics
+
+Bundle and compile builds report `BUNKO_MODULE_LOCATION` warnings for loaded `import.meta.dir`/`__dirname`-style references; see [application compatibility](APPLICATION_COMPATIBILITY.md#module-relative-runtime-files) for what they mean. When a flagged file belongs to a dependency package, the build appends one hint naming the declared dependencies to add to `bunko.external`, so packages such as `@google-cloud/spanner` keep their module-relative `protos` directories in `node_modules` instead of being inlined with a build-host path.
+
+`bunko.build.moduleLocations` accepts `"warn"` (default) or `"error"`. With `"error"`, the build fails after listing the warnings and the hint, which makes CI catch relocated dependency files before the container dies on first use. `--module-locations warn|error` overrides the manifest for one invocation and is accepted by `build`, `resolve`, `apply`, `check-config` and `doctor`. The key merges through workspace `defaults.build` like other build settings; a source-mode member must clear inherited bundler settings with `"build": null`, while the invocation override is accepted in every mode because source mode produces no such diagnostics.
+
 ## Toolchain declarations
 
 Bunko selects an already installed Bun binary using the existing PATH or `--bun-path` behavior. `bunko.toolchain.version` can require an exact supported Bun version; `bunko.toolchain.revision` can additionally require the exact revision string printed by that binary's `bun --revision` command. No version declaration downloads or provisions a toolchain.
 
 An exact `packageManager: "bun@1.3.11"` also constrains the selection. rc.4 and later accept stable Bun >=1.3.11 <1.5 declarations, including Bun 1.4; compile/injection support additionally requires an exact verified runtime pin. Bun packageManager ranges, aliases and integrity suffixes are not supported. Other package-manager names do not select Bun. Workspace-root and member Bun packageManager pins must agree with the effective Bunko version requirement. Both root and member `engines.bun` ranges must accept the selected version.
 
-`check-config` reports the declarations without requiring Bun execution. `doctor` and builds compare them with the selected local binary before dependency installation or base-registry access. A mismatch fails with an instruction to install/select the required local binary. Runtime compatibility with a custom base remains a separate check; declarations do not certify that base's embedded Bun version.
+`check-config` reports the declarations and their sources without requiring Bun execution. `doctor` and builds compare them with the selected local binary before dependency installation or base-registry access. A mismatch fails with a message naming the selected binary path and version, the declared version, revision or range, and the declaration source (`package.json#packageManager`, `bunko.toolchain.version`, `bunko.toolchain.revision` or `<member>/package.json#engines.bun`), so the user can decide between installing/selecting the required local binary and changing the declaration. Runtime compatibility with a custom base remains a separate check; declarations do not certify that base's embedded Bun version.
 
 ## Asset exclusions and permissions
 

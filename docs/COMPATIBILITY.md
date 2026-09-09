@@ -25,7 +25,13 @@ The supported CLI distribution is the self-contained `bunko.js` release artifact
 
 Application `--mode compile` is separate from distributing the CLI as a native executable. A standalone CLI binary, Windows support and automatic Bun upgrades are not provided. Explicit pinned Bun installations keep builds and cache keys traceable. A Bun patch change can change compiled output and cache keys; rebuild and recheck both image platforms before updating production.
 
+## Migration from 0.1.0
+
+Inherited root base users (including zero-padded UID 0) now default to `65532:65532`. This changes image digests and can affect permissions or low-port binding. Applications requiring root must explicitly set `bunko.user` or `--image-user` to `0:0`; explicit user settings remain authoritative. Validate runtime file access and startup with the selected base.
+
 ## Migration from earlier previews
+
+Moving an existing Dockerfile build to Bunko is covered in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md). Changes between Bunko previews:
 
 - `|` YAML block scalars preserve a trailing newline and are rejected as invalid bunko references. Use `|-` for an exact URI value.
 - Boolean options accept `--flag`, `--no-flag`, and explicit `--flag=true|false`. A known flag supplied to an unrelated command is now an error, including `push-layout --push=false`; use `build --push=false --oci-layout DIR` for an export.

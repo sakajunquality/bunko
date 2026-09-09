@@ -11,13 +11,16 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
   return value === "true";
 }
 export function buildArguments(inputs: Inputs, root: string): { args: string[]; layout: string; report: string; references: string } {
-  const push = boolean(inputs.push, false), report = join(root, "report.json"), references = push ? join(root, "references.txt") : "";
+  // An explicit report input keeps the report at a workflow-chosen path; the default stays in the Action temporary directory and the output reports whichever path was used.
+  const push = boolean(inputs.push, false), report = inputs.report ? resolve(inputs.report) : join(root, "report.json"), references = push ? join(root, "references.txt") : "";
+  if (/[\r\n]/.test(report)) throw new Error("Build Action report paths cannot contain line breaks");
   if (push && !inputs.repo) throw new Error("The build Action requires repo when push is true");
   const layout = !push || boolean(inputs["export-layout"], false) ? join(root, "layout") : "";
   const args = ["build", resolve(inputs.path || "."), `--push=${push}`, "--report", report];
   if (layout) args.push("--oci-layout", layout);
   if (references) args.push("--image-refs", references);
-  for (const [input, flag] of [["repo", "repo"], ["platforms", "platform"], ["mode", "mode"], ["base", "base"], ["base-layout", "base-layout"], ["cache-dir", "cache-dir"], ["cache-repo", "cache-repo"], ["runtime-inject", "runtime-inject"], ["registry-config", "registry-config"]]) {
+  if (boolean(inputs.bare, false)) args.push("--bare");
+  for (const [input, flag] of [["repo", "repo"], ["platforms", "platform"], ["mode", "mode"], ["base", "base"], ["base-layout", "base-layout"], ["cache-dir", "cache-dir"], ["cache-repo", "cache-repo"], ["runtime-inject", "runtime-inject"], ["registry-config", "registry-config"], ["install-cache", "install-cache"], ["image-user", "image-user"]]) {
     if (inputs[input!]) args.push(`--${flag}`, inputs[input!]!);
   }
   for (const [input, flag] of [["targets", "target"], ["tags", "tag"], ["cache-from", "cache-from"], ["asset-contexts", "asset-context"], ["registry-mirrors", "registry-mirror"]]) for (const value of list(inputs[input!])) args.push(`--${flag}`, value);
