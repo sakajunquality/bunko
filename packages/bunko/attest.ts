@@ -50,7 +50,7 @@ export function provenance(result: BuildResult, lockDigest?: string) {
           ...(lockDigest ? [dependency("urn:bunko:lock", lockDigest)] : []),
           ...result.images.flatMap((image) => { const release = image.runtime ?? image.compileRuntime; return release ? [dependency(release.url, release.archiveDigest), { ...dependency(release.url.replace(/\/[^/]+$/, "/SHASUMS256.txt.asc"), release.checksumDocumentDigest), annotations: { signer: release.signer, policy: release.policy } }] : []; }),
           ...result.images.map((image) => dependency(`urn:bunko:base:${image.platform.architecture}`, image.baseDigest)),
-          ...result.images.flatMap((image) => image.baseInventory ? [dependency(`oci://${image.baseInventory.reference}`, image.baseInventory.artifactDigest)] : []),
+          ...result.images.flatMap((image) => image.baseInventory ? [dependency(image.baseInventory.reference.startsWith("urn:") ? image.baseInventory.reference : `oci://${image.baseInventory.reference}`, image.baseInventory.artifactDigest)] : []),
           ...result.images.flatMap((image) => image.dependencyArtifact ? [dependency(`urn:bunko:dependencies:${image.platform.architecture}`, image.dependencyArtifact)] : []),
           { uri: `https://github.com/oven-sh/bun/tree/${result.toolchain.revision}`, ...(result.toolchain.digest ? { digest: { sha256: result.toolchain.digest.slice(7) } } : {}), annotations: { version: result.toolchain.version } },
         ] },

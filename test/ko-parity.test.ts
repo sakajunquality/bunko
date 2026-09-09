@@ -8,6 +8,7 @@ import { loadProject } from "../packages/bunko/config.ts";
 import { labelSelector, selectDocuments } from "../packages/bunko/selector.ts";
 import { baseLayout, inspectTar, project, readJSON, temporary } from "./helpers.ts";
 import { MockRegistry } from "./mock-registry.ts";
+import { sha256 } from "../packages/oci/digest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 
 const directories: string[] = [];
@@ -24,7 +25,8 @@ test("image metadata overrides are deterministic and annotations reach manifest 
     imageLabels: { team: "new=team,yes" }, imageAnnotations: { note: "new" }, imageUser: "65532:65532" });
   const config = await readJSON<any>(output, result.config), manifest = await readJSON<any>(output, result.images[0]!.manifest), index = await readJSON<any>(output, result.root);
   expect(config.config.Labels.team).toBe("new=team,yes"); expect(config.config.User).toBe("65532:65532");
-  expect(manifest.annotations).toEqual({ note: "new" }); expect(index.annotations).toEqual(manifest.annotations);
+  expect(manifest.annotations).toEqual({ note: "new", "org.opencontainers.image.base.digest": result.images[0]!.baseDigest });
+  expect(index.annotations).toEqual({ note: "new", "org.opencontainers.image.base.digest": sha256(await readFile(join(f.base, "index.json"))) });
   await expect(loadProject({ path: f.source, imageAnnotations: { "org.opencontainers.image.ref.name": "wrong" } })).rejects.toThrow("reserved");
   await expect(loadProject({ path: f.source, imageLabels: { "org.bunko.version": "wrong" } })).rejects.toThrow("reserved");
 });
