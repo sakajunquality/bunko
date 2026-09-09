@@ -24,6 +24,8 @@ export class Publisher {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
   readonly scope: string;
+  private readonly acknowledgedSubjects = new Map<string, string>();
+  acceptsSubject(manifest: Descriptor, subject: Descriptor): boolean { return this.acknowledgedSubjects.get(manifest.digest) === subject.digest; }
   constructor(value: string, options: RegistryOptions = {}) {
     this.ref = repository(value);
     this.client = registryClient(this.ref.registry, options);
@@ -212,6 +214,7 @@ export class Publisher {
 
   async manifest(store: BlobStore, d: Descriptor, reference: string = d.digest): Promise<void> {
     const bytes = await store.read(d);
+    this.acknowledgedSubjects.delete(d.digest);
     const path = `/v2/${this.ref.repository}/manifests/${reference}`;
     let response: Response;
     for (let attempt = 0; ; attempt++) {
@@ -233,10 +236,18 @@ export class Publisher {
     if (!response.ok) throw new Error("Registry did not accept manifest");
     const declared = response.headers.get("Docker-Content-Digest");
     if (declared && declared !== d.digest) throw new Error("Published manifest digest mismatch");
+    const acceptedSubject = response.headers.get("OCI-Subject");
+    if (acceptedSubject) {
+      const subject = object(JSON.parse(Buffer.from(bytes).toString()), "Published manifest").subject;
+      if (!subject || acceptedSubject !== descriptor(subject).digest) throw new Error("Registry OCI-Subject acknowledgement mismatch");
+    }
     for (let attempt = 0; ; attempt++) {
       const check = await this.client.request(`/v2/${this.ref.repository}/manifests/${reference}`, {}, [this.scope], [404]);
       if (check.status === 404) await check.body?.cancel();
-      else if (sha256(await responseBytes(check)) === d.digest) return;
+      else if (sha256(await responseBytes(check)) === d.digest) {
+        if (acceptedSubject) this.acknowledgedSubjects.set(d.digest, acceptedSubject);
+        return;
+      }
       if (attempt >= 3) throw new Error("Registry did not return the published manifest bytes after bounded verification retries");
       await this.client.backoff(attempt);
     }
