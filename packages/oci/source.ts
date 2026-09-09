@@ -1,4 +1,4 @@
-import { registryHost } from "./mirrors.ts";
+import { registryHost, mirrorEndpoint } from "./mirrors.ts";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -70,7 +70,7 @@ export class RegistrySource implements ImageSource {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
   private readonly onMirrorFallback?: RegistryOptions["onMirrorFallback"];
-  private readonly mirrors: RegistryClient[];
+  private readonly mirrors: { client: RegistryClient; repository: string; name: string }[];
   constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
     const settings = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
@@ -78,19 +78,20 @@ export class RegistrySource implements ImageSource {
     this.client = registryClient(this.ref.registry, settings);
     const hosts = settings.mirrors?.[registryHost(this.ref.registry, true)] ?? [];
     if (!Array.isArray(hosts) || hosts.length > 8) throw new Error("At most eight mirrors are allowed per registry");
-    this.mirrors = hosts.map((host) => registryClient(registryHost(host), settings, true));
+    this.mirrors = hosts.map((value) => { const mirror = mirrorEndpoint(value); return { client: registryClient(mirror.registry, settings, true), repository: mirror.prefix ? `${mirror.prefix}/${this.ref.repository}` : this.ref.repository, name: mirror.name }; });
   }
   private async read(path: string, digestAddressed: boolean): Promise<Response> {
     const scopes = [`repository:${this.ref.repository}:pull`];
-    if (digestAddressed) for (const mirror of this.mirrors) {
+    if (digestAddressed) for (const endpoint of this.mirrors) {
+      const mirror = endpoint.client;
       if (unavailableMirrors.has(mirror)) continue;
-      try { return await mirror.request(path, {}, scopes); }
+      try { return await mirror.request(path.replace(`/v2/${this.ref.repository}/`, `/v2/${endpoint.repository}/`), {}, [`repository:${endpoint.repository}:pull`]); }
       catch (error) {
         if (!(error instanceof RegistryConnectionError) && !(error instanceof RegistryError && (error.status === 404 || error.status === 429 || error.status >= 500))) throw error;
         if (!(error instanceof RegistryError && error.status === 404)) unavailableMirrors.add(mirror);
         if (reportedMirrors.has(mirror)) continue;
         reportedMirrors.add(mirror);
-        this.onMirrorFallback?.({ registry: this.ref.registry, mirror: mirror.registry, reason: error instanceof RegistryError ? `HTTP ${error.status}` : "connection failed" });
+        this.onMirrorFallback?.({ registry: this.ref.registry, mirror: endpoint.name, reason: error instanceof RegistryError ? `HTTP ${error.status}` : "connection failed" });
       }
     }
     return this.client.request(path, {}, scopes);

@@ -7,9 +7,9 @@ import { media } from "../packages/oci/types.ts";
 const bytes = Buffer.from(JSON.stringify({ schemaVersion: 2, mediaType: media.manifest, config: {}, layers: [] }));
 const digest = sha256(bytes);
 
-test("mirror inputs normalize hosts, preserve order and reject path or credential injection", () => {
+test("mirror inputs normalize hosts, preserve order and reject unsafe paths or credentials", () => {
   expect(registryMirrors(["docker.io=mirror.example:443", "index.docker.io=second.example"])).toEqual({ "registry-1.docker.io": ["mirror.example:443", "second.example"] });
-  for (const input of ["origin.example", "origin.example=https://mirror.example", "origin.example=user@mirror.example", "origin.example=mirror.example/path", "origin.example=origin.example:443", "origin.example=mirror.example=extra"]) expect(() => registryMirrors([input])).toThrow();
+  for (const input of ["origin.example", "origin.example=https://mirror.example", "origin.example=user@mirror.example", "origin.example=mirror.example/../path", "origin.example=origin.example:443", "origin.example=mirror.example=extra"]) expect(() => registryMirrors([input])).toThrow();
   expect(() => registryMirrors(["origin.example=mirror.example", "origin.example:443=mirror.example:443"])).toThrow("Duplicate");
 });
 
@@ -79,4 +79,22 @@ test("a mirror cache miss does not disable other digest lookups", async () => {
   } };
   for (let i = 0; i < 3; i++) await new RegistrySource(`origin.example/team/app@${digest}`, options).root();
   expect(calls).toBe(3); expect(warnings).toBe(1);
+});
+
+
+test("repository-prefixed mirrors use mapped paths and scopes with host-only credentials", async () => {
+  const scopes: string[] = [], paths: string[] = [], hosts: string[] = [];
+  const source = new RegistrySource(`docker.io/library/app@${digest}`, { mirrors: registryMirrors(["docker.io=us-docker.pkg.dev/example-project/cache"]),
+    credentials: async (host) => { hosts.push(host); return { username: "test", password: "test" }; }, fetcher: async (value, init) => {
+      const url = new URL(value);
+      if (url.host === "auth.example") { scopes.push(url.searchParams.get("scope")!); return Response.json({ token: "mirror-token" }); }
+      paths.push(url.pathname); expect(url.host).toBe("us-docker.pkg.dev");
+      return new Headers(init?.headers).has("Authorization") ? new Response(bytes) : new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
+    } });
+  expect((await source.root()).descriptor.digest).toBe(digest);
+  expect(scopes).toEqual(["repository:example-project/cache/library/app:pull"]);
+  expect(hosts).toEqual(["us-docker.pkg.dev"]);
+  expect(paths.every((path) => path === `/v2/example-project/cache/library/app/manifests/${digest}`)).toBe(true);
+  expect(() => registryMirrors(["docker.io=mirror.example/cache", "docker.io=mirror.example:443/cache"])).toThrow("Duplicate");
+  expect(registryMirrors(["origin.example=origin.example/cache"])).toEqual({ "origin.example": ["origin.example/cache"] });
 });

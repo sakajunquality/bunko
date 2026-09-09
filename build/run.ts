@@ -17,10 +17,10 @@ export function buildArguments(inputs: Inputs, root: string): { args: string[]; 
   const args = ["build", resolve(inputs.path || "."), `--push=${push}`, "--report", report];
   if (layout) args.push("--oci-layout", layout);
   if (references) args.push("--image-refs", references);
-  for (const [input, flag] of [["repo", "repo"], ["platforms", "platform"], ["mode", "mode"], ["base", "base"], ["base-layout", "base-layout"], ["cache-dir", "cache-dir"], ["cache-repo", "cache-repo"], ["runtime-inject", "runtime-inject"]]) {
+  for (const [input, flag] of [["repo", "repo"], ["platforms", "platform"], ["mode", "mode"], ["base", "base"], ["base-layout", "base-layout"], ["cache-dir", "cache-dir"], ["cache-repo", "cache-repo"], ["runtime-inject", "runtime-inject"], ["registry-config", "registry-config"]]) {
     if (inputs[input!]) args.push(`--${flag}`, inputs[input!]!);
   }
-  for (const [input, flag] of [["targets", "target"], ["tags", "tag"], ["cache-from", "cache-from"], ["asset-contexts", "asset-context"]]) for (const value of list(inputs[input!])) args.push(`--${flag}`, value);
+  for (const [input, flag] of [["targets", "target"], ["tags", "tag"], ["cache-from", "cache-from"], ["asset-contexts", "asset-context"], ["registry-mirrors", "registry-mirror"]]) for (const value of list(inputs[input!])) args.push(`--${flag}`, value);
   args.push(`--otel=${boolean(inputs.otel, false)}`, `--cache-write=${boolean(inputs["cache-write"], true)}`);
   return { args, layout, report, references };
 }

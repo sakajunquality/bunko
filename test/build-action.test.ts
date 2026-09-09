@@ -11,8 +11,9 @@ beforeAll(async () => { root = await temporary(); });
 afterAll(async () => { await rm(root, { recursive: true, force: true }); });
 
 test("build Action keeps arguments literal, exports local images and validates publishing intent", () => {
-  const args = buildArguments({ path: "project with spaces", targets: "first\nsecond", "asset-contexts": "data=literal;$(not-a-command)", push: "false" }, "/tmp/action");
+  const args = buildArguments({ path: "project with spaces", targets: "first\nsecond", "asset-contexts": "data=literal;$(not-a-command)", push: "false", "registry-mirrors": "docker.io=mirror.example/cache\norigin.example=second.example", "registry-config": "tls config.json" }, "/tmp/action");
   expect(args.args).toContain("data=literal;$(not-a-command)");
+  expect(args.args).toContain("docker.io=mirror.example/cache"); expect(args.args).toContain("origin.example=second.example"); expect(args.args).toContain("tls config.json");
   expect(args.args).toContain("--oci-layout"); expect(args.references).toBe("");
   expect(() => buildArguments({ push: "true" }, "/tmp/action")).toThrow("requires repo");
   expect(() => buildArguments({ otel: "yes" }, "/tmp/action")).toThrow("true or false");
