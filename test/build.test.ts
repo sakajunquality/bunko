@@ -3,6 +3,7 @@ import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { build as rawBuild } from "../packages/bunko/build.ts";
 import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
+import { validateCommandOptions } from "../packages/bunko/command-options.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { sha256 } from "../packages/oci/digest.ts";
 import { media, type Descriptor, type ImageConfig, type ImageIndex, type ImageManifest } from "../packages/oci/types.ts";
@@ -195,6 +196,21 @@ describe("configuration", () => {
     const source = await project(join(root, "app"), { module: "missing.ts" });
     await writeFile(join(source, "index.ts"), "console.log(1)");
     await expect(loadProject({ path: source, output: join(root, "out") })).rejects.toThrow();
+  });
+  test("build.moduleLocations accepts warn or error, follows the invocation override, and unknown build keys still fail", async () => {
+    const { root } = await setup();
+    const source = await project(join(root, "app"), { bunko: { build: { moduleLocations: "error" } } });
+    expect((await loadProject({ path: source })).moduleLocations).toBe("error");
+    expect((await loadProject({ path: source, moduleLocations: "warn" })).moduleLocations).toBe("warn");
+    expect((await loadProject({ path: await project(join(root, "default")) })).moduleLocations).toBe("warn");
+    await expect(loadProject({ path: source, moduleLocations: "fatal" })).rejects.toThrow("build.moduleLocations must be warn or error");
+    for (const build of [{ moduleLocations: "strict" }, { moduleLocations: true }, { strict: true }]) {
+      await writeFile(join(source, "package.json"), JSON.stringify({ name: "hello", module: "src/server.ts", bunko: { build } }));
+      await expect(loadProject({ path: source })).rejects.toThrow(/moduleLocations must be warn or error|Unsupported build setting: strict/);
+    }
+    expect((await cli(["build", source, "--module-locations=fatal"])).stderr).toContain("--module-locations must be warn or error");
+    validateCommandOptions("check-config", ["module-locations"]);
+    expect(() => validateCommandOptions("prune", ["module-locations"])).toThrow("--module-locations is not supported by prune");
   });
 });
 

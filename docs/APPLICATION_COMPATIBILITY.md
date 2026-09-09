@@ -28,6 +28,10 @@ Builds report advisory `BUNKO_MODULE_LOCATION` diagnostics for loaded references
 
 Each image report includes `locations.total` and up to 100 deterministic `locations.warnings`, deduplicated by source file and expression. Warnings include context-relative paths and positions, not source excerpts or absolute host paths. Application-cache hits replay the same diagnostics. The diagnostic scan does not execute code or modify paths. `check-config` and `doctor` continue to mark source analysis and module-relative file behavior as unchecked. Test exact file contents inside the final image.
 
+When a flagged file lives inside a dependency package, the build derives the package name from the final `node_modules/<name>` segment (Bun's isolated layout nests packages under `node_modules/.bun/<name>@<version>/node_modules/<name>`) and appends one hint after the warning list, for example `Add "@google-cloud/spanner" to bunko.external so it stays in node_modules with its module-relative files (@grpc/grpc-js, google-gax reached through @google-cloud/spanner)`. Only dependencies declared by the selected target are suggested; packages reached transitively are attributed to the declared dependency that loads them using the bundle's import graph, and flagged packages without a declared dependency path are listed separately. The report carries the same data as `locations.packages` (`name`, `declared`, `via`), and `--progress=json` emits the hint as a `log` event, so CI can act on it without parsing prose. Externalized packages are not scanned, so externalizing a dependency clears its warnings; application files never produce a hint.
+
+`bunko.build.moduleLocations: "error"` or `--module-locations=error` fails the build after listing the warnings and the hint. The default remains `"warn"`.
+
 ## bunfig.toml
 
 Supported settings:

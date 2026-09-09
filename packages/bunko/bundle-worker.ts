@@ -1,4 +1,4 @@
-import { moduleLocations, diagnosticLimit, type LocationDiagnostics } from "./location-diagnostics.ts";
+import { moduleLocations, diagnosticLimit, locationPackage, locationPackages, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { rejectApplicationImports, rejectMacroSyntax } from "./syntax.ts";
@@ -12,6 +12,8 @@ export interface WorkerOptions {
   outdir: string;
   external: string[];
   allowUnresolved?: string[];
+  /** Declared production dependency names of the target, used to resolve flagged dependency packages. */
+  dependencies?: string[];
   minify: boolean;
   sourcemap: "none" | "external";
   define: Record<string, string>;
@@ -31,7 +33,7 @@ export async function guardedBuild(options: WorkerOptions) {
     return local;
   }
   const locations: LocationDiagnostics = { total: 0, warnings: [] };
-  const warned = new Set<string>();
+  const warned = new Set<string>(), flagged = new Set<string>();
   const validation = { parsed: 0, reused: 0, bytes: 0 };
   const result = await Bun.build({
     throw: false, entrypoints, splitting: options.entrypoints !== undefined, root: options.root,
@@ -52,6 +54,8 @@ export async function guardedBuild(options: WorkerOptions) {
           if (!warned.has(path)) {
             warned.add(path);
             const warnings = moduleLocations(code, local.split(sep).join("/"));
+            const owner = warnings.length ? locationPackage(local.split(sep).join("/")) : undefined;
+            if (owner) flagged.add(owner);
             locations.total += warnings.length;
             locations.warnings.push(...warnings);
             locations.warnings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line || a.column - b.column);
@@ -79,6 +83,8 @@ export async function guardedBuild(options: WorkerOptions) {
     } }],
   });
   if (result.success && result.metafile) {
+    const owners = new Map<string, string | undefined>(), edges: [string | undefined, string][] = [];
+    for (const source of Object.keys(result.metafile.inputs)) { const path = await realpath(resolve(process.cwd(), source)); owners.set(path, locationPackage(contained(path).split(sep).join("/"))); }
     for (const [source, input] of Object.entries(result.metafile.inputs)) {
       const importer = await realpath(resolve(process.cwd(), source));
       for (const item of input.imports) {
@@ -88,8 +94,12 @@ export async function guardedBuild(options: WorkerOptions) {
         try { candidates.push(await realpath(Bun.resolveSync(item.original ?? item.path, dirname(importer)))); } catch { /* Builtins and virtual imports have no file path. */ }
         const target = candidates.find((path) => dataLoaders.has(path));
         if (target && dataImports.get(importer)?.get(item.original ?? item.path) !== dataLoaders.get(target)) throw new Error("A file cannot mix data-loader and ordinary imports");
+        // Package-level edges explain which declared dependency loads a flagged transitive package.
+        const imported = candidates.find((path) => owners.has(path));
+        if (imported !== undefined && owners.get(imported) !== undefined) edges.push([owners.get(importer), owners.get(imported)!]);
       }
     }
+    locations.packages = locationPackages(flagged, options.dependencies ?? [], edges);
   }
   return Object.assign(result, { validation, locations });
 }

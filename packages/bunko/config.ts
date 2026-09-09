@@ -29,6 +29,7 @@ export interface BuildOptions {
   imageUser?: string;
   imageRefs?: string;
   mode?: string;
+  moduleLocations?: string;
   jobs?: number;
   appCache?: boolean;
   targets?: string[];
@@ -83,6 +84,7 @@ export interface Project {
   runtimeArgs: string[];
   toolchainRequirements: ToolchainRequirements;
   mode: "bundle" | "compile" | "source";
+  moduleLocations: "warn" | "error";
   directory: string;
   manifestText: string;
   workspace?: Workspace;
@@ -196,7 +198,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined || process.env.BUNKO_DEFAULT_BASE !== undefined ? ["base"] : []),
     ...(options.platform !== undefined || process.env.BUNKO_DEFAULT_PLATFORMS !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
     ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
-    ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []),
+    ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []), ...(options.moduleLocations !== undefined ? ["build.moduleLocations"] : []),
     ...Object.keys(options.define ?? {}).map((name) => `build.define.${name}`),
     ...Object.keys(options.imageLabels ?? {}).map((name) => `labels.${name}`), ...Object.keys(options.imageAnnotations ?? {}).map((name) => `annotations.${name}`),
   ];
@@ -223,7 +225,9 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (mode === "source" && (depsStrategy !== "production" || options.sharedDeps || config.sharedDeps)) throw new Error("Source mode requires production dependencies without sharedDeps");
   const build = config.build === undefined ? {} : object(config.build, "build");
   if (mode === "source" && (Object.keys(build).length || Object.keys(options.define ?? {}).length)) throw new Error("Source mode does not accept bundler build settings or invocation defines");
-  knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target", "allowUnresolved"], "build");
+  knownKeys(build, ["minify", "sourcemap", "define", "bytecode", "target", "allowUnresolved", "moduleLocations"], "build");
+  const moduleLocations = options.moduleLocations ?? build.moduleLocations ?? "warn";
+  if (moduleLocations !== "warn" && moduleLocations !== "error") throw new Error("build.moduleLocations must be warn or error");
   if (build.allowUnresolved !== undefined && (!Array.isArray(build.allowUnresolved) || !build.allowUnresolved.every((value) => typeof value === "string" && !/[\x00-\x1f]/.test(value)))) throw new Error("build.allowUnresolved must be an array of specifier patterns");
   if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
   if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported");
@@ -318,7 +322,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     runtimeCAs,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
     inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain, workspace ? ["package.json", join(relative(workspace.directory, directory), "package.json")] : []),
-    mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
+    mode, moduleLocations, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
     runtimeInject: runtimeInject as "release" | undefined,
