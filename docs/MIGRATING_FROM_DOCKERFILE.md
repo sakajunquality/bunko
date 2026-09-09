@@ -122,7 +122,7 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
 ```yaml
 - uses: sakajunquality/bunko@<commit>
   with:
-    version: v0.1.1
+    version: v0.1.2
     bun-version: 1.4.2
 - name: Download tool
   env:

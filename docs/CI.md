@@ -10,16 +10,16 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/bunko@d060057d7831da8dff65bc762abbbffab4ee3879
+  - uses: sakajunquality/bunko@bed0ac61fba055c84212cd4a09e9dd4f13b5f6dd
     with:
-      version: v0.1.1
+      version: v0.1.2
       bun-version: 1.4.2
       verify-attestation: 'true'
   - name: Authenticate to GHCR
     env:
       GHCR_TOKEN: ${{ github.token }}
     run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-  - uses: sakajunquality/bunko/build@d060057d7831da8dff65bc762abbbffab4ee3879
+  - uses: sakajunquality/bunko/build@bed0ac61fba055c84212cd4a09e9dd4f13b5f6dd
     id: image
     with:
       path: .
@@ -43,7 +43,7 @@ Persist a local `cache-dir` with your CI cache service, or use explicit registry
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-On main after promotion, setup defaults to the verified 0.1.1 release and Bun 1.4.2. The immutable `v0.1.1` Action tag defaults to CLI 0.1.0 and Bun 1.4.2; pass `version: v0.1.1` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+On main after promotion, setup defaults to the verified 0.1.2 release and Bun 1.4.2. The immutable `v0.1.2` Action tag defaults to CLI 0.1.1 and Bun 1.4.2; pass `version: v0.1.2` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## Invocation constants
 
