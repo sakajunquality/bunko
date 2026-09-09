@@ -32,6 +32,18 @@ After rc.4, `check-config` and `doctor` report `inheritedDefaults` for each targ
 
 `bunko.user` (or `--image-user`) sets the OCI `User` of the built image. Without it, a base image `User` other than root is inherited; a base `User` that is absent, empty or root (`0`, `0:0`, `00:00`, `root`, `root:root` and similar spellings) is replaced by `65532:65532`, the `nonroot` account shipped by `oven/bun:<version>-distroless`. The build logs `Base image declares User 0; running as 65532:65532` once per platform image when that replacement occurs. Set `"user": "0:0"` explicitly for a base that must run as root, and pick another user (for example `"1000:1000"`) when the base defines it.
 
+## Undeclared runtime imports
+
+```json
+{
+  "bunko": {
+    "deps": { "strategy": "closure", "undeclaredImports": "warn" }
+  }
+}
+```
+
+`deps.undeclaredImports` controls the closure-strategy scan for packages that import a name they do not declare (see [APPLICATION_COMPATIBILITY.md](APPLICATION_COMPATIBILITY.md)). `warn` (default) logs one `BUNKO_UNDECLARED_IMPORT` line per package and missing name and continues; `error` fails the build when any are found; `off` skips the scan. The key is a dependency-policy map entry, so a workspace root can set it in `bunko.defaults.deps` and members can override it. Targets sharing one closure under `sharedDeps` are governed by the strictest of their policies. The production strategy is unaffected: hoisted production installs resolve undeclared names the same way local development does.
+
 ## Bun runtime arguments
 
 `bunko.runtime.args` is an array of arguments placed after the Bun executable and before the entry script. Use it for runtime flags such as `--smol` or runtime export conditions. Repeat `--runtime-arg=VALUE` to replace that array for an invocation; using `=` allows values beginning with `--`.

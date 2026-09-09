@@ -7,9 +7,10 @@ import type { TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
 import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, packageRoot, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { declaredNames, scannableRuntimeFile, undeclaredImportPolicy, undeclaredImports, type UndeclaredImport } from "./undeclared-imports.ts";
 
 export const closureDirectory = ".bunko-deps";
-interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string> }
+interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string>; declared?: Set<string> }
 
 /** Project the concrete Linux install, including Bun's peer contexts. No version
  * selection occurs here: every edge is resolved against the installed tree. */
@@ -70,9 +71,11 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     }
   }
   const destination = (path: string) => `${prefix}/${closureDirectory}/${path}`;
-  const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
+  const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [], undeclared: UndeclaredImport[] = [];
   const ledger = new AddonLedger(platform, root);
-  async function walk(path: string) {
+  // Each instance resolves only what it declares, so an undeclared bare import that hoisting masks elsewhere fails at runtime here.
+  const scan = undeclaredImportPolicy(projects) !== "off";
+  async function walk(path: string, instance: Instance) {
     const file = join(root, path), info = await lstat(file);
     if (info.isSymbolicLink()) {
       const target = local(await realpath(file));
@@ -81,12 +84,20 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
       entries.push({ type: "symlink", path: destination(path), target: relative(dirname(destination(path)), destination(target)) });
     } else if (info.isDirectory()) {
       entries.push({ type: "directory", path: destination(path) });
-      for (const child of (await readdir(file)).sort()) if (child !== "node_modules") await walk(`${path}/${child}`);
+      for (const child of (await readdir(file)).sort()) if (child !== "node_modules") await walk(`${path}/${child}`, instance);
     } else if (info.isFile()) {
       const elf = await inspectRuntimeFile(file, path, platform, ledger);
       if (elf === null) return;
       if (elf) native.push({ ...elf, path: destination(path) });
       entries.push({ type: "file", path: destination(path), source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
+      if (scan && scannableRuntimeFile(path, info.size)) {
+        const declared = instance.declared ??= declaredNames(instance.manifest);
+        for (const name of undeclaredImports(await readFile(file, "utf8"), declared)) {
+          // One finding per instance and missing name; the first file in sorted walk order is the witness.
+          if (undeclared.some((item) => item.path === instance.path && item.name === name)) continue;
+          undeclared.push({ code: "BUNKO_UNDECLARED_IMPORT", package: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), path: instance.path, name, file: relative(instance.path, path) });
+        }
+      }
     } else throw new Error(`Unsupported runtime file: ${path}`);
   }
   function aliases(edges: Map<string, string>, modules: string): TarEntry[] {
@@ -115,10 +126,10 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     inventory.push({ path, name: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), license: packageLicense(instance.manifest.license) });
     const hooks = ignoredInstallScripts(instance.manifest, projects[0]?.allowIgnoredScripts);
     if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
-    await walk(path);
+    await walk(path, instance);
     entries.push(...aliases(instance.edges, `${destination(path)}/node_modules`));
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   native.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  return { entries, inventory, native, omitted: ledger.finish(), aliases: new Map([...roots].map(([path, edges]) => [path, aliases(edges, `${prefix}/node_modules`)])) };
+  return { entries, inventory, native, undeclared, omitted: ledger.finish(), aliases: new Map([...roots].map(([path, edges]) => [path, aliases(edges, `${prefix}/node_modules`)])) };
 }
