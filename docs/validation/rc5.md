@@ -18,7 +18,7 @@ Host Bun for real execution: 1.4.2, revision `744846f84`. Target platforms: Linu
 | Fonts | All eight positive and eight negative controls passed across bundle/source, both architectures and fontconfig/explicit-directory discovery |
 | OpenTelemetry | Collector 0.120.0 received both distributed-CLI traces and metrics |
 
-Reproduction, after selecting Bun 1.4.2 in PATH and preparing the exact candidate:
+First select Bun 1.3.11 in PATH and run `bun run release:prepare`. Then select Bun 1.4.2 in PATH to execute the already-prepared candidate with the commands below. The release workflow also prepares its asset with Bun 1.3.11; the Action/container runtime selection is a separate input.
 
 ```sh
 cp dist/release/bunko.js dist/bunko.js
@@ -35,7 +35,7 @@ These are synthetic fixtures. They do not certify the separate application-machi
 
 ## Live registry and upstream evidence
 
-- [GAR conformance](rc5-gar.json) and [Docker Hub conformance](rc5-dockerhub.json) passed deterministic publication, source-only updates, registry cache reuse with no repeated dependency/asset upload, independent verified pulls, direct Docker pulls and native nonroot/read-only execution on both architectures. Reports record the exact CLI fingerprint above. Unique test image/cache tags remain in the owner-selected dedicated repositories.
+- [GAR conformance](rc5-gar.json) and [Docker Hub conformance](rc5-dockerhub.json) passed deterministic publication, source-only updates, registry cache reuse with no repeated dependency/asset upload, independent verified pulls, direct Docker pulls and native nonroot/read-only execution on both architectures. Reports record the exact CLI fingerprint above, using the `sha256:` prefix in their invocation and builder digest fields. Unique test image/cache tags remain in the owner-selected dedicated repositories.
 - [GAR supply-chain validation](rc5-gar-supply-chain.json) used the exact CLI to publish a multiarchitecture root, two SPDX documents and one provenance document. Independent metadata discovery and all six private signatures passed with cosign 3.1.3; no transparency-log upload was requested.
 - [Authenticated upstream validation](rc5-private-upstream.json) confirmed anonymous denial and authenticated access to the existing private GAR mirror of public Bun content. Both bundle and compile SQLite applications ran on linux/arm64 with read-only filesystems. The bundle also published to Docker Hub using separate downstream credentials. No proprietary base content was copied or published.
 

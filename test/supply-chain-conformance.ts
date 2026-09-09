@@ -58,8 +58,8 @@ try {
     attestations: result.attestations, verified, privateSignatures: true, deterministic: result.verifiedDeterministic });
   console.log(`PASS: ${vendor} OCI attachments and ${verified.length} private signatures verified; report=${report}`);
 } catch (error) {
-  if (!result && await Bun.file(join(directory, "build.json")).exists()) result = await Bun.file(join(directory, "build.json")).json();
-  if (!await Bun.file(report).exists()) await writeReport(report, { schemaVersion: 1, vendor, status: "failed", publication: result?.publication,
+  if (!result && await Bun.file(join(directory, "build.json")).exists()) result = await Bun.file(join(directory, "build.json")).json().catch(() => undefined);
+  if (!await Bun.file(report).exists()) await writeReport(report, { schemaVersion: 1, vendor, status: "failed", invocation: cliDigest ? { kind: "cli", digest: cliDigest } : { kind: "source" }, publication: result?.publication,
     error: error instanceof Error ? error.message : "Conformance failed" });
   throw error;
 } finally {
