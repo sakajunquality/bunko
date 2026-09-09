@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDocuments, type ResolveOptions } from "./resolve.ts";
-import { assertReportNotInput, assertReportWritable, writeReport } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeFailureReport, writeReport } from "./build.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 
 export interface ApplyOptions extends ResolveOptions {
@@ -52,7 +52,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     return { exit, stdout, stderr };
   } catch (error) {
     if (await Bun.file(resolutionReport).exists()) resolution = JSON.parse(await readFile(resolutionReport, "utf8"));
-    if (report && !written.has(report)) await writeReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, resolution, error: error instanceof Error ? error.message : "Apply failed" });
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, resolution, error: error instanceof Error ? error.message : "Apply failed" }, error);
     throw error;
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }

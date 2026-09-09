@@ -139,6 +139,16 @@ export async function writeReport(path: string, value: unknown, written?: Set<st
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
+/** A secondary report failure must not replace the original build/publication error. */
+export async function writeFailureReport(path: string, value: unknown, original: unknown, written?: Set<string>): Promise<void> {
+  try { await writeReport(path, value, written); }
+  catch {
+    if (original instanceof Error) {
+      try { original.message += " (failure report could not be written)"; } catch { /* Preserve immutable errors too. */ }
+    }
+  }
+}
+
 interface BuildContext {
   mappedAssets: Awaited<ReturnType<typeof stageAssetMappings>>;
   syntax: SyntaxCache;
@@ -449,7 +459,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
           catch (error) {
             if (error instanceof PublicationError && !result.publication) result.publication = error.result;
-            if (report && !context.multiple) await writeReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" }, context.reports);
+            if (report && !context.multiple) await writeFailureReport(report, { ...result, status: "failed", error: error instanceof Error ? error.message : "Publication failed" }, error, context.reports);
             throw error;
           }
           finally {
@@ -568,11 +578,11 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
-    if (report && reportSafe && !reports.has(report)) await writeReport(report, {
+    if (report && reportSafe && !reports.has(report)) await writeFailureReport(report, {
       schemaVersion: 3, status: "failed", error: error instanceof Error ? error.message : "Build failed",
       targets: projects.flatMap((project) => prepared.filter((item) => item.result.target === project.name).map((item) => item.result)),
       pendingTargets: projects.filter((project) => !finished.has(project.name)).map((project) => project.name),
-    });
+    }, error, reports);
   };
   try {
     const source = join(temporary, "source");

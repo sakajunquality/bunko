@@ -24,7 +24,7 @@ import { extname, join, resolve as absolute } from "node:path";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Node } from "yaml";
 import { canonicalOutput } from "../oci/layout.ts";
 import { repository, repositoryName } from "../oci/publish.ts";
-import { assertReportNotInput, assertReportWritable, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeFailureReport, prepareTargets, writeReport, type BuildResult, type PreparedTargets } from "./build.ts";
 import { loadProject, type BuildOptions } from "./config.ts";
 import { discover } from "./workspace.ts";
 
@@ -228,7 +228,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     return { output, targets };
   } catch (error) {
     for (const batch of batches) for (const target of batch.results) if (target.localReference || target.publication?.published && !target.publication.pendingTags.length && (!target.supplyChain || target.supplyChain.status === "complete")) completed.add(names.get(target.target)!);
-    if (report) await writeReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) });
+    if (report) await writeFailureReport(report, { schemaVersion: 4, command: "resolve", status: "failed", error: error instanceof Error ? error.message : "Resolve failed", targets: batches.flatMap((batch) => batch.results), pendingTargets: paths.filter((path) => !completed.has(path)) }, error);
     throw error;
   } finally { await Promise.all(batches.map((batch) => batch.dispose())); }
 }

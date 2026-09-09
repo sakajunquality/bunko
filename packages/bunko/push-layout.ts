@@ -8,7 +8,7 @@ import { LayoutSource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { publishArtifacts } from "../oci/artifacts.ts";
 import { canonicalOutput } from "../oci/layout.ts";
-import { assertReportNotInput, assertReportWritable, writeReport } from "./build.ts";
+import { assertReportNotInput, assertReportWritable, writeFailureReport, writeReport } from "./build.ts";
 import { media, type Descriptor } from "../oci/types.ts";
 
 export async function pushLayout(directory: string, repository: string, tags: string[] = [], registry: RegistryOptions = {}, reportPath?: string, tagConflict: TagConflict = "fail") {
@@ -66,7 +66,7 @@ export async function pushLayout(directory: string, repository: string, tags: st
     return publication;
   } catch (error) {
     if (!publication && error instanceof PublicationError) publication = error.result;
-    if (report && !written.has(report)) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "failed", publication, error: error instanceof Error ? error.message : "Layout publication failed" });
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "push-layout", status: "failed", publication, error: error instanceof Error ? error.message : "Layout publication failed" }, error);
     if (publication?.published) throw new PublicationError(`Layout publication incomplete; image root was published at ${publication.reference}: ${error instanceof Error ? error.message : "attachment failure"}`, publication, error);
     throw error;
   } finally { await rm(temporary, { recursive: true, force: true }); }
