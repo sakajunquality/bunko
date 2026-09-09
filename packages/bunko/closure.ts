@@ -7,10 +7,11 @@ import type { TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
 import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, packageRoot, type InventoryEntry, type NativeBinary } from "./deps.ts";
-import { declaredNames, scannableRuntimeFile, undeclaredImportPolicy, undeclaredImports, type UndeclaredImport } from "./undeclared-imports.ts";
+import { candidateRuntimeFile, reachableUndeclaredImports, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
 
 export const closureDirectory = ".bunko-deps";
-interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string>; declared?: Set<string> }
+/** `files` maps instance-relative paths of the regular files the undeclared-import scan may consult to their sizes; the scan reads only what the entry points reach. */
+interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string>; files: Map<string, number> }
 
 /** Project the concrete Linux install, including Bun's peer contexts. No version
  * selection occurs here: every edge is resolved against the installed tree. */
@@ -47,7 +48,7 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     if (instances.has(path)) return;
     const manifest = object(JSON.parse(await readFile(join(root, path, "package.json"), "utf8")), "Runtime package.json");
     for (const project of projects) ignoredInstallScripts(manifest, project.allowIgnoredScripts);
-    const instance: Instance = { path, manifest, edges: new Map() };
+    const instance: Instance = { path, manifest, edges: new Map(), files: new Map() };
     instances.set(path, instance);
     const required = object(manifest.dependencies ?? {}, "dependencies");
     const optional = object(manifest.optionalDependencies ?? {}, "optionalDependencies");
@@ -90,15 +91,14 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
       if (elf === null) return;
       if (elf) native.push({ ...elf, path: destination(path) });
       entries.push({ type: "file", path: destination(path), source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
-      if (scan && scannableRuntimeFile(path, info.size)) {
-        const declared = instance.declared ??= declaredNames(instance.manifest);
-        for (const name of undeclaredImports(await readFile(file, "utf8"), declared)) {
-          // One finding per instance and missing name; the first file in sorted walk order is the witness.
-          if (undeclared.some((item) => item.path === instance.path && item.name === name)) continue;
-          undeclared.push({ code: "BUNKO_UNDECLARED_IMPORT", package: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), path: instance.path, name, file: relative(instance.path, path) });
-        }
-      }
+      // Only recorded here: symlinks and nested node_modules never enter the map, so the reachability scan cannot follow imports into them.
+      if (scan) { const local = relative(instance.path, path); if (candidateRuntimeFile(local)) instance.files.set(local, info.size); }
     } else throw new Error(`Unsupported runtime file: ${path}`);
+  }
+  async function scanInstance(instance: Instance) {
+    const findings = await reachableUndeclaredImports(instance.manifest, instance.files, (file) => readFile(join(root, instance.path, file), "utf8"));
+    for (const { name, file } of findings) undeclared.push({ code: "BUNKO_UNDECLARED_IMPORT", package: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), path: instance.path, name, file });
+    instance.files.clear();
   }
   function aliases(edges: Map<string, string>, modules: string): TarEntry[] {
     const result: TarEntry[] = [];
@@ -127,6 +127,7 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     const hooks = ignoredInstallScripts(instance.manifest, projects[0]?.allowIgnoredScripts);
     if (hooks.length) inventory[inventory.length - 1]!.ignoredInstallScripts = hooks;
     await walk(path, instance);
+    if (scan) await scanInstance(instance);
     entries.push(...aliases(instance.edges, `${destination(path)}/node_modules`));
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
