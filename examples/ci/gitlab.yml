@@ -1,6 +1,6 @@
 build-image:
   image:
-    name: ghcr.io/sakajunquality/bunko@sha256:9adf1365ed09a2067d839819f041cd4dfe52fde6cfee735390edf2876e7afee8
+    name: ghcr.io/sakajunquality/bunko@sha256:374f60f864226e03dc3eb47fcc3bd57954f148a200e6c5f4722ad0e50c4e3393
     entrypoint: [""]
   variables:
     HOME: /tmp/bunko-home

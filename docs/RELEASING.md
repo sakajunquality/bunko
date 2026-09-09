@@ -1,8 +1,6 @@
 # Release distribution and setup Action
 
-This source prepares version **0.1.2**. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
-
-The source is preparing 0.1.2; the examples and setup defaults below intentionally remain on the independently verified 0.1.1 release until 0.1.2 passes publication and consumer acceptance. The follow-up promotion updates them together.
+The current published release is **0.1.2**, and main defaults to that independently verified release. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 For maintainers, follow the [release checklist](RELEASE_CHECKLIST.md) for commit/tag guards, publication order, consumer verification and failure recovery.
 
@@ -37,9 +35,9 @@ Once the version tag and release exist:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: sakajunquality/bunko@v0.1.1
+  - uses: sakajunquality/bunko@v0.1.2
     with:
-      version: v0.1.1
+      version: v0.1.2
       bun-version: 1.4.2
       verify-attestation: 'true'
   - run: bunko version
@@ -49,7 +47,7 @@ For stronger pinning, select a reviewed Action commit SHA while keeping the desi
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.1 on main after verified promotion; an explicit version, never latest |
+| version | v0.1.2 on main after verified promotion; an explicit version, never latest |
 | bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -77,4 +75,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The immutable v0.1.1 Action tag retains its preparation-time defaults of CLI 0.1.0 and Bun 1.4.2. Main defaults to the verified 0.1.1 release after promotion; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
+The immutable v0.1.2 Action tag retains its preparation-time defaults of CLI 0.1.1 and Bun 1.4.2. Main defaults to the verified 0.1.2 release after promotion; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
