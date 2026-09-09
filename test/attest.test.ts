@@ -61,11 +61,11 @@ test("referrers fallback retains both artifact types and repeated publication is
 
 test("signing pins digests, disables transparency upload and propagates failure", async () => {
   const root = await fixture(), log = join(root, "args.json"), exe = join(root, "cosign");
-  await writeFile(exe, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)));`, { mode: 0o755 });
+  await writeFile(exe, `#!${process.execPath}\nif (process.argv[2] === "version") { console.log(JSON.stringify({gitVersion:"v3.1.3"})); process.exit(0); }\nawait Bun.write(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)));`, { mode: 0o755 });
   const reference = `registry.test/private@sha256:${"a".repeat(64)}`;
   await signImages([reference], "private.key", exe);
   expect(JSON.parse(await readFile(log, "utf8"))).toEqual(["sign", "--yes", "--key", "private.key", "--use-signing-config=false", "--tlog-upload=false", reference]);
-  await writeFile(exe, `#!${process.execPath}\nprocess.exit(1);`, { mode: 0o755 });
+  await writeFile(exe, `#!${process.execPath}\nif (process.argv[2] === "version") { console.log(JSON.stringify({gitVersion:"v3.1.3"})); process.exit(0); }\nprocess.exit(1);`, { mode: 0o755 });
   await expect(signImages([reference], "private.key", exe)).rejects.toThrow("cosign sign failed");
   await expect(verifyImage("registry.test/private:latest", "public.key", true, exe)).rejects.toThrow("immutable");
 });
