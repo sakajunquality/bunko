@@ -1,0 +1,14 @@
+# Advance this snapshot together with the pinned Bun base during security updates.
+Types: deb
+URIs: https://snapshot.debian.org/archive/debian/20260908T000000Z/
+Suites: trixie trixie-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+Check-Valid-Until: no
+
+Types: deb
+URIs: https://snapshot.debian.org/archive/debian-security/20260908T000000Z/
+Suites: trixie-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+Check-Valid-Until: no
