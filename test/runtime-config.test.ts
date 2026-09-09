@@ -52,3 +52,44 @@ test("runtime argument overrides are visible by count in diagnostics and rejecte
   const [out, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit).toBe(0); expect(error).toBe(""); expect(JSON.parse(out).targets[0].runtimeArgumentCount).toBe(1); expect(out).not.toContain("conditions");
 });
+
+test("runtime options cannot consume or replace the configured entrypoint", async () => {
+  const directory = await temporary(); roots.push(directory); const source = await project(join(directory, "source"));
+  for (const args of [[""], ["other.ts"], ["run"], ["--"], ["--eval=SECRET_SCRIPT"], ["-e", "SECRET_SCRIPT"], ["--print=1"], ["--help"], ["--version"], ["--interactive"], ["--preload"], ["--conditions", "--smol"], ["--inspect", "localhost:9229"]]) {
+    let requests = 0;
+    try {
+      await build({ path: source, runtimeArgs: args, push: false, gitMetadata: false, registry: { fetcher: async () => { requests++; throw new Error("unexpected network"); } } });
+      throw new Error("Expected runtime argument rejection");
+    } catch (error) { expect(String(error)).toContain("runtime.args"); expect(String(error)).not.toContain("SECRET_SCRIPT"); }
+    expect(requests).toBe(0);
+  }
+  expect((await loadProject({ path: source, runtimeArgs: ["--preload", "./preload.ts", "--conditions=custom", "--title=-worker", "--inspect=localhost:9229"] })).runtimeArgs).toHaveLength(5);
+});
+
+test("Bun executes a preload/value pair and then the configured source entrypoint", async () => {
+  const directory = await temporary(); roots.push(directory);
+  const source = await project(join(directory, "source"), { bunko: { runtime: { args: ["--preload", "./preload.ts", "--smol"] } } }, 'console.log(process.env.PRELOAD_PROOF)');
+  await writeFile(join(source, "preload.ts"), 'process.env.PRELOAD_PROOF = "preload followed by entrypoint";');
+  const selected = await loadProject({ path: source, mode: "source" });
+  const child = Bun.spawn([process.execPath, ...selected.runtimeArgs, "--no-install", selected.entrypoint], { cwd: source, stdout: "pipe", stderr: "pipe" });
+  const [output, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(exit).toBe(0); expect(error).toBe(""); expect(output.trim()).toBe("preload followed by entrypoint");
+});
+
+test("diagnostics expose inherited policy keys without values and account for member and CLI overrides", async () => {
+  const { checkConfig } = await import("../packages/bunko/diagnostics.ts");
+  const directory = await temporary(); roots.push(directory); const fixture = await workspaceFixture(directory);
+  const rootPath = join(fixture.source, "package.json"), root = JSON.parse(await readFile(rootPath, "utf8"));
+  root.bunko = { defaults: { user: "0:0", env: { PRIVATE_VALUE: "SECRET_VALUE" }, runtime: { args: ["--smol"] }, deps: { allowIgnoredScripts: ["fixture-msg"] } } };
+  await writeFile(rootPath, JSON.stringify(root));
+  const options = { path: join(fixture.source, "services/api") };
+  const first = await checkConfig(options), inherited = first.targets[0]!.inheritedDefaults;
+  expect(inherited).toContain("user"); expect(inherited).toContain("runtime.args"); expect(inherited).toContain("deps.allowIgnoredScripts"); expect(inherited).toContain("env.PRIVATE_VALUE");
+  expect(JSON.stringify(first)).not.toContain("SECRET_VALUE");
+  const override = await checkConfig({ ...options, imageUser: "65532:65532", runtimeArgs: [] });
+  expect(override.targets[0]!.inheritedDefaults).not.toContain("user"); expect(override.targets[0]!.inheritedDefaults).not.toContain("runtime.args");
+  const path = join(options.path, "package.json"), member = JSON.parse(await readFile(path, "utf8"));
+  member.bunko.runtime = null; member.bunko.deps = { allowIgnoredScripts: [] }; member.bunko.env = { PRIVATE_VALUE: "MEMBER_VALUE" };
+  await writeFile(path, JSON.stringify(member));
+  expect((await checkConfig(options)).targets[0]!.inheritedDefaults).toEqual(["user"]);
+});

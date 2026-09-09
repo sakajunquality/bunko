@@ -1,6 +1,7 @@
 import { assetMode } from "./asset-policy.ts";
 import type { FileMode } from "../oci/tar.ts";
-import { workspaceDefaults } from "./workspace-defaults.ts";
+import { validateRuntimeArgs } from "./runtime-args.ts";
+import { inheritedWorkspaceDefaults, workspaceDefaults } from "./workspace-defaults.ts";
 import { toolchainRequirements, type ToolchainRequirements } from "./toolchain-policy.ts";
 import { assetMappings, type AssetMapping } from "./asset-contexts.ts";
 import { readBunfig } from "./bunfig.ts";
@@ -74,6 +75,7 @@ export interface BuildOptions {
 }
 
 export interface Project {
+  inheritedDefaults: string[];
   runtimeCAs: string[];
   assetExcludes: string[];
   assetMode?: FileMode;
@@ -184,7 +186,18 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);
-  const config = workspaceDefaults(manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko"), workspace?.packages[0]?.manifest.bunko, Boolean(workspace && directory === workspace.directory));
+  const memberConfig = manifest.bunko === undefined ? {} : object(manifest.bunko, "bunko");
+  const config = workspaceDefaults(memberConfig, workspace?.packages[0]?.manifest.bunko, Boolean(workspace && directory === workspace.directory));
+  const inherited = inheritedWorkspaceDefaults(memberConfig, workspace?.packages[0]?.manifest.bunko);
+  const replaced = [
+    ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined ? ["base"] : []),
+    ...(options.platform !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
+    ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
+    ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []),
+    ...Object.keys(options.define ?? {}).map((name) => `build.define.${name}`),
+    ...Object.keys(options.imageLabels ?? {}).map((name) => `labels.${name}`), ...Object.keys(options.imageAnnotations ?? {}).map((name) => `annotations.${name}`),
+  ];
+  const inheritedDefaults = inherited.filter((key) => !replaced.includes(key));
   knownKeys(config, ["toolchain", "entrypoint", "entrypoints", "defaultEntrypoint", "mode", "base", "platforms", "assets", "assetExcludes", "assetMode", "assetMappings", "external", "env", "ports", "user", "workdir", "labels", "annotations", "args", "build", "runtime", "imageName", "enabled", "deps", "sharedDeps", "inheritBaseOciLabels"], "bunko");
   if (config.enabled !== undefined && config.enabled !== true) throw new Error("Target is disabled or bunko.enabled is not true");
   const mode = options.mode ?? config.mode ?? "bundle";
@@ -217,6 +230,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const runtimeCAs = strings(runtime.caCertificates, "runtime.caCertificates").map((path) => relativePath(path, "runtime CA path"));
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
   const runtimeArgs = options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs");
+  validateRuntimeArgs(runtimeArgs);
   if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
@@ -299,7 +313,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts,
     runtimeCAs,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
-    runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain),
+    inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain),
     mode, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
