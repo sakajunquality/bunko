@@ -6,6 +6,8 @@ import { readBunfig, installConfig } from "../packages/bunko/bunfig.ts";
 import { build } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { dependencyInputs, dependencyPlan } from "../packages/bunko/deps.ts";
+import { checkConfig } from "../packages/bunko/diagnostics.ts";
+import { ignoredInstallScripts } from "../packages/bunko/install-scripts.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { baseLayout, temporary } from "./helpers.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
@@ -38,7 +40,9 @@ test.each(["production", "closure"])("ignored-script allowance never executes ho
   manifest.bunko.deps = { strategy };
   await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
   const options = { path: f.source, baseLayout: base, installCache: f.cache, localCache: false, gitMetadata: false };
-  await expect(build({ ...options, output: join(root, "rejected") })).rejects.toThrow("declares install scripts");
+  const rejected = await build({ ...options, output: join(root, "rejected") }).then(() => "", (error) => String(error));
+  expect(rejected).toContain("Runtime package fixture-msg@1.0.0 declares install scripts (postinstall). Bunko never runs install hooks.");
+  expect(rejected).toContain('"bunko": { "deps": { "allowIgnoredScripts": ["fixture-msg"] } }');
   manifest.bunko.deps.allowIgnoredScripts = ["fixture-msg"];
   await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
   await writeFile(join(f.source, "bunfig.toml"), '[install]\nminimumReleaseAge=86400\n[test]\npreload=["never-execute.ts"]\n');
@@ -49,6 +53,28 @@ test.each(["production", "closure"])("ignored-script allowance never executes ho
   const inputs = dependencyInputs(plan, toolchain, { os: "linux", architecture: "amd64" }, `sha256:${"0".repeat(64)}`, selected);
   expect(inputs.allowIgnoredScripts).toEqual(["fixture-msg"]);
   expect(inputs.installPolicy).toEqual({ minimumReleaseAge: 86400 });
+});
+
+test("install-script rejection names every declared hook, tolerates a missing version, and quotes scoped names", () => {
+  const scoped = { name: "@scope/addon", version: "2.1.0", scripts: { preinstall: "a", postinstall: "b", test: "c" } };
+  let message = ""; try { ignoredInstallScripts(scoped); } catch (error) { message = String(error); }
+  expect(message).toContain("Runtime package @scope/addon@2.1.0 declares install scripts (preinstall, postinstall).");
+  expect(message).toContain('"allowIgnoredScripts": ["@scope/addon"]'); expect(message).toContain("docs/OPERATIONS.md");
+  expect(() => ignoredInstallScripts({ name: "plain", scripts: { install: "x" } })).toThrow("Runtime package plain declares install scripts (install).");
+  expect(() => ignoredInstallScripts({ scripts: { install: "x" } }, ["plain"])).toThrow("Runtime package <unnamed> declares install scripts (install). Bunko never runs install hooks. The package has no name");
+  expect(ignoredInstallScripts(scoped, ["@scope/addon"])).toEqual(["preinstall", "postinstall"]);
+  expect(ignoredInstallScripts({ name: "plain", scripts: { test: "x" } })).toEqual([]);
+});
+
+test("check-config reports ignored-script allowances that name no locked package", async () => {
+  const root = await dir(), f = await dependencyFixture(root);
+  const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
+  manifest.bunko.deps = { allowIgnoredScripts: ["fixture-msg", "fixture-mgs"] };
+  await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
+  expect((await checkConfig({ path: f.source })).targets[0]!.unmatchedAllowances).toEqual(["fixture-mgs"]);
+  manifest.bunko.deps = { allowIgnoredScripts: ["fixture-msg"] };
+  await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
+  expect((await checkConfig({ path: f.source })).targets[0]!.unmatchedAllowances).toEqual([]);
 });
 
 test("label inheritance can omit base OCI identity while preserving explicit labels", () => {
