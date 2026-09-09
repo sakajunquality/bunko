@@ -53,3 +53,10 @@ bunko build . --define 'BUILD_VERSION="1.2.3"' \
 ```
 
 Values use Bun's define expression syntax; quote strings as JavaScript literals and quote the whole argument for your shell. Effective values enter application cache keys and change the embedded application. Reports and telemetry do not include a define-value field; offline diagnostics list only keys. Defines are not a secret channel: their values are intentionally embedded in artifacts and build diagnostics may describe invalid expressions. Keep runtime secrets in runtime configuration instead. The immutable rc.3 CLI does not include this option.
+
+
+The CLI container publication workflow builds the amd64/arm64 index once and pushes it by digest without a version tag. It pulls that candidate for both platform smoke tests, verifies the generated applications, and verifies the index provenance before promoting the exact index bytes to the release tag. BuildKit SBOM/provenance descriptors remain in the index. A failed candidate can leave untagged registry content until an operator or registry retention policy removes it; automatic garbage collection is not assumed. A failed candidate does not publish a release tag.
+
+All container publication runs share one concurrency group, including version inputs with and without the `v` prefix. Promotion refuses existing version tags and checks the published digest. The existence check is not a registry compare-and-swap operation: restrict other writers to the release repository. Release tags and existing releases must not be overwritten.
+
+The Dockerfile pins its Bun base and installs Debian packages from the signed snapshot in `container/debian.sources`. Advance both pins together for security updates. Only the snapshot's expiry check is disabled; Debian signature/package verification and HTTPS remain enabled. Fixed package inputs avoid drifting dependencies but do not by themselves promise bit-for-bit Dockerfile rebuilds. The revision label identifies the container recipe checkout; CLI release provenance independently identifies the downloaded CLI payload source.
