@@ -36,3 +36,5 @@ Every read cache and its writers must be trusted as much as the build inputs. A 
 Accepted registry hits are persisted locally only after build/determinism checks succeed. Cache metadata has an 8 MiB limit for writes and reads; larger records are not cached. Existing oversized or malformed local records require manual investigation before pruning.
 
 Usage and preview operations take the same exclusive lock as deletion to provide a consistent snapshot. They require a writable cache directory and can wait for a writer; a read-only cache mount can still supply build hits, but cannot provide locked usage/prune queries. Lock files are temporary and are not included in managed usage.
+
+Bun's extracted package download cache is trusted build input. Reusing an entry does not independently reverify its package integrity. Keep it private to the intended trust domain and never restore a cache writable by untrusted pull requests into a trusted publishing build. Use `--no-local-cache` without an explicit `--install-cache` to retain per-build temporary staging.
