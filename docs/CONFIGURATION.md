@@ -30,7 +30,7 @@ After rc.4, `check-config` and `doctor` report `inheritedDefaults` for each targ
 
 ## Image user
 
-`bunko.user` (or `--image-user`) sets the OCI `User` of the built image. Without it, a base image `User` other than root is inherited; a base `User` that is absent, empty or root (`0`, `0:0`, `root`, `root:root` and similar spellings) is replaced by `65532:65532`, the `nonroot` account shipped by `oven/bun:<version>-distroless`. The build logs `Base image declares User 0; running as 65532:65532` once per platform image when that replacement occurs. Set `"user": "0:0"` explicitly for a base that must run as root, and pick another user (for example `"1000:1000"`) when the base defines it.
+`bunko.user` (or `--image-user`) sets the OCI `User` of the built image. Without it, a base image `User` other than root is inherited; a base `User` that is absent, empty or root (`0`, `0:0`, `00:00`, `root`, `root:root` and similar spellings) is replaced by `65532:65532`, the `nonroot` account shipped by `oven/bun:<version>-distroless`. The build logs `Base image declares User 0; running as 65532:65532` once per platform image when that replacement occurs. Set `"user": "0:0"` explicitly for a base that must run as root, and pick another user (for example `"1000:1000"`) when the base defines it.
 
 ## Bun runtime arguments
 

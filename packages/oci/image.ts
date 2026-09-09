@@ -21,7 +21,7 @@ export const nonrootUser = "65532:65532";
 /** Whether a runtime User value runs as root: an empty value or a user part of `0`/`root` (the group part does not change the uid). Such inherited values count as unset. */
 export function isRootUser(user: string | undefined): boolean {
   const account = (user ?? "").split(":", 1)[0]!;
-  return account === "" || account === "0" || account === "root";
+  return account === "" || /^0+$/.test(account) || account === "root";
 }
 
 /** Image user precedence: explicit setting, then a nonroot base User, then 65532:65532; explicit settings can select root. */

@@ -121,7 +121,7 @@ Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary l
 - Entrypoint: `[runtime.bunPath, workdir + emitted server path]`.
 - Cmd: configured args, default `[]`.
 - WorkingDir: configured value or `/app`.
-- User: explicit setting, then the base User unless it is root, then `65532:65532`. A base User counts as root when it is empty or its user part (before any `:`) is `0` or `root`, for example `0`, `0:0`, `root`, `root:root`, `root:0` or `0:root`; other values such as `1000`, `nonroot` or `65532:65532` are inherited.
+- User: explicit setting, then the base User unless it is root, then `65532:65532`. A base User counts as root when it is empty or its user part (before any `:`) is a numeric zero (including `00`) or `root`, for example `0`, `0:0`, `00:00`, `root`, `root:root`, `root:0` or `0:root`; other values such as `1000`, `nonroot` or `65532:65532` are inherited.
 - Env: base, then NODE_ENV=production, then application overrides; ordered by key.
 - History: preserve and append only when the base has history; verify empty_layer/DiffID counts.
 
