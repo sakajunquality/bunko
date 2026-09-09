@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { certificatePEM, installNetworkEnvironment, npmCertificate } from "../packages/bunko/install-network.ts";
+import { certificatePEM, installNetworkEnvironment, npmCertificate, validateInstallCertificates } from "../packages/bunko/install-network.ts";
 import { dependencyInputs, dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
@@ -114,3 +114,21 @@ test("real Bun installs trust a private npm CA through a CONNECT proxy and honor
     registry.closeAllConnections(); registry.close(); proxy.closeAllConnections(); proxy.close();
   }
 }, 15000);
+
+
+test("host CA validation is independent of npm cafile and does not expose paths or contents", async () => {
+  const root = await temporary(); roots.push(root);
+  const path = join(root, "SECRET_PATH.pem"); await writeFile(path, "SECRET_INVALID_CERTIFICATE");
+  expect(await validateInstallCertificates({ NODE_EXTRA_CA_CERTS: "", SSL_CERT_FILE: "" })).toBe("");
+  for (const key of ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"]) {
+    try { await validateInstallCertificates({ [key]: path }); throw new Error("Expected rejection"); }
+    catch (error) { expect(String(error)).toContain(key); expect(String(error)).not.toContain("SECRET"); expect(String(error)).not.toContain(root); }
+  }
+  const f = await dependencyFixture(join(root, "dependency"));
+  const plan = await dependencyPlan(await loadProject({ path: f.source }), f.source), toolchain = await selectToolchain();
+  const old = process.env.NODE_EXTRA_CA_CERTS;
+  try {
+    process.env.NODE_EXTRA_CA_CERTS = path;
+    await expect(installDependencies(f.source, plan, toolchain, undefined, f.cache)).rejects.toThrow("NODE_EXTRA_CA_CERTS");
+  } finally { if (old === undefined) delete process.env.NODE_EXTRA_CA_CERTS; else process.env.NODE_EXTRA_CA_CERTS = old; }
+});

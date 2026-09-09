@@ -1,6 +1,6 @@
 # Roadmap
 
-This is a delivery plan, not a promise of release dates or complete ko/BuildKit compatibility. Each implementation change receives review, and release claims identify the exact tested artifact. The [comparison](COMPARISON.md) explains the current scope.
+This is a delivery plan, not a promise of release dates or complete ko/BuildKit compatibility. Each implementation change receives review, and release claims identify the exact tested artifact. The [comparison](COMPARISON.md) explains the current scope. The [September recheck disposition](RECHECK.md) records repaired issues, retained contracts and the next implementation order. npm distribution starts after the next RC; musl and rebase remain tracked in issues #53 and #54.
 
 ## Release candidate and workload acceptance
 

@@ -46,3 +46,17 @@ test("data destinations reject base links, parent files and incompatible existin
   for (const type of ["symlink", "link", "file"]) expect(() => assertBaseDataPaths(new Map([["app/.bunko-ca", { type, mode: 0o755, size: 1, link: "elsewhere" }]]), entries)).toThrow("parent");
   expect(() => assertBaseDataPaths(new Map([["app/.bunko-ca/roots.pem", { type: "directory", mode: 0o755, size: 0 }]]), entries)).toThrow("incompatible");
 });
+
+test("runtime CA inputs reject traversal and symlinked path components", async () => {
+  const { loadProject } = await import("../packages/bunko/config.ts");
+  const { runtimeCA } = await import("../packages/bunko/runtime-ca.ts");
+  const { symlink } = await import("node:fs/promises");
+  const directory = await temporary(); roots.push(directory);
+  const source = await project(join(directory, "source"));
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { caCertificates: ["../outside.pem"] } } }));
+  await expect(loadProject({ path: source })).rejects.toThrow();
+  await mkdir(join(directory, "certificates"));
+  await symlink(join(directory, "certificates"), join(source, "certs"));
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { caCertificates: ["certs/root.pem"] } } }));
+  await expect(runtimeCA(await loadProject({ path: source }))).rejects.toThrow("symlinks");
+});
