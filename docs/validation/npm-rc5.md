@@ -6,7 +6,7 @@ On 2026-09-09, `@sakajunquality/bunko@0.1.0-rc.5` was published from the reviewe
 - Enclosed CLI SHA256: `56e4c2ef57ebdb1b2ac0f0c4c6e7ccee6383c9df8a86643ae9b520eae1427d83`, unchanged from the independently attested [rc.5 release](rc5.md).
 - Anonymous registry metadata and tarball download passed. Registry SHA512 and downloaded bytes match the tested candidate; installation preserves the CLI SHA256.
 - npm installation and fresh-cache `bunx @sakajunquality/bunko@0.1.0-rc.5 version` and `bunx @sakajunquality/bunko@next version` passed with Bun 1.4.2.
-- Local tarball installation and execution previously passed with Bun 1.3.11 and 1.4.2. Global npm rc.4 → rc.5 → rc.4 upgrade/rollback, plus Bun add and scoped bunx execution, passed in isolated temporary directories. The rc.4 tarball used authenticated GitHub release inputs and was not published to npm.
+- Local tarball installation and execution previously passed with Bun 1.3.11 and 1.4.2. npm rc.4 → rc.5 → rc.4 global installation with a temporary prefix passed upgrade/rollback checks. Bun add and scoped bunx execution also passed in isolated temporary directories. The rc.4 tarball used authenticated GitHub release inputs and was not published to npm.
 
 Initial registry metadata returned 404 for several minutes after the publish command succeeded, while the version endpoint and package ownership were available. Consumer verification completed only after normal package resolution became available. The release was not republished to work around propagation.
 
