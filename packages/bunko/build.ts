@@ -1,3 +1,5 @@
+import { gitLabels } from "./source-metadata.ts";
+import { buildParameters } from "./build-parameters.ts";
 import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
 import { assetPolicy } from "./asset-policy.ts";
 import { assertToolchain } from "./toolchain-policy.ts";
@@ -69,6 +71,8 @@ export interface BuildResult {
   supplyChain?: { status: "prepared" | "attaching" | "signing" | "complete" };
   attestations?: { subject: Descriptor; manifest: Descriptor }[];
   target: string;
+  imageRepository?: string;
+  buildParameters?: ReturnType<typeof buildParameters>;
   targetPath?: string;
   layout?: string;
   tarball?: string;
@@ -89,20 +93,6 @@ export interface BuildResult {
   publication?: Publication;
   verifiedDeterministic: boolean;
   dryRun: boolean;
-}
-
-async function gitLabels(directory: string): Promise<Record<string, string>> {
-  const git = Bun.which("git");
-  if (!git) return {};
-  const run = async (args: string[]) => {
-    const child = Bun.spawn([git, "-C", directory, ...args], { stdout: "pipe", stderr: "ignore" });
-    const [stdout, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-    return exit === 0 ? stdout.trim() : undefined;
-  };
-  const revision = await run(["rev-parse", "HEAD"]);
-  if (!revision || !/^[a-f0-9]{40,64}$/.test(revision)) return {};
-  const status = await run(["status", "--porcelain", "--untracked-files=normal"]);
-  return { "org.opencontainers.image.revision": revision, "org.bunko.git.dirty": String(Boolean(status)) };
 }
 
 export async function writeReport(path: string, value: unknown) {
@@ -379,6 +369,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, ...(Object.keys(project.annotations).length ? { annotations: project.annotations } : {}), manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
+      imageRepository: destination ?? `bunko.local/${project.name}`, buildParameters: buildParameters(project),
       schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
       sourceDigest, runtimeCA: context.runtimeCertificate?.metadata, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
@@ -557,7 +548,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     assertLockToolchain(plan, toolchain);
     for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
-    const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory);
+    const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory, options.log);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
     const closure: BuildContext["closure"] = (selected, platform, iteration) => {

@@ -2,7 +2,7 @@ import { packageLicense } from "./inventory.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { sha256 } from "../oci/digest.ts";
+import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { BuildResult, PlatformResult } from "./build.ts";
 import type { InventoryEntry } from "./deps.ts";
 import { parseReference } from "../oci/source.ts";
@@ -24,8 +24,7 @@ export function spdx(name: string, image: PlatformResult, timestamp: number, run
   }));
   const root = { SPDXID: "SPDXRef-Image", name, versionInfo: image.manifest.digest, downloadLocation: "NOASSERTION",
     filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
-  return { spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", name: `${name}-${image.platform.architecture}`,
-    documentNamespace: `urn:bunko:spdx:${image.manifest.digest}`,
+  const document = { spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", name: `${name}-${image.platform.architecture}`,
     creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(timestamp * 1000).toISOString().replace(".000Z", "Z") },
     comment: "Application package inventory from bundled inputs and runtime dependencies. Base OS packages are represented only by an explicitly linked external document, when supplied. Undeclared runtime-loaded packages are not inventoried. Unknown license declarations are not inferred.",
     ...(image.baseInventory ? { externalDocumentRefs: [{ externalDocumentId: "DocumentRef-Base", spdxDocument: image.baseInventory.namespace, checksum: { algorithm: "SHA256", checksumValue: image.baseInventory.digest.slice(7) } }] } : {}),
@@ -37,14 +36,15 @@ export function spdx(name: string, image: PlatformResult, timestamp: number, run
       ...(image.baseInventory?.described.map((id) => ({ spdxElementId: root.SPDXID, relationshipType: "CONTAINS", relatedSpdxElement: `DocumentRef-Base:${id}` })) ?? []),
       ...packages.map((p) => ({ spdxElementId: root.SPDXID, relationshipType: "CONTAINS", relatedSpdxElement: p.SPDXID })),
     ] };
+  return { ...document, documentNamespace: `urn:bunko:spdx:${sha256(canonicalJSON(document))}` };
 }
 
 export function provenance(result: BuildResult, lockDigest?: string) {
   const dependency = (uri: string, digest: string) => ({ uri, digest: { sha256: digest.slice(7) } });
-  return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: result.target, digest: { sha256: result.root.digest.slice(7) } }],
+  return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: result.imageRepository ?? `bunko.local/${result.target}`, digest: { sha256: result.root.digest.slice(7) } }],
     predicateType: "https://slsa.dev/provenance/v1", predicate: {
       buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/build/v1",
-        externalParameters: { platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => mapping) } : {}) },
+        externalParameters: { ...result.buildParameters, platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => mapping) } : {}) },
         internalParameters: { builder: result.builder }, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
           ...(result.runtimeCA ? [dependency("urn:bunko:runtime-ca", result.runtimeCA.digest)] : []),
           ...(result.assetMaterials ?? []).map((material, index) => dependency(`urn:bunko:asset:${material.context}:${index}`, material.digest)),

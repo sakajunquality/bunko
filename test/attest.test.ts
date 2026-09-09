@@ -115,3 +115,23 @@ test("referrer verification follows same-subject pages and rejects foreign pagin
   foreign = true;
   await expect(publishArtifacts(publisher, store, [item])).rejects.toThrow("escaped");
 });
+
+test("SPDX namespaces identify document content and provenance names the image repository without argument values", async () => {
+  const { spdx, provenance } = await import("../packages/bunko/attest.ts");
+  const { sha256, canonicalJSON } = await import("../packages/oci/digest.ts");
+  const root = await fixture(), f = await dependencyFixture(root, false);
+  const result = await build({ path: f.source, baseLayout: await baseLayout(join(root, "base")), output: join(root, "image"), repo: "registry.example/team/app", push: false, localCache: false, gitMetadata: false, installCache: f.cache,
+    define: { PUBLIC_FLAG: '"SECRET_DEFINE"' }, runtimeArgs: ["--title=SECRET_RUNTIME"] });
+  const document = spdx("fixture", result.images[0]!, 0);
+  const { documentNamespace, ...content } = document;
+  expect(documentNamespace).toBe(`urn:bunko:spdx:${sha256(canonicalJSON(content))}`);
+  expect(spdx("fixture", result.images[0]!, 0).documentNamespace).toBe(documentNamespace);
+  expect(spdx("fixture", { ...result.images[0]!, bundledInventory: [{ name: "another-package", version: "1.0.0", path: "node_modules/another-package" }] }, 0).documentNamespace).not.toBe(documentNamespace);
+  const statement = provenance(result);
+  expect(statement.subject[0]!.name).toBe("registry.example/team/app/hello");
+  expect(provenance({ ...result, imageRepository: undefined }).subject[0]!.name).toBe("bunko.local/hello");
+  expect(statement.predicate.buildDefinition.externalParameters.defineKeys).toEqual(["PUBLIC_FLAG"]);
+  expect(statement.predicate.buildDefinition.externalParameters.runtime?.argumentCount).toBe(1);
+  expect(statement.predicate.buildDefinition.externalParameters.runtime?.argumentsDigest).toBe(sha256(canonicalJSON(["--title=SECRET_RUNTIME"])));
+  expect(JSON.stringify(statement)).not.toContain("SECRET_DEFINE"); expect(JSON.stringify(statement)).not.toContain("SECRET_RUNTIME"); expect(JSON.stringify(statement)).not.toContain(root);
+});
