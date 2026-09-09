@@ -87,6 +87,8 @@ jobs:
           for arch in amd64 arm64; do
             docker pull --platform "linux/$arch" "$BUNKO_CONTAINER_IMAGE"
             BUNKO_SMOKE_PLATFORMS="linux/$arch" bun scripts/validation/container-smoke.ts
+            # Classic Docker image stores cannot retain both platforms under one index digest.
+            docker image rm "$BUNKO_CONTAINER_IMAGE"
           done
       - name: Attest the container index
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
