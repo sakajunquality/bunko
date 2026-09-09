@@ -23,6 +23,7 @@ const scrubbers: [RegExp, string][] = [
  */
 export function redactInstallerOutput(text: string, roots: string[] = [], secrets: string[] = []): string {
   let output = text.replace(ANSI, "").replace(/\r\n?/g, "\n");
+  if (secrets.some((secret) => secret && secret.length < 6 && output.includes(secret))) return "Installer diagnostics omitted because a credential is too short to redact reliably.";
   for (const secret of [...new Set(secrets.flatMap((value) => [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1)]))].filter(Boolean).sort((a, b) => b.length - a.length)) output = output.split(secret).join("<redacted>");
   for (const [pattern, replacement] of scrubbers) output = output.replace(pattern, replacement);
   for (const root of roots) if (root) output = output.split(root).join("<build-root>");
@@ -46,7 +47,10 @@ export function installerCredentials(npmrc: string | undefined): string[] {
     const raw = match[2].trim();
     const value = /^(?:".*"|'.*')$/.test(raw) ? raw.slice(1, -1) : raw;
     secrets.push(raw, value);
-    if (match[1] === "_auth" || match[1] === "_password") secrets.push(Buffer.from(value, "base64").toString("utf8"));
+    if ((match[1] === "_auth" || match[1] === "_password") && /^[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length % 4 === 0) {
+      const decoded = Buffer.from(value, "base64");
+      if (decoded.toString("base64") === value) secrets.push(decoded.toString("utf8"));
+    }
   }
   return secrets.filter(Boolean);
 }

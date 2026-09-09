@@ -74,3 +74,9 @@ test("quoted headers and expanded custom credentials never survive diagnostics",
   const tail = installerOutputTail("rejected custom+token/secret and custom%2Btoken%2Fsecret and private-password", "", "/tmp/stage", 20, secrets);
   for (const value of ["custom+token/secret", "custom%2Btoken%2Fsecret", "private-password"]) expect(tail).not.toContain(value);
 });
+
+
+test("short credentials suppress ambiguous output and invalid base64 is not decoded", () => {
+  expect(redactInstallerOutput("registry rejected abc", [], ["abc"])).toBe("Installer diagnostics omitted because a credential is too short to redact reliably.");
+  expect(installerCredentials("_password=not-base64!\n")).toEqual(["not-base64!", "not-base64!"]);
+});
