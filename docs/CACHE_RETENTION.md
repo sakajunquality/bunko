@@ -11,7 +11,7 @@ bunko build . --repo registry.example/team/app \
 
 Reads try the local cache, each `--cache-from` in order, then `--cache-repo` (the output repository by default when pushing). A denied, missing or corrupt cache source falls through to the remaining sources and then rebuilding. Every accepted layer is checked against its compressed digest and uncompressed DiffID. Reports identify the successful registry source and whether a final miss involved unavailable or invalid data.
 
-Registry cache writes use only `--cache-repo` or its normal default destination. They occur after successful build validation and, when requested, image publication. Explicit `--cache-repo` also exports when `--push=false`; dry-run and offline builds never export remote caches. Hits from another read repository are eligible for promotion to that destination. `--cache-write=false` keeps registry reads and disables registry cache writes; local persistence remains controlled by `--local-cache=false`. `--cache=false` disables both caches and cannot be combined with explicit read sources.
+Registry cache writes use `--cache-repo` or its normal default destination, plus any explicit `--cache-to` destinations. They occur after successful build validation and, when requested, image publication. Explicit `--cache-repo` also exports when `--push=false`; dry-run and offline builds never export remote caches. Hits from another read repository are eligible for promotion to that destination. `--cache-write=false` keeps reads and disables explicit exports and registry cache writes; local persistence remains controlled by `--local-cache=false`. `--cache=false` disables both caches and cannot be combined with explicit read or write locations.
 
 ```sh
 bunko cache-info --cache-dir ./cache
@@ -56,3 +56,30 @@ Prefer separate release and cache repositories, with appropriate writer permissi
 OpenTelemetry includes cache export counts, transferred bytes and duration histograms with bounded backend/kind/result/reason labels. Repository names and cache keys are kept out of metric labels.
 
 Strict export mode rejects offline and dry-run builds. Local persistence failures do not disable registry exports. A reconciled concurrent write reports `already-present` with `reconciled: true`; `bytes` still includes any bytes uploaded before reconciliation. Missing referenced blobs are reported as `invalid`.
+
+
+## Typed storage locations
+
+```sh
+bunko build . --repo registry.example/team/app \
+  --cache-from type=registry,repo=registry.example/team/main-cache \
+  --cache-from type=local,src=./restored-cache \
+  --cache-to type=registry,repo=registry.example/team/branch-cache \
+  --cache-to type=local,dest=./exported-cache
+
+bunko build . --push=false --oci-layout ./image \
+  --cache-to type=local,dest=./exported-cache \
+  --cache-export-error=fail
+```
+
+The default managed local cache is checked first, followed by up to 32 ordered `--cache-from` locations, then the legacy cache repository. Bare repository values remain supported. `--cache-to` accepts up to eight explicit destinations and is write-only: add the same location to `--cache-from` when reuse is wanted. Duplicate normalized locations are processed once. Explicit destinations replace the implicit image-repository cache destination, but supplement an explicitly configured `--cache-repo` or `BUNKO_CACHE_REPO`; use `--registry-cache=false` for a local-only workflow. Registry locations require an untagged repository because Bunko creates per-key tags.
+
+The CLI accepts `type=registry,repo=...`, `type=local,src=...` for reads and `type=local,dest=...` for writes. Unknown types, duplicate or unknown fields, empty fields and contradictory cache-disable settings are rejected. Paths are resolved against the current working directory. Commas are separators and cannot be included in location paths. GHA and S3 backends are not implemented. These options resemble Buildx syntax but the stored metadata is Bunko's format, not interchangeable with BuildKit exports.
+
+Explicit local caches use the managed `keys/` and `blobs/` format, so `cache-info` and `prune --cache-dir` can manage them. Exports contain verified layer records; closure plan indexes remain in the default managed cache. Missing read directories are not created, and malformed or incomplete imports fall through to the next source. Writes use the cache lock and atomic metadata replacement. Cache paths are canonicalized and excluded from source snapshots; overlaps with project roots or other output/input locations are rejected.
+
+All targets are prepared before explicit exports. Each target’s exports follow its requested image publication. Dry runs and offline builds skip explicit exports; strict export mode rejects both. Offline builds may import local caches. Every requested destination is attempted even if another fails; strict mode fails after collecting export outcomes. Default local persistence is independent of explicit local and registry exports.
+
+Existing registry records are downloaded and verified before reuse during export, including their layer bytes. This can add network and decompression work when the build initially hit only the local cache. An invalid immutable cache tag requires operator recovery: select a new cache repository or remove the invalid tag if the provider policy permits it. Bunko does not change immutability or retention settings.
+
+The internal `CacheBackend` contract provides validated record reads and per-record export outcomes for both transports. Key construction, digest/DiffID verification and compatibility checks remain shared; adding storage does not weaken cache identity or authenticate a cache producer.

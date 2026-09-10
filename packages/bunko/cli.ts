@@ -81,7 +81,8 @@ Options:
   --target <name/path>     Select a workspace member; repeatable, root invocation only
   --execute               Execute prune deletions (default: preview only)
   --keep-bytes <bytes>     Local managed cache budget (exclusive with --older-than)
-  --cache-from <repo>      Ordered cache read source; repeat to add more
+  --cache-from <location>  Ordered cache reads: repo, type=registry,repo=..., type=local,src=...
+  --cache-to <location>    Explicit cache writes: type=registry,repo=... or type=local,dest=...
   --cache-write=false     Disable registry cache writes; retain reads
   --older-than <seconds>  Local prune age (default: 604800)
   --kubectl-path <file>   kubectl executable for apply
@@ -262,6 +263,7 @@ export async function main(argv: string[]): Promise<number> {
       "cache-dir": { type: "string" },
       "cache-repo": { type: "string" },
       "cache-from": { type: "string", multiple: true },
+      "cache-to": { type: "string", multiple: true },
       "cache-write": { type: "boolean", default: true },
       "cache-export-error": { type: "string" },
       "keep-bytes": { type: "string" },
@@ -406,7 +408,7 @@ export async function main(argv: string[]): Promise<number> {
       push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
-      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"], cacheExportError: values["cache-export-error"] as "warn" | "fail" | undefined,
+      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheTo: values["cache-to"], cacheWrite: values["cache-write"], cacheExportError: values["cache-export-error"] as "warn" | "fail" | undefined,
       localCache: values.cache && values["local-cache"], registryCache: values.cache && (values.offline && !supplied("registry-cache") ? false : values["registry-cache"]),
       installCache: values["install-cache"], assetCache: values["asset-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,

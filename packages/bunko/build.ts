@@ -1,3 +1,4 @@
+import { cacheLocations } from "./cache-backend-options.ts";
 import { assertCosign } from "./cosign.ts";
 import { gitLabels, revisionTag } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
@@ -241,9 +242,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const git = context.git;
     const tags = [...new Set(options.tags ?? ["latest", ...(revisionTag(git) ? [revisionTag(git)!] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
-    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
-    if (options.cacheExportError === "fail" && !cacheRepo) throw new Error("Strict cache export requires a cache write destination; use --cache-repo when --push=false");
-    const cache = new LayerCache(store, { persistence: context.cachePersistence, exportError: options.cacheExportError, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, readRepositories: options.registryCache === false ? [] : [...options.cacheFrom ?? [], ...cacheRepo ? [cacheRepo] : []], registry, log });
+    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push && !options.cacheTo?.length ? destination : undefined);
+    if (options.cacheExportError === "fail" && !cacheRepo && !options.cacheTo?.length) throw new Error("Strict cache export requires a cache write destination; use --cache-to or --cache-repo when --push=false");
+    const cache = new LayerCache(store, { persistence: context.cachePersistence, exportError: options.cacheExportError, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, sources: await Promise.all(cacheLocations(options.cacheFrom, "from").map(async (location) => location.type === "local" ? { ...location, path: await canonicalOutput(location.path) } : location)), destinations: await Promise.all(cacheLocations(options.cacheTo, "to").map(async (location) => location.type === "local" ? { ...location, path: await canonicalOutput(location.path) } : location)), readRepositories: cacheRepo ? [cacheRepo] : [], registry, log });
     log(`Resolving base ${options.baseLayout ?? baseRef}\n`);
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
@@ -580,7 +581,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
-  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache]);
+  const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalOutput(location.path)] : []));
+  const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache, ...explicitCachePaths]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
   const jobs = options.jobs ?? 1;
   if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
@@ -636,7 +638,13 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
-  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), assetCache, signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
+  for (const path of explicitCachePaths) {
+    for (const other of [output, report, archive, imageRefs, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, signingFile, installCache, assetCache, await runtimeCachePath(options.runtimeCache), ...(options.registry?.sensitivePaths ?? []).map((path) => resolve(path))]) {
+      if (other && (path === other || path.startsWith(`${other}/`) || other.startsWith(`${path}/`))) throw new Error("Explicit cache paths overlap another input, output or cache");
+    }
+  }
+  for (const path of explicitCachePaths) for (const other of explicitCachePaths) if (path !== other && path.startsWith(`${other}/`)) throw new Error("Explicit cache paths must not contain another cache");
+  const exclusions = [...explicitCachePaths, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), assetCache, signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   await assertReportNotInput(report, [
     ...["package.json", "bun.lock", "tsconfig.json", "jsconfig.json", ".npmrc", "bunfig.toml", ".bunkoignore"].map((name) => join(discovered.directory, name)),

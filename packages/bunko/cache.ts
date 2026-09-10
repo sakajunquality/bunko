@@ -1,3 +1,5 @@
+import { cacheBackend, type CacheBackend } from "./cache-backends.ts";
+import type { CacheLocation } from "./cache-backend-options.ts";
 import { metric } from "./telemetry.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import packageMetadata from "../../package.json";
@@ -25,7 +27,7 @@ export const packFormat = `tar-gzip-v4/bunko-${packageMetadata.version}/bun-${Bu
 export class CacheConflictError extends Error {}
 class InvalidRemoteCacheError extends Error {}
 export interface CacheExportEvent {
-  backend: "registry"; destination: string; kind: CacheRecord["kind"]; key: Digest;
+  backend: "registry" | "local"; destination: string; kind: CacheRecord["kind"]; key: Digest;
   status: "written" | "already-present" | "failed";
   reason?: "conflict" | "invalid" | "denied" | "timeout" | "unavailable";
   bytes: number; durationMs: number; reconciled?: boolean;
@@ -122,12 +124,12 @@ export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
   } : entry);
 }
 
-export class LayerCache {
+export class CacheDriver {
   readonly events: CacheEvent[] = [];
   readonly exports: CacheExportEvent[] = [];
   private event(event: CacheEvent) {
     this.events.push(event);
-    metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": event.kind, "bunko.cache.result": event.status });
+    if (this.options.lookupMetrics !== false) metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": event.kind, "bunko.cache.result": event.status });
   }
   private readonly invalidLocal = new Set<Digest>();
   private readonly origins = new Map<Digest, string>();
@@ -138,7 +140,7 @@ export class LayerCache {
   private readonly local?: BlobStore;
   private readonly remote?: Publisher;
   private readonly readers: Publisher[];
-  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; readRepositories?: string[]; exportError?: "warn" | "fail"; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
+  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; readRepositories?: string[]; exportError?: "warn" | "fail"; strictLocal?: boolean; lookupMetrics?: boolean; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
     this.persistence = options.persistence ?? {};
     if (options.directory) this.local = new BlobStore(options.directory);
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
@@ -275,7 +277,7 @@ export class LayerCache {
         let previous: CacheRecord | undefined;
         try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
         catch { /* Missing or malformed entries are replaced by verified outputs. */ }
-        if (previous && previous.layer.descriptor.digest !== record.layer.descriptor.digest) {
+        if (previous && !Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
           let valid = false;
           try { valid = await hashFile(this.local!.path(previous.layer.descriptor.digest)) === previous.layer.descriptor.digest; } catch { /* Incomplete cache is a miss. */ }
           if (valid) throw new CacheConflictError("Different output for the same cache key; refusing to overwrite a concurrent or nondeterministic build");
@@ -286,7 +288,7 @@ export class LayerCache {
       await writeFile(temporary, bytes, { flag: "wx" });
       await rename(temporary, join(dir, `${record.key.slice(7)}.json`));
       }, () => !this.persistence.disabled);
-    } catch (error) { if (error instanceof CacheConflictError) throw error; this.persistence.disabled = true; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
+    } catch (error) { if (error instanceof CacheConflictError || this.options.strictLocal) throw error; this.persistence.disabled = true; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
 
@@ -352,5 +354,66 @@ export class LayerCache {
       metric("bunko.cache.export.duration", "s", event.durationMs / 1000, labels, true);
     }
     if (failed && this.options.exportError === "fail") throw new CacheExportError(firstFailure);
+  }
+}
+
+
+/** Coordinates ordered validated cache reads and independent export destinations. */
+export class LayerCache {
+  readonly events: CacheEvent[] = [];
+  readonly exports: CacheExportEvent[] = [];
+  private readonly local: CacheDriver;
+  private readonly readers: CacheBackend[];
+  private readonly writers: CacheBackend[];
+  private readonly records = new Map<Digest, CacheRecord>();
+  constructor(readonly store: BlobStore, private readonly options: {
+    directory?: string; repository?: string; readRepositories?: string[];
+    sources?: CacheLocation[]; destinations?: CacheLocation[];
+    exportError?: "warn" | "fail"; registry?: RegistryOptions;
+    persistence?: { disabled?: boolean }; log: (message: string) => void;
+  }) {
+    this.local = new CacheDriver(store, { directory: options.directory, persistence: options.persistence, lookupMetrics: false, log: options.log });
+    const unique = (locations: CacheLocation[]) => [...new Map(locations.map((location) => [JSON.stringify(location), location])).values()];
+    const backends = new Map<string, CacheBackend>();
+    const backendFor = (location: CacheLocation) => {
+      const key = JSON.stringify(location);
+      if (!backends.has(key)) backends.set(key, cacheBackend(location, store, options.registry, options.log));
+      return backends.get(key)!;
+    };
+    this.readers = unique([...(options.sources ?? []), ...(options.readRepositories ?? []).map((repo): CacheLocation => ({ type: "registry", repo: repositoryName(new Publisher(repo).ref) })), ...(options.repository ? [{ type: "registry" as const, repo: repositoryName(new Publisher(options.repository).ref) }] : [])]).map(backendFor);
+    this.writers = unique([...(options.destinations ?? []), ...(options.repository ? [{ type: "registry" as const, repo: repositoryName(new Publisher(options.repository).ref) }] : [])]).map(backendFor);
+  }
+  async get(...args: Parameters<CacheDriver["get"]>): Promise<CacheRecord | undefined> {
+    const [key, kind, bypass] = args;
+    const before = this.local.events.length;
+    let record = await this.local.get(...args);
+    let event = this.local.events.at(-1)!;
+    if (!record && !bypass) for (const backend of this.readers) {
+      const hit = await backend.read(...args);
+      if (hit.record) { record = hit.record; event = { key, kind, status: backend.type, source: backend.destination }; break; }
+      if (hit.unavailable) event = { key, kind, status: "miss", reason: "invalid-or-unavailable" };
+    }
+    if (record) this.records.set(key, record);
+    if (this.local.events.length > before) {
+      this.events.push(event);
+      metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": kind, "bunko.cache.result": event.status });
+    }
+    return record;
+  }
+  plan(...args: Parameters<CacheDriver["plan"]>) { return this.local.plan(...args); }
+  rememberPlan(...args: Parameters<CacheDriver["rememberPlan"]>) { return this.local.rememberPlan(...args); }
+  async remember(record: CacheRecord): Promise<void> {
+    if (canonicalJSON(record).length > cacheMetadataLimit) { this.options.log("Cache metadata exceeds size limit; skipping cache persistence and publication\n"); return; }
+    this.records.set(record.key, record); await this.local.remember(record);
+  }
+  async persistHits(): Promise<void> { for (const record of this.records.values()) await this.local.remember(record); }
+  async publish(): Promise<void> {
+    let failed = false;
+    for (const backend of this.writers) for (const record of this.records.values()) {
+      const event = await backend.write(record);
+      this.exports.push(event);
+      failed ||= event.status === "failed";
+    }
+    if (failed && this.options.exportError === "fail") throw new CacheExportError();
   }
 }
