@@ -4,6 +4,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { list } from "./inputs.ts";
 
 export type CacheMode = "none" | "github";
 export interface CacheKeyInputs {
@@ -13,6 +14,7 @@ export interface CacheKeyInputs {
   arch?: string;
   version?: string;
   hash?: string;
+  targets?: string;
 }
 export interface CachePlanInputs extends CacheKeyInputs {
   cache?: string;
@@ -23,7 +25,6 @@ export interface CachePlanInputs extends CacheKeyInputs {
 export interface CachePlan { enabled: boolean; paths: string[]; key: string; restoreKeys: string[] }
 
 const SEGMENT = /^[A-Za-z0-9._+-]+$/;
-const lines = (value?: string) => (value ?? "").split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
 
 /**
  * Managed cache root; the CLI keeps layers, closure plans, package downloads and asset caches underneath it.
@@ -85,10 +86,27 @@ const validate = (key: string, name: string): string => {
   return key;
 };
 
-/** Default key `bunko-<os>-<arch>-<version>-<hash>` with the hashless prefix as the single restore key. */
+/**
+ * Cache-key segment for the selected targets, parsed exactly as the build step parses `targets`.
+ * `all` stands for an unfiltered build, so the common single-project workflow keeps one stable key;
+ * any selection becomes a short digest of its sorted, de-duplicated members, which makes the segment
+ * independent of the order and repetition the workflow happened to write and safe in a key and a path.
+ * Two workflows building different targets of one workspace share a lockfile hash, so without this
+ * segment they would compute the same key, race to reserve it and leave the loser saving nothing.
+ * Truncating to 48 bits makes two selections sharing a segment unlikely, not impossible; `cache-key`
+ * is the way to separate entries with certainty.
+ */
+export function targetsSegment(targets?: string): string {
+  const selected = [...new Set(list(targets))].sort();
+  return selected.length ? new Bun.CryptoHasher("sha256").update(selected.join("\n")).digest("hex").slice(0, 12) : "all";
+}
+
+/** Default key `bunko-<os>-<arch>-<version>-<targets>-<hash>` with the hashless prefix as the single restore key. */
 export function cacheKeys(inputs: CacheKeyInputs): { key: string; restoreKeys: string[] } {
-  const explicit = (inputs.key ?? "").trim(), overrides = lines(inputs.restoreKeys);
-  const prefix = `bunko-${segment(inputs.os, "operating system")}-${segment(inputs.arch, "architecture")}-${segment(inputs.version, "bunko version")}-`;
+  const explicit = (inputs.key ?? "").trim(), overrides = list(inputs.restoreKeys);
+  // The targets segment sits inside the restore prefix as well, so a prefix match restores only a
+  // cache written for the same operating system, architecture, CLI version and targets segment.
+  const prefix = `bunko-${segment(inputs.os, "operating system")}-${segment(inputs.arch, "architecture")}-${segment(inputs.version, "bunko version")}-${targetsSegment(inputs.targets)}-`;
   // An empty hash means no lockfile or manifest matched the pattern; keep the key distinguishable from the prefix.
   const key = validate(explicit || `${prefix}${segment(inputs.hash || "nofiles", "input hash")}`, "cache-key");
   const restoreKeys = (overrides.length ? overrides : explicit ? [] : [prefix]).map((value) => validate(value, "cache-restore-keys"));
@@ -114,7 +132,7 @@ export async function installedVersion(): Promise<string> {
   const child = Bun.spawn([executable, "version"], { stdin: "ignore", stdout: "pipe", stderr: "inherit" });
   const printed = await new Response(child.stdout).text();
   if ((await child.exited) !== 0 || child.signalCode) throw new Error("Could not read the installed bunko version for the cache key");
-  return lines(printed).at(-1) ?? "";
+  return list(printed).at(-1) ?? "";
 }
 
 export async function runCachePlan(inputs: Omit<CachePlanInputs, "root" | "version">): Promise<CachePlan> {
@@ -139,5 +157,6 @@ if (import.meta.main) {
     os: process.env.BUNKO_CACHE_OS,
     arch: process.env.BUNKO_CACHE_ARCH,
     hash: process.env.BUNKO_CACHE_HASH,
+    targets: process.env.BUNKO_CACHE_TARGETS,
   });
 }

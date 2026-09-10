@@ -1,11 +1,11 @@
 import { appendFile, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { list } from "./inputs.ts";
 import { escape, fitSummary, renderSummary, summaryBytes, summaryNote } from "./summary.ts";
 
 type Inputs = Record<string, string | undefined>;
 export interface ActionImage { target: string; digest: string; reference?: string }
-const list = (value?: string) => (value ?? "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 function boolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback;
   if (value !== "true" && value !== "false") throw new Error("Boolean build Action inputs must be true or false");

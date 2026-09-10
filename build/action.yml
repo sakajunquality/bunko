@@ -84,7 +84,7 @@ inputs:
     description: 'Persist the managed bunko cache directory with the GitHub Actions cache: github or none'
     default: 'none'
   cache-key:
-    description: 'Exact GitHub Actions cache key, replacing the default bunko-<os>-<arch>-<version>-<hash>'
+    description: 'Exact GitHub Actions cache key, replacing the default bunko-<os>-<arch>-<version>-<targets>-<hash>'
     default: ''
   cache-restore-keys:
     description: 'GitHub Actions cache restore-key prefixes, one per line, replacing the default prefix'
@@ -133,6 +133,10 @@ runs:
         BUNKO_CACHE_INSTALL_INPUT: ${{ inputs.install-cache }}
         BUNKO_CACHE_KEY_INPUT: ${{ inputs.cache-key }}
         BUNKO_CACHE_RESTORE_KEYS_INPUT: ${{ inputs.cache-restore-keys }}
+        # The selected targets belong in the key: sibling workflows building different targets of one
+        # workspace hash the same lockfile and manifests, so a key without them collides and only one
+        # of the jobs is allowed to save. The build step below parses this input the same way.
+        BUNKO_CACHE_TARGETS: ${{ inputs.targets }}
         BUNKO_CACHE_OS: ${{ runner.os }}
         BUNKO_CACHE_ARCH: ${{ runner.arch }}
         # Expressions short-circuit, so hashFiles never runs (and never fails or times out) unless its result is used.

@@ -165,6 +165,6 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
     cache: github
 ```
 
-`cache: github` replaces `cache-from/cache-to: type=gha` and the `actions/cache` step a workflow used to write by hand: the build Action restores and saves the managed cache directory itself, deriving the key from the runner, the bunko version and the lockfile and manifests under `path`. Add `cache-repo` alongside it to also share built layers across runners and repositories. See [the GitHub Actions cache](CI.md#the-github-actions-cache).
+`cache: github` replaces `cache-from/cache-to: type=gha` and the `actions/cache` step a workflow used to write by hand: the build Action restores and saves the managed cache directory itself, deriving the key from the runner, the bunko version, the selected `targets` and the lockfile and manifests under `path`. Add `cache-repo` alongside it to also share built layers across runners and repositories. See [the GitHub Actions cache](CI.md#the-github-actions-cache).
 
 The image is `REGION-docker.pkg.dev/PROJECT/REPO/backend`; `${{ steps.image.outputs.reference }}` holds its immutable digest reference and `${{ steps.image.outputs.report }}` the build report. A job that runs the mapped binary overrides the command with `/app/bin/tool`, as it would with the Dockerfile image.
