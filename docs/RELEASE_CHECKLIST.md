@@ -11,7 +11,7 @@ Use this checklist for each new version, starting with the next patch release. C
 - [ ] Merge the release PR and record the resulting **main commit**, which can differ from the reviewed PR head after a squash merge. Confirm CI for the resulting main commit. Keep unrelated work and stashes separate.
 - [ ] Prepare a candidate with `gh workflow run release.yml --repo sakajunquality/bunko --ref main`. Confirm the run's `headSha` is the selected main commit and that prepare/verify-candidate pass. This dispatch does not publish a release or create a tag. Manual candidate provenance uses `refs/heads/main`; published release provenance must use the tag ref.
 
-Keep setup defaults on the previously verified release until the new published artifacts pass acceptance. A new immutable Action tag will retain those preparation-time defaults; examples using it must explicitly select the desired CLI version.
+The setup Action derives its CLI version from its own tag ref or checked-out `package.json`, so the new tag installs the new release as soon as it is published; no default bump follows the tag. `bun-version` and container digests remain literals and stay on the previously verified values until the new artifacts pass acceptance.
 
 ## 2. Check the exact commit, then create the tag
 
@@ -82,7 +82,7 @@ gh workflow run npm.yml --repo sakajunquality/bunko --ref main -f version=v0.1.1
 
 ## 5. Promote defaults and close the release
 
-- [ ] Open a follow-up PR updating `action.yml`, the `scripts/setup.ts` fallback, workflow version inputs, installation examples and digest-pinned container recipes. Keep older version evidence intact; document the immutable Action tag's original defaults and use explicit inputs.
+- [ ] Open a follow-up PR updating workflow version inputs, installation examples and digest-pinned container recipes. The setup Action's CLI default follows its own ref, so `action.yml` and the `scripts/setup.ts` literal need no bump. Keep older version evidence intact; document that Action tags predating ref-derived defaults keep their original defaults and need explicit inputs.
 - [ ] Add exact publication and independent consumer evidence below. Distinguish CLI tag source, container recipe source and npm packaging source. Keep unverified provider/application acceptance visible; a version bump does not certify it.
 - [ ] Complete review and required CI, then merge. Check main CI and the public installation links. Confirm npm dist-tags and the intended GitHub latest/prerelease status. Announce completion only after the selected distribution channels pass their acceptance checks.
 

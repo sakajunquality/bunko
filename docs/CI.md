@@ -43,7 +43,7 @@ Persist a local `cache-dir` with your CI cache service, or use explicit registry
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-On main after promotion, setup defaults to the verified 0.1.2 release and Bun 1.4.2. The immutable `v0.1.2` Action tag defaults to CLI 0.1.1 and Bun 1.4.2; pass `version: v0.1.2` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+Setup installs the release named by its own `uses:` ref: a version-shaped ref such as `v0.1.2` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, so `version` is optional and only selects a different release. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the pinned commit above and the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## Invocation constants
 

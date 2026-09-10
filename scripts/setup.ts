@@ -1,5 +1,5 @@
 import { verifyRelease } from "./verify-release.ts";
-import { appendFile, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assetNames, localAsset, maxAssetBytes, releaseTag, verifyAssets } from "./distribution.ts";
@@ -41,6 +41,34 @@ export async function githubBytes(url: URL, token: string | undefined, accept: s
 }
 
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+
+/** Last resort for local runs where neither the Action ref nor an Action checkout is available. */
+export const fallbackVersion = "v0.1.2";
+type PackageVersionReader = (path: string) => Promise<string | undefined>;
+const actionPackageVersion: PackageVersionReader = async (path) => {
+  try { const parsed = JSON.parse(await readFile(path, "utf8")) as { version?: unknown }; return typeof parsed?.version === "string" ? parsed.version : undefined; }
+  catch { return undefined; }
+};
+const candidateTag = (value: string | undefined, requirePrefix: boolean) => {
+  if (!value || (requirePrefix && !value.startsWith("v"))) return undefined;
+  try { return releaseTag(value); } catch { return undefined; }
+};
+
+/** Resolve the release to install: an explicit input, then a version-shaped ref for this Action, then its checkout version, then the built-in default. */
+export async function resolveVersion(env: Record<string, string | undefined>, readPackageVersion: PackageVersionReader = actionPackageVersion): Promise<{ version: string; source: string }> {
+  const explicit = env.INPUT_VERSION?.trim();
+  if (explicit) return { version: explicit, source: "the version input" };
+  // Only the ref's spelling is available here: the runner reports the requested ref without distinguishing tags from branches, so any version-shaped ref
+  // selects that release and anything else falls through to the checkout it resolved to. A ref reported for a different Action repository belongs to a
+  // wrapping Action and never names a release here.
+  const repository = env.INPUT_REPOSITORY?.trim() || "sakajunquality/bunko", actionRepository = (env.GITHUB_ACTION_REPOSITORY || env.BUNKO_ACTION_REPOSITORY)?.trim();
+  const ref = !actionRepository || actionRepository.toLowerCase() === repository.toLowerCase() ? candidateTag((env.GITHUB_ACTION_REF || env.BUNKO_ACTION_REF)?.trim(), true) : undefined;
+  if (ref) return { version: ref, source: "GITHUB_ACTION_REF" };
+  const actionPath = env.GITHUB_ACTION_PATH?.trim() || env.BUNKO_ACTION_PATH?.trim();
+  const checkout = actionPath ? candidateTag((await readPackageVersion(join(actionPath, "package.json")))?.trim(), false) : undefined;
+  if (checkout) return { version: checkout, source: "the Action checkout package.json" };
+  return { version: fallbackVersion, source: "the built-in default" };
+}
 
 export async function setup(options: SetupOptions) {
   if (!["linux", "darwin"].includes(process.platform)) throw new Error("setup-bunko currently supports Linux and macOS runners");
@@ -85,7 +113,9 @@ export async function setup(options: SetupOptions) {
 
 if (import.meta.main) {
   if (process.env.INPUT_VERIFY_ATTESTATION && !["true", "false"].includes(process.env.INPUT_VERIFY_ATTESTATION)) throw new Error("verify-attestation must be true or false");
-  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", sourceCommit: process.env.INPUT_SOURCE_COMMIT || undefined, version: process.env.INPUT_VERSION ?? "v0.1.2", repository: process.env.INPUT_REPOSITORY,
+  const selected = await resolveVersion(process.env);
+  console.log(`Selected bunko ${selected.version} from ${selected.source}`);
+  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", sourceCommit: process.env.INPUT_SOURCE_COMMIT || undefined, version: selected.version, repository: process.env.INPUT_REPOSITORY,
     token: process.env.INPUT_TOKEN, distribution: process.env.INPUT_DISTRIBUTION_DIRECTORY || undefined, temporary: process.env.RUNNER_TEMP });
   if (process.env.GITHUB_PATH) await appendFile(process.env.GITHUB_PATH, `${result.bin}\n`);
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `version=${result.version}\nbunko-path=${result.executable}\n`);

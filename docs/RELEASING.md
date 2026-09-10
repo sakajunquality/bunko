@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The current published release is **0.1.2**, and main defaults to that independently verified release. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
+The current published release is **0.1.2**. The setup Action installs the release named by its own `uses:` ref, so a version tag installs the CLI of the same version without a follow-up default bump. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 For maintainers, follow the [release checklist](RELEASE_CHECKLIST.md) for commit/tag guards, publication order, consumer verification and failure recovery.
 
@@ -43,11 +43,18 @@ steps:
   - run: bunko version
 ```
 
-For stronger pinning, select a reviewed Action commit SHA while keeping the desired release version explicit. Registry login is separate from installing bunko; configure Docker credentials before a build that publishes an image.
+The `version` input is needed here only because the immutable v0.1.2 Action tag was cut before ref-derived defaults existed and still installs CLI 0.1.1 without it. From the next tag onward it can be omitted, because the Action resolves its version in this order:
+
+1. The `version` input, when it is not empty. An explicit version always wins, and it is the only way to install a release other than the Action's own.
+2. `GITHUB_ACTION_REF`, when the ref is version-shaped, such as `v0.1.2`, and `GITHUB_ACTION_REPOSITORY` still names the release repository. Only the spelling of the ref decides this; the runner reports the requested ref without saying whether it is a tag, so a branch named `v9.9.9` selects release v9.9.9 and fails when no such release exists. Refs that are not version-shaped, including `main`, an alias such as `latest` and a commit SHA, and refs reported for a wrapping Action, fall through to the next step.
+3. `package.json` in the Action checkout the ref resolved to, prefixed with `v`. That file is tagged together with the release, so a branch or commit-SHA pin installs the release recorded in the commit it pins.
+4. A literal in `scripts/setup.ts`, reached only outside GitHub Actions, where neither the ref nor an Action checkout exists.
+
+The installation log records the selected version and its source, for example `Selected bunko v0.1.2 from GITHUB_ACTION_REF`. For stronger pinning, select a reviewed Action commit SHA; a commit that includes this resolution installs the release its checkout declares, so `version` stays optional there too. Registry login is separate from installing bunko; configure Docker credentials before a build that publishes an image.
 
 | Input | Default / purpose |
 | --- | --- |
-| version | v0.1.2 on main after verified promotion; an explicit version, never latest |
+| version | Empty; the resolution order above selects the Action's own release. An explicit version, never latest |
 | bun-version | 1.4.2; installs the Bun runtime through the pinned setup-bun Action |
 | repository | sakajunquality/bunko; repository hosting release assets |
 | token | github.token; needs contents:read on the release repository for private assets |
@@ -75,4 +82,4 @@ The CLI file is portable between supported hosts. Use the supplied notices when 
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
 
-The immutable v0.1.2 Action tag retains its preparation-time defaults of CLI 0.1.1 and Bun 1.4.2. Main defaults to the verified 0.1.2 release after promotion; set both inputs explicitly when pinning it, as shown above. Projects requiring an older toolchain should set `bun-version` to their supported exact version. Future default promotions must follow publication and verification of the selected immutable release.
+Action tags cut before this resolution existed retain their preparation-time CLI default, which is the previous release; the immutable v0.1.2 tag defaults to CLI 0.1.1 unless `version` is passed. From the next tag onward the tag installs its own CLI version and `version` is optional. `bun-version` remains a literal default, so projects requiring an older toolchain should still set it to their supported exact version. Releasing therefore no longer requires a follow-up PR to bump the CLI default; the version tag and the tagged `package.json` carry it.
