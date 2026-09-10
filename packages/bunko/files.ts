@@ -32,9 +32,11 @@ export async function hashFile(path: string): Promise<Digest> {
   } finally { await file.close(); }
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = [], assetExclusions: string[] = [], sourceMode = false): Promise<Digest> {
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = [], assetExclusions: string[] = [], sourceMode = false, explicitAssets = new Set<string>()): Promise<Digest> {
   const ignored = await sourceIgnore(source);
   const gitIgnored = sourceMode ? gitSourceIgnore(source) : undefined;
+  const assetParents = new Set<string>();
+  for (const asset of explicitAssets) for (let parent = posix.dirname(asset); parent !== "."; parent = posix.dirname(parent)) assetParents.add(parent);
   const records: { path: string; type: string; digest?: Digest; executable?: boolean }[] = [];
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
@@ -56,6 +58,8 @@ export async function snapshot(source: string, destination: string, excluded: st
     }
     const strictAsset = strictAssetRoots.some((root) => path === root || path.startsWith(`${root}/`));
     if (exclude.some((p) => current === p || current.startsWith(`${p}/`))) {
+      const input = required.find((item) => item === path || item.startsWith(`${path}/`));
+      if (sourceMode && input) throw new Error(`Output/cache exclusion overlaps required source input: ${input}`);
       if (strictAsset) throw new Error(`Output/cache exclusion overlaps bunkodata: ${path}`);
       return;
     }
@@ -72,7 +76,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       names.set(path.toLowerCase(), path);
     }
     const info = await lstat(current);
-    if (path && await gitIgnored?.(path, info.isDirectory())) {
+    if (path && !explicitAssets.has(path) && !(info.isDirectory() && assetParents.has(path)) && await gitIgnored?.(path, info.isDirectory())) {
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
       if (input) throw new Error(`Git-ignored required source input: ${input}`);
       if (strictAssetRoots.some((root) => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))) throw new Error(`Git-ignored required asset: ${path}`);

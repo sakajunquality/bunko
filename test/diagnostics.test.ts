@@ -43,7 +43,7 @@ const fixtureTarget: DiagnosticTarget = {
   platforms: [{ os: "linux", architecture: "amd64" }, { os: "linux", architecture: "arm64", variant: "v8" }],
   dependencyStrategy: "closure", external: ["sharp"], base: "oven/bun:1.4.2-distroless",
   user: "65532:65532", ports: [8080, 9090], workdir: "/app",
-  runtimePath: "/usr/local/bin/bun", runtimeInjection: "release", assets: ["db"], runtimeCertificateCount: 1,
+  runtimePath: "/usr/local/bin/bun", runtimeInjection: "release", assets: ["db"], runtimeCertificateCount: 1, runtimeSystemCaTrust: false, explicitAssetsOverrideGitignore: false,
   assetExcludes: ["db/tmp"], assetMode: 0o644,
   toolchainRequirements: { version: "1.4.2", versionSource: "package.json#packageManager", ranges: [">=1.3.11 <1.5"], rangeSources: ["package.json#engines.bun"] },
   runtimeArgumentCount: 2, environmentKeys: ["PORT"], defineKeys: ["BUILD_CONSTANT"], unmatchedAllowances: ["fixture-mgs"],
@@ -291,4 +291,10 @@ test("offline text diagnostics describe image and URL sources without claiming t
   expect(text).toContain("registry.test/tool:v1:/bin/tool [linux/amd64]");
   expect(text).toContain(`https://example.test/data [sha256:${"a".repeat(64)}]`);
   expect(text).toContain("2 external source(s); content not checked offline");
+});
+
+test("diagnostics explain explicit asset and native trust policies", () => {
+  const output = renderDiagnostics({ ...fixture, targets: [{ ...fixtureTarget, mode: "source", explicitAssetsOverrideGitignore: true, runtimeSystemCaTrust: true }] });
+  expect(output).toContain("explicit assets override .gitignore");
+  expect(output).toContain("native CA trust (SSL_CERT_FILE)");
 });

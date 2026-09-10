@@ -12,7 +12,7 @@ export function filesystemMetadata(path: string): boolean {
   return path.split("/").includes(".DS_Store");
 }
 
-export async function requiredInputs(root: string, projects: Project[], excluded: string[] = [], assetExclusions: string[] = []): Promise<string[]> {
+export async function requiredInputs(root: string, projects: Project[], excluded: string[] = [], assetExclusions: string[] = [], explicitAssets = new Set<string>()): Promise<string[]> {
   const ignored = await sourceIgnore(root);
   const gitIgnored = projects.some((project) => project.mode === "source") ? gitSourceIgnore(root) : undefined;
   const isIgnored = (path: string) => path.split("/").some((_, i, parts) => ignored(parts.slice(0, i + 1).join("/")));
@@ -30,6 +30,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
         assetExclusions.push(join(root, path)); return;
       }
       required.add(path);
+      explicitAssets.add(path);
       const info = await lstat(join(root, path));
       if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported: ${path}`);
       if (info.isDirectory()) for (const child of await readdir(join(root, path))) await asset(join(path, child));

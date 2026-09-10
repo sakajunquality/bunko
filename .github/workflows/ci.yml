@@ -72,6 +72,9 @@ jobs:
       - run: bun run test:multiple-entrypoints
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64
+      - run: bun run test:native-ca
+        env:
+          BUNKO_SMOKE_PLATFORMS: linux/amd64
       - run: bun run test:asset-contexts
         env:
           BUNKO_SMOKE_PLATFORMS: linux/amd64

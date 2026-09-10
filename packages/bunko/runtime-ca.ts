@@ -59,3 +59,15 @@ export function assertBaseWorkdir(tree: BaseFilesystem, workdir: string): void {
   }
   for (const existing of tree.keys()) if (existing.startsWith(`${path}/`)) throw new Error("Base application workdir is not empty; choose an empty workdir instead of inheriting application files");
 }
+
+/** Only explicit native trust replaces an inherited SSL_CERT_FILE. */
+export function runtimeCAEnvironment(project: Pick<Project, "env" | "runtimeSystemCaTrust">, ca: RuntimeCA | undefined, inherited: string[] = []): Record<string, string> {
+  if (!ca) return {};
+  const keys = project.runtimeSystemCaTrust ? ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"] : ["NODE_EXTRA_CA_CERTS"];
+  for (const key of keys) {
+    const configured = project.env[key];
+    const base = inherited.find((value) => value.startsWith(`${key}=`))?.slice(key.length + 1);
+    if (configured !== undefined && configured !== ca.path || key === "NODE_EXTRA_CA_CERTS" && base && base !== ca.path) throw new Error(`runtime.caCertificates conflicts with an existing ${key} path`);
+  }
+  return Object.fromEntries(keys.map((key) => [key, ca.path]));
+}

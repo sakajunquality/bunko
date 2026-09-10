@@ -46,9 +46,10 @@ export async function closureReport(options: BuildOptions): Promise<ClosureRepor
     // Snapshot exactly as a build does, so .bunkoignore, excluded names, symlink
     // rejection and required inputs decide the measured bytes; a diagnostic never
     // writes into the project.
+    const explicitAssets = new Set<string>();
     const root = join(temporary, "source"), assetExclusions: string[] = [], exclusions = installCache ? [installCache] : [];
-    const required = await requiredInputs(discovery.directory, projects, exclusions, assetExclusions);
-    await snapshot(discovery.directory, root, exclusions, undefined, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source"));
+    const required = await requiredInputs(discovery.directory, projects, exclusions, assetExclusions, explicitAssets);
+    await snapshot(discovery.directory, root, exclusions, undefined, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source"), explicitAssets);
     const plan = await dependencyPlan(projects[0]!, root, true);
     assertLockToolchain(plan, toolchain);
     await installDependencies(root, plan, toolchain, platform, installCache);

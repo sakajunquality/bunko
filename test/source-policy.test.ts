@@ -64,17 +64,57 @@ test("ignore rule files and scopes reject symlinks and bounded-size violations",
   await expect(gitSourceIgnore(directory)("app.ts")).rejects.toThrow("256 KiB");
 });
 
-test("gitignore cannot silently remove declared source assets and does not change bundle input selection", async () => {
+test.each(["generated/", "generated"])("explicit source assets override %s without including ignored siblings", async (pattern) => {
+  const directory = await root(), source = await project(join(directory, "source"));
+  await file(source, ".gitignore", pattern + "\n");
+  await file(source, "generated/.gitignore", "!other.txt\n");
+  await file(source, "generated/dist/build.json", '{"built":true}');
+  await file(source, "generated/dist/private.txt", "excluded");
+  await file(source, "generated/dist/.DS_Store", "metadata");
+  await file(source, "generated/other.txt", "ignored sibling");
+  const manifest = await Bun.file(join(source, "package.json")).json();
+  await file(source, "package.json", JSON.stringify({ ...manifest, bunko: { assets: ["generated/dist"], assetExcludes: ["generated/dist/private.txt"] } }));
+  const result = await build({ path: source, mode: "source", baseLayout: await baseLayout(join(directory, "base")), output: join(directory, "image"), push: false, localCache: false, gitMetadata: false });
+  const store = new BlobStore(result.layout!);
+  const entries = (await Promise.all(result.layers.map((layer) => inspectTar(store.path(layer.descriptor.digest))))).flat();
+  expect(entries.some((entry) => entry.name === "app/generated/dist/build.json")).toBe(true);
+  for (const suffix of ["other.txt", "private.txt", ".DS_Store"]) expect(entries.some((entry) => entry.name.endsWith(suffix))).toBe(false);
+});
+
+test.each(["runtime/**", "runtime/data.txt"])("explicit asset %s retains authoritative exclusions", async (pattern) => {
   const directory = await root(), source = await project(join(directory, "source"));
   await file(source, "runtime/data.txt", "required data");
   await file(source, ".gitignore", "runtime/\n");
   const manifest = await Bun.file(join(source, "package.json")).json();
-  await file(source, "package.json", JSON.stringify({ ...manifest, bunko: { assets: ["runtime/**"] } }));
-  let requests = 0;
-  await expect(build({ path: source, mode: "source", push: false, gitMetadata: false, registry: { fetcher: async () => { requests++; throw new Error("Unexpected network"); } } })).rejects.toThrow("Git-ignored required source input");
-  expect(requests).toBe(0);
-  await file(source, "package.json", JSON.stringify(manifest));
+  await file(source, "package.json", JSON.stringify({ ...manifest, bunko: { assets: [pattern] } }));
+  const options = { path: source, mode: "source" as const, baseLayout: await baseLayout(join(directory, "base")), output: join(directory, "image"), push: false, localCache: false, gitMetadata: false };
+  await build(options);
+  await rm(options.output, { recursive: true, force: true });
+  await file(source, ".bunkoignore", "runtime/data.txt\n");
+  await expect(build(options)).rejects.toThrow("Ignored required input");
+  await file(source, ".bunkoignore", "");
+  await file(source, "runtime/data.txt", "-----BEGIN " + "PRIVATE KEY-----");
+  await expect(build(options)).rejects.toThrow("Private-key marker");
+});
+
+test("bundle input selection still ignores gitignore", async () => {
+  const directory = await root(), source = await project(join(directory, "source"));
   await file(source, ".gitignore", "src/\n");
   const result = await build({ path: source, mode: "bundle", baseLayout: await baseLayout(join(directory, "base")), output: join(directory, "image"), push: false, localCache: false, gitMetadata: false });
   expect(result.layers.some((layer) => layer.kind === "app")).toBe(true);
+});
+
+test("explicit ignored assets cannot include credentials, symlinks or build output", async () => {
+  const directory = await root(), source = await project(join(directory, "source"));
+  await file(source, ".gitignore", "dist/\n");
+  await file(source, "dist/.env", "secret");
+  const manifest = await Bun.file(join(source, "package.json")).json();
+  await file(source, "package.json", JSON.stringify({ ...manifest, bunko: { assets: ["dist"] } }));
+  const options = { path: source, mode: "source" as const, push: false, localCache: false, gitMetadata: false };
+  await expect(build(options)).rejects.toThrow("Excluded required source input");
+  await rm(join(source, "dist/.env"));
+  await symlink(join(source, "src/server.ts"), join(source, "dist/link"));
+  await expect(build(options)).rejects.toThrow("symlinks");
+  await rm(join(source, "dist/link"));
+  await expect(build({ ...options, output: join(source, "dist") })).rejects.toThrow("Output/cache exclusion overlaps required source input");
 });

@@ -3,7 +3,7 @@ import { createServer } from "node:https";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
-import { assertBaseDataPaths } from "../packages/bunko/runtime-ca.ts";
+import { runtimeCAEnvironment, assertBaseDataPaths } from "../packages/bunko/runtime-ca.ts";
 import { provenance } from "../packages/bunko/attest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
@@ -60,4 +60,26 @@ test("runtime CA inputs reject traversal and symlinked path components", async (
   await symlink(join(directory, "certificates"), join(source, "certs"));
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { runtime: { caCertificates: ["certs/root.pem"] } } }));
   await expect(runtimeCA(await loadProject({ path: source }))).rejects.toThrow("symlinks");
+});
+
+test("native CA trust is opt-in and handles explicit and inherited environment conflicts", () => {
+  const ca = { path: "/app/.bunko-ca/roots.pem", digest: "sha256:fixture" as const, certificates: 1 };
+  expect(runtimeCAEnvironment({ env: {}, runtimeSystemCaTrust: false }, ca)).toEqual({ NODE_EXTRA_CA_CERTS: ca.path });
+  expect(runtimeCAEnvironment({ env: {}, runtimeSystemCaTrust: true }, ca, ["SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"])).toEqual({ NODE_EXTRA_CA_CERTS: ca.path, SSL_CERT_FILE: ca.path });
+  for (const key of ["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"]) {
+    expect(() => runtimeCAEnvironment({ env: { [key]: "/different.pem" }, runtimeSystemCaTrust: true }, ca)).toThrow(key);
+    expect(runtimeCAEnvironment({ env: { [key]: ca.path }, runtimeSystemCaTrust: true }, ca)[key]).toBe(ca.path);
+  }
+  expect(() => runtimeCAEnvironment({ env: {}, runtimeSystemCaTrust: true }, ca, ["NODE_EXTRA_CA_CERTS=/other.pem"])).toThrow("NODE_EXTRA_CA_CERTS");
+});
+
+test("native CA trust requires a boolean opt-in and declared certificates", async () => {
+  const { loadProject } = await import("../packages/bunko/config.ts");
+  const directory = await temporary(); roots.push(directory);
+  const source = await project(join(directory, "source"));
+  const manifest = await Bun.file(join(source, "package.json")).json();
+  for (const [runtime, message] of [[{ systemCaTrust: "true" }, "must be boolean"], [{ systemCaTrust: true }, "requires runtime.caCertificates"]] as const) {
+    await writeFile(join(source, "package.json"), JSON.stringify({ ...manifest, bunko: { runtime } }));
+    await expect(loadProject({ path: source })).rejects.toThrow(message);
+  }
 });
