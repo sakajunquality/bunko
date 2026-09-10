@@ -1,0 +1,62 @@
+# Snyk policy file. Every entry here is a documented false positive: the
+# analyzer's data flow does not model a sanitizer or a callee that this
+# codebase relies on. Real findings are fixed, never ignored.
+version: v1.25.0
+
+exclude:
+  global:
+    # Agent worktrees under .claude/ are untracked local checkouts of this same
+    # repository. Scanning them reports every finding a second time.
+    - .claude/**
+
+ignore:
+  # Sink: packages/bunko/build.ts:727, `new Bun.Glob(pattern).match(local)`.
+  # Snyk models this as String.prototype.match(regexp) and reports the caller.
+  # Bun.Glob#match compiles a glob, not a regular expression, and takes a
+  # string argument, so no regular expression is built from the tainted value.
+  # The reported source is a bunko CLI argument (--report, --filename), which
+  # is operator input inside the trust boundary documented in SECURITY.md and
+  # docs/DESIGN.md: bunko builds trusted inputs on the host and is not a
+  # sandbox. Re-review if build.ts:727 ever moves to a real RegExp.
+  javascript/reDOS:
+    - 'packages/bunko/cli.ts':
+        reason: >-
+          Bun.Glob#match is not a RegExp sink, and the tainted value is the
+          operator's own CLI argument.
+        created: 2026-09-11T00:00:00.000Z
+        expires: 2027-09-11T00:00:00.000Z
+    - 'scripts/compare-builders.ts':
+        reason: >-
+          Bun.Glob#match is not a RegExp sink, and the tainted value is the
+          operator's own CLI argument.
+        created: 2026-09-11T00:00:00.000Z
+        expires: 2027-09-11T00:00:00.000Z
+
+  # Registry-controlled descriptors reaching a filesystem path is the right
+  # trust boundary to question, but every path is derived through
+  # BlobStore.path() (packages/oci/blob-store.ts:36), which calls
+  # assertDigest() (packages/oci/digest.ts:8) and rejects anything that is not
+  # /^sha256:[a-f0-9]{64}$/ before joining. descriptor() (digest.ts:23) applies
+  # the same assertion when the manifest is parsed, so neither "/" nor "." can
+  # reach the join. Snyk does not treat the regular expression assertion as a
+  # sanitizer. Re-review if BlobStore ever accepts a non-sha256 algorithm.
+  javascript/PT:
+    - 'packages/bunko/cache.ts':
+        reason: >-
+          Paths are gated by assertDigest()'s ^sha256:[a-f0-9]{64}$ check in
+          BlobStore.path() before any join.
+        created: 2026-09-11T00:00:00.000Z
+        expires: 2027-09-11T00:00:00.000Z
+    - 'packages/oci/artifacts.ts':
+        reason: >-
+          Paths are gated by assertDigest()'s ^sha256:[a-f0-9]{64}$ check in
+          BlobStore.path() before any join.
+        created: 2026-09-11T00:00:00.000Z
+        expires: 2027-09-11T00:00:00.000Z
+    - 'scripts/promote-container.ts':
+        reason: >-
+          Paths are gated by assertDigest()'s ^sha256:[a-f0-9]{64}$ check in
+          BlobStore.path() before any join.
+        created: 2026-09-11T00:00:00.000Z
+        expires: 2027-09-11T00:00:00.000Z
+patch: {}
