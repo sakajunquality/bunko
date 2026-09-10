@@ -629,3 +629,13 @@ test("untrusted layer traversal paths are rejected before asset capture", async 
   await expect(stageAssetMappings([{ image: f.image.reference, from: "/opt/tool", to: "/tools/tool" }], {}, join(f.root, "stage"), [], f.external())).rejects.toThrow("Unsupported path in runtime base filesystem");
   expect(await Bun.file(join(f.root, "escape")).exists()).toBe(false);
 });
+
+
+test("disabled asset caching does not exclude the configured cache path", async () => {
+  const root = await temporary(); roots.push(root);
+  const source = await project(join(root, "asset-cache", "app"), {}, 'console.log("uncached");');
+  const options = { path: source, baseLayout: await baseLayout(join(root, "base")), assetCache: join(root, "asset-cache"), gitMetadata: false };
+  await expect(build({ ...options, output: join(root, "cached") })).rejects.toThrow("Output/cache paths must not contain the source project");
+  const result = await build({ ...options, localCache: false, output: join(root, "uncached") });
+  expect(result.images).toHaveLength(1);
+});
