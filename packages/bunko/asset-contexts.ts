@@ -8,7 +8,7 @@ import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { Digest } from "../oci/types.ts";
 import { assetInputs } from "./cache.ts";
 import { assertNoLayerCollision } from "./files.ts";
-import { sourceIgnore, sourceOmissions } from "./ignore.ts";
+import { filesystemMetadata, sourceIgnore, sourceOmissions } from "./ignore.ts";
 
 export interface AssetMapping { context: string; from: string; to: string; exclude?: string[]; mode?: string }
 export interface AssetMaterial extends AssetMapping { digest: Digest }
@@ -101,6 +101,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
         if (info.isSymbolicLink()) throw new Error(`Asset symlinks are not supported: ${mapping.context}/${path}`);
       }
       async function walk(path: string, destination: string) {
+        if (path !== mapping.from && filesystemMetadata(path)) return;
         if (path !== mapping.from && excludeAsset(path.slice(mapping.from.length + 1))) return;
         if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}`);
         validateDestination(destination);

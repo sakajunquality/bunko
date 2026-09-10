@@ -198,7 +198,7 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
 
-Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path.
+Release preparation and the setup-bunko GitHub Action are documented in [RELEASING.md](docs/RELEASING.md). The version tag and release must exist before using the release download path. When `version` is omitted, the Action uses a version-shaped `uses:` ref only when its Action repository matches the configured release repository; otherwise it uses the Action checkout’s `package.json` version. An explicit `version` always overrides this selection; Action tags cut before that resolution existed, including v0.1.2, still need it.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

@@ -7,6 +7,11 @@ import type { Project } from "./config.ts";
 
 export const sourceOmissions = new Set([".git", ".cursor", "node_modules", ".bunko-output", ".bunko-build", ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store", ".ssh", ".kube", ".gnupg", ".netrc", ".terraform", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "terraform.tfstate", "terraform.tfstate.backup"]);
 
+/** Finder metadata is omitted from directory inputs, including declared assets. */
+export function filesystemMetadata(path: string): boolean {
+  return path.split("/").includes(".DS_Store");
+}
+
 export async function requiredInputs(root: string, projects: Project[], excluded: string[] = [], assetExclusions: string[] = []): Promise<string[]> {
   const ignored = await sourceIgnore(root);
   const gitIgnored = projects.some((project) => project.mode === "source") ? gitSourceIgnore(root) : undefined;
@@ -19,6 +24,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
     for (const pkg of project.workspace?.packages ?? []) required.add(join(pkg.path, "package.json"));
     const excludeAsset = assetExcluder(project.assetExcludes);
     async function asset(path: string) {
+      if (filesystemMetadata(path)) return;
       if (excludeAsset(relative(project.targetPath || ".", path))) {
         if (project.mode === "source" && [...required].some((input) => input === path || input.startsWith(`${path}/`))) throw new Error(`Asset exclusion overlaps a required source input: ${path}`);
         assetExclusions.push(join(root, path)); return;
