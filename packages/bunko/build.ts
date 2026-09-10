@@ -1,4 +1,4 @@
-import { mkdtemp } from "../runtime/invocation.ts";
+import { mkdtemp, cleanupMkdtemp } from "../runtime/invocation.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
 import { imageSizeSummary } from "./image-size.ts";
 import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
@@ -143,7 +143,7 @@ export async function assertReportNotInput(report: string | undefined, inputs: s
 export async function writeReport(path: string, value: unknown, written?: Set<string>) {
   await mkdir(dirname(path), { recursive: true });
   await assertReportWritable(path);
-  const temporary = await mkdtemp(join(dirname(path), ".bunko-report-"));
+  const temporary = await cleanupMkdtemp(join(dirname(path), ".bunko-report-"));
   try {
     const file = join(temporary, "report.json");
     await writeFile(file, canonicalJSON(value));

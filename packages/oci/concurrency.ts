@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../runtime/invocation.ts";
 /** The lowest-index rejection, kept separately from its reason: a job may reject with a falsy
  * value (a credential provider throwing `undefined`), and a caller must still see the failure. */
 export interface BoundedFailure { index: number; reason: unknown }
@@ -14,7 +15,7 @@ export async function boundedMap<T, R>(values: readonly T[], limit: number, map:
   await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => {
     while (!failed && next < values.length) {
       const index = next++;
-      try { results[index] = await map(values[index]!); }
+      try { throwIfCancelled(); results[index] = await map(values[index]!); }
       catch (error) { if (!failed || index < failedIndex) { failed = true; failedIndex = index; reason = error; } }
     }
   }));

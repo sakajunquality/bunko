@@ -30,7 +30,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) test(`CLI ${signal} aborts 
   } });
   try {
     const host = `127.0.0.1:${server.port}`;
-    const running = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--base", `${host}/base:latest`, "--insecure-registry", host, "--push=false", "--oci-layout", join(root, "output"), "--no-cache", "--no-git-metadata"], { env: { ...process.env, TMPDIR: scratch }, stdout: "pipe", stderr: "pipe" });
+    const running = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--base", `${host}/base:latest`, "--insecure-registry", host, "--push=false", "--oci-layout", join(root, "output"), "--no-cache", "--no-git-metadata", "--report", join(root, "report.json")], { env: { ...process.env, TMPDIR: scratch }, stdout: "pipe", stderr: "pipe" });
     child = running;
     const stdout = new Response(running.stdout).text(), stderr = new Response(running.stderr).text();
     await waitFor(async () => downloading, child);
@@ -40,6 +40,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) test(`CLI ${signal} aborts 
     expect(await stdout).toBe("");
     expect(await stderr).not.toContain("deadline reached");
     expect(await readdir(scratch)).toEqual([]);
+    expect((await Bun.file(join(root, "report.json")).json()).status).toBe("failed");
   } finally {
     if (child?.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
     server.stop(true); await rm(root, { recursive: true, force: true });
@@ -54,7 +55,7 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
     const result = await runInvocation(async () => {
       const directory = await mkdtemp(${JSON.stringify(join(scratch, "owned-"))});
       await Bun.write(directory + '/.npmrc', '//registry.invalid/:_authToken=dummy-fixture-only');
-      const child = spawn([process.execPath, '--eval', ${JSON.stringify(`process.on('SIGTERM', () => {}); await Bun.write(${JSON.stringify(childReady)}, 'ready'); setInterval(() => {}, 1000);`)}], {stdout:'ignore', stderr:'ignore'});
+      const child = spawn([process.execPath, '--eval', ${JSON.stringify(`process.on('SIGTERM', () => {}); const grandchild = Bun.spawn([process.execPath, '--eval', 'setInterval(() => {}, 1000)'], {stdout:'ignore', stderr:'ignore'}); await Bun.write(${JSON.stringify(childReady)}, String(grandchild.pid)); setInterval(() => {}, 1000);`)}], {stdout:'ignore', stderr:'ignore'});
       while (!await Bun.file(${JSON.stringify(childReady)}).exists()) await Bun.sleep(10);
       await Bun.write(${JSON.stringify(ready)}, String(child.pid));
       await child.exited;
@@ -67,10 +68,12 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
   try {
     await waitFor(() => Bun.file(ready).exists(), child);
     const pid = Number(await Bun.file(ready).text());
+    const grandchild = Number(await Bun.file(childReady).text());
     child.kill("SIGTERM");
     expect(await child.exited).toBe(143);
     expect(await new Response(child.stderr).text()).toBe("");
     expect(() => process.kill(pid, 0)).toThrow();
+    if (process.platform !== "win32") expect(() => process.kill(grandchild, 0)).toThrow();
     expect(await readdir(scratch)).toEqual([]);
   } finally {
     if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
@@ -119,3 +122,34 @@ test("cancelled dependency installation removes the staged npmrc but preserves t
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+test.skipIf(process.platform === "win32")("a helper cannot outlive a leader that exits on cancellation", async () => {
+  const root = await temporary(), ready = join(root, "helper-ready");
+  const helper = `process.on('SIGTERM', () => {}); await Bun.write(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  const leader = `process.on('SIGTERM', () => process.exit(0)); Bun.spawn([process.execPath, '--eval', ${JSON.stringify(helper)}], {stdout:'ignore', stderr:'ignore'}); setInterval(() => {}, 1000);`;
+  const script = `import {runInvocation, spawn} from './packages/runtime/invocation.ts'; process.exitCode = await runInvocation(async () => { const child = spawn([process.execPath, '--eval', ${JSON.stringify(leader)}], {stdout:'ignore', stderr:'ignore'}); await child.exited; return 0; });`;
+  const child = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
+  try {
+    await waitFor(() => Bun.file(ready).exists(), child);
+    const pid = Number(await Bun.file(ready).text());
+    child.kill("SIGTERM");
+    expect(await child.exited).toBe(143);
+    expect(await new Response(child.stderr).text()).toBe("");
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
+    if (await Bun.file(ready).exists()) { try { process.kill(Number(await Bun.file(ready).text()), "SIGKILL"); } catch { /* Owned helper already exited. */ } }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
+
+test("the hard cancellation deadline retains scratch when work cannot drain", async () => {
+  const root = await temporary();
+  const script = `import {runInvocation, mkdtemp} from './packages/runtime/invocation.ts'; process.exitCode = await runInvocation(async () => { await mkdtemp(${JSON.stringify(join(root, "retained-"))}); process.kill(process.pid, 'SIGTERM'); return await new Promise(() => {}); }, 200);`;
+  const child = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
+  try {
+    expect(await child.exited).toBe(143);
+    expect(await new Response(child.stderr).text()).toContain("scratch retained because work has not drained");
+    expect((await readdir(root)).length).toBe(1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
