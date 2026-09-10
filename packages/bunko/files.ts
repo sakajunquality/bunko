@@ -1,7 +1,8 @@
 import { assertNoSourcePrivateKey, gitSourceIgnore } from "./source-policy.ts";
-import { filesystemMetadata, sourceIgnore, sourceOmissions } from "./ignore.ts";
+import { filesystemMetadata, omittedSourceName, sourceIgnore } from "./ignore.ts";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, open } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { join, posix, relative, resolve } from "node:path";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
@@ -10,7 +11,16 @@ import type { SyntaxCache } from "./syntax-cache.ts";
 import { rejectMacroSyntax } from "./syntax.ts";
 
 export const OUTPUT_DIRECTORY = ".bunko-build";
-const omitted = sourceOmissions;
+
+/** What lstat found where a regular file or directory was required, so an error says why a path cannot be packaged. */
+function entryKind(info: Stats): string {
+  if (info.isSymbolicLink()) return "symlink";
+  if (info.isSocket()) return "socket";
+  if (info.isFIFO()) return "FIFO";
+  if (info.isBlockDevice()) return "block device";
+  if (info.isCharacterDevice()) return "character device";
+  return "special file";
+}
 
 export async function rejectMacros(file: string, name: string, cache?: SyntaxCache): Promise<void> {
   if (cache) return cache.check(file, name);
@@ -65,7 +75,7 @@ export async function snapshot(source: string, destination: string, excluded: st
       return;
     }
     const name = path.split("/").at(-1)!;
-    if (omitted.has(name) || name.startsWith(".env")) {
+    if (omittedSourceName(name)) {
       if (strictAsset) throw new Error(`Excluded source name inside bunkodata: ${path}`);
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
       if (input && (sourceMode || explicitAssets.has(path) || assetParents.has(path))) throw new Error(`Excluded required source input: ${input}; credential and internal output/cache paths cannot be packaged`);
@@ -93,14 +103,18 @@ export async function snapshot(source: string, destination: string, excluded: st
       if (!inspectOnly) await copyFile(current, copied);
       if (sourceMode) await assertNoSourcePrivateKey(copied, path);
       if (!inspectOnly) await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
-      records.push({ path, type: "file", ...(inspectOnly ? {} : { digest: await hashFile(copied) }), executable: Boolean(info.mode & 0o111) });
-    } else throw new Error(`Unsupported source file type: ${path}`);
+      // Hashing reads the whole file, which is what copying it costs a build: an input that
+      // stats but cannot be read fails an inspection exactly as it fails the copy, and the
+      // records an inspection returns then describe the same content as the snapshot's.
+      records.push({ path, type: "file", digest: await hashFile(copied), executable: Boolean(info.mode & 0o111) });
+    } else throw new Error(`Unsupported source file type: ${path} (${entryKind(info)})`);
   }
   await walk("");
   return sha256(canonicalJSON(records));
 }
 
-export async function fileEntries(root: string, prefix: string, selected?: Set<string>): Promise<TarEntry[]> {
+/** `rule` names the configuration rule that selected a path, so an entry that cannot be packaged says which rule reached it. */
+export async function fileEntries(root: string, prefix: string, selected?: Set<string>, rule?: (path: string) => string | undefined): Promise<TarEntry[]> {
   const entries: TarEntry[] = [];
   async function walk(path: string) {
     const file = join(root, path);
@@ -110,7 +124,10 @@ export async function fileEntries(root: string, prefix: string, selected?: Set<s
       for (const name of (await readdir(file)).sort()) await walk(path ? `${path}/${name}` : name);
     } else if (info.isFile()) {
       if (!selected || selected.has(path)) entries.push({ type: "file", path: `${prefix}/${path}`, source: file, size: info.size, executable: Boolean(info.mode & 0o111) });
-    } else throw new Error(`Unsupported output file type: ${path}`);
+    } else {
+      const selector = rule?.(path);
+      throw new Error(`Unsupported output file type: ${path} (${entryKind(info)})${selector ? ` selected by ${selector}` : ""}`);
+    }
   }
   await walk("");
   return entries;
@@ -119,6 +136,7 @@ export async function fileEntries(root: string, prefix: string, selected?: Set<s
 export async function assetEntries(root: string, patterns: string[], prefix: string, allowEmpty = false): Promise<TarEntry[]> {
   if (!patterns.length) return [];
   const selected = new Set<string>();
+  const rules = new Map<string, string>();
   for (const pattern of patterns) {
     const matches = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: false, dot: true, followSymlinks: false }));
     if (!matches.length && !allowEmpty) throw new Error(`Asset pattern matched no files: ${pattern}`);
@@ -127,12 +145,16 @@ export async function assetEntries(root: string, patterns: string[], prefix: str
       const path = relative(root, resolve(root, match));
       archivePath(path);
       selected.add(path);
+      if (!rules.has(path)) rules.set(path, `asset pattern ${pattern}`);
       if ((await lstat(join(root, path))).isDirectory()) {
-        for await (const child of new Bun.Glob("**/*").scan({ cwd: join(root, path), onlyFiles: false, dot: true, followSymlinks: false })) selected.add(`${path}/${child}`);
+        for await (const child of new Bun.Glob("**/*").scan({ cwd: join(root, path), onlyFiles: false, dot: true, followSymlinks: false })) {
+          selected.add(`${path}/${child}`);
+          if (!rules.has(`${path}/${child}`)) rules.set(`${path}/${child}`, `asset pattern ${pattern}`);
+        }
       }
     }
   }
-  return fileEntries(root, prefix, selected);
+  return fileEntries(root, prefix, selected, (path) => rules.get(path));
 }
 
 export function assertNoLayerCollision(groups: TarEntry[][]): void {
