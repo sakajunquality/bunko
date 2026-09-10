@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
-import { readFile, rm, utimes, writeFile } from "node:fs/promises";
-import { LayerCache, cacheKey, cacheTag, packFormat, type CacheRecord } from "../packages/bunko/cache.ts";
+import { mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { LayerCache, cacheKey, cacheTag, closurePlanLayout, packFormat, type CacheRecord, type ClosurePlanRecord } from "../packages/bunko/cache.ts";
 import { pruneLocal } from "../packages/bunko/prune.ts";
 import { validateCacheOptions } from "../packages/bunko/cache-options.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { packLayer } from "../packages/oci/tar.ts";
+import { canonicalJSON } from "../packages/oci/digest.ts";
 import { temporary } from "./helpers.ts";
 import { MockRegistry } from "./mock-registry.ts";
 
@@ -63,6 +64,42 @@ test("quota pruning accounts shared blobs once, previews oldest keys and leaves 
   expect(final.remainingBytes).toBe(0);
   expect(await readFile(unknown, "utf8")).toBe("unowned");
   await expect(pruneLocal(directory, true, 0, -1)).rejects.toThrow("budget");
+});
+
+test("closure plan bytes are credited with the record they name and orphans before selection", async () => {
+  const root = await fixture(), directory = join(root, "cache"), store = new BlobStore(join(root, "store"));
+  const cache = new LayerCache(store, { directory, log: () => {} }), platform = { os: "linux" as const, architecture: "amd64" as const };
+  const destination = "/app/node_modules";
+  async function deps(name: string): Promise<CacheRecord> {
+    return { schemaVersion: 1, kind: "deps", key: cacheKey(name), packFormat, destination, platform, inventory: [], native: [],
+      layer: (await packLayer(store, [{ path: `app/node_modules/${name}`, type: "file", content: Buffer.from(name.repeat(512)) }], "deps", 0))! };
+  }
+  const first = await deps("first"), second = await deps("second");
+  for (const [i, item] of [first, second].entries()) { await cache.remember(item); await utimes(join(directory, "keys/deps", `${item.key.slice(7)}.json`), i + 1, i + 1); }
+  const planKey = cacheKey("attached plan");
+  const plan: ClosurePlanRecord = { schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key: first.key, destination, platform, aliases: {}, undeclared: [], optionalUndeclared: [], packages: [], omitted: 0 };
+  await cache.rememberPlan(plan);
+  const planPath = (key: string) => join(directory, "plans/deps", `${key.slice(7)}.json`);
+  const size = async (path: string) => (await readFile(path)).length;
+  const usage = await pruneLocal(directory, false, 0, Number.MAX_SAFE_INTEGER);
+  const planBytes = await size(planPath(planKey)), firstBytes = await size(join(directory, "keys/deps", `${first.key.slice(7)}.json`));
+  expect(usage.managedBytes).toBe(planBytes + firstBytes + first.layer.descriptor.size + await size(join(directory, "keys/deps", `${second.key.slice(7)}.json`)) + second.layer.descriptor.size);
+  // Reclaiming the oldest record plus its plan already meets the budget, so the newer record survives.
+  const keep = usage.managedBytes - firstBytes - planBytes - first.layer.descriptor.size;
+  const preview = await pruneLocal(directory, false, 0, keep);
+  expect(preview.keys.sort()).toEqual([`deps/${first.key.slice(7)}.json`, `plans/deps/${planKey.slice(7)}.json`].sort());
+  expect(preview.remainingBytes).toBe(keep);
+  // An orphan names no record at all, so its bytes are reclaimed before any record is considered.
+  const orphanKey = cacheKey("orphan plan");
+  await mkdir(join(directory, "plans/deps"), { recursive: true });
+  await writeFile(planPath(orphanKey), canonicalJSON({ ...plan, planKey: orphanKey, key: cacheKey("absent record") }));
+  const orphanBytes = await size(planPath(orphanKey));
+  const orphaned = await pruneLocal(directory, false, 0, usage.managedBytes);
+  expect(orphaned.keys).toEqual([`plans/deps/${orphanKey.slice(7)}.json`]);
+  expect(orphaned.remainingBytes).toBe(usage.managedBytes);
+  const applied = await pruneLocal(directory, true, 0, usage.managedBytes);
+  expect(applied.deleted).toEqual([planPath(orphanKey)]);
+  expect(orphanBytes).toBeGreaterThan(0);
 });
 
 test("build wiring reads shared cache while cache-write=false prevents remote cache mutations", async () => {

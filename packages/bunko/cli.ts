@@ -30,6 +30,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 import { checkConfig, doctor } from "./diagnostics.ts";
+import { closureReport, formatClosureInfo, formatWhy, whyPackage } from "./closure-report.ts";
 import { diagnosticsFormat, diagnosticsOutput } from "./diagnostics-format.ts";
 import { validateCommandOptions } from "./command-options.ts";
 import { parseArgs } from "node:util";
@@ -62,6 +63,8 @@ Usage:
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>]
   bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>]
+  bunko why <package> [path] [--target <name/path>] [--json]
+  bunko closure-info [path] [--target <name/path>] [--top <count>] [--json]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
   bunko version
 
@@ -143,12 +146,19 @@ Options:
   --tag-conflict <fail|skip>  Fail on immutable tag refusals, or report and skip them
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
+  --top <count>            closure-info rows, largest first (default: 20)
+  --json                   Machine-readable why/closure-info output
   --progress <plain|json>   Stage events on stderr (default: plain)
   --format <json|text>     check-config/doctor output (default: text on a terminal, json otherwise)
   --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
 
 Boolean options accept --flag, --no-flag, and --flag=true|false.
+
+why and closure-info enumerate the closure from a real Linux production install
+of bun.lock, so they need package registry access; they never contact an image
+registry and never publish. A size is the packaged regular files' payload,
+before compression, excluding tar headers, directories and links.
 
 Authentication: Docker config auths, credHelpers, or credsStore.
 GHCR, Google Artifact Registry, Docker Hub, ECR and OCI Distribution registries.
@@ -252,6 +262,8 @@ export async function main(argv: string[]): Promise<number> {
       "keep-bytes": { type: "string" },
       "install-cache": { type: "string" },
       "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
+      top: { type: "string" },
+      json: { type: "boolean" },
       "insecure-registry": { type: "string", multiple: true },
       "dry-run": { type: "boolean" },
       "oci-layout": { type: "string" },
@@ -286,6 +298,18 @@ export async function main(argv: string[]): Promise<number> {
       const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));
       const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(diagnosticsOutput(await (command === "doctor" ? doctor(options) : checkConfig(options)), format)); return 0;
+    }
+    if (command === "why" || command === "closure-info") {
+      const why = command === "why" ? positionals[1] : undefined;
+      if (command === "why" && !why) throw new Error("why requires a package name");
+      if (positionals.length > (command === "why" ? 3 : 2)) throw new Error("Use one project path and repeat --target to select workspace members");
+      if (values.top !== undefined && !/^[1-9]\d*$/.test(values.top)) throw new Error("--top must be a positive integer");
+      const projectPath = (command === "why" ? positionals[2] : positionals[1]) ?? ".";
+      const found = await closureReport({ path: projectPath, targets: values.target, platform: values.platform, depsStrategy: values["deps-strategy"],
+        sharedDeps: values["shared-deps"], bunPath: values["bun-path"], installCache: values["install-cache"], localCache: values.cache && values["local-cache"] });
+      const report = why ? whyPackage(found, why) : found;
+      process.stdout.write(values.json ? JSON.stringify(report) + "\n" : why ? formatWhy(report, why) : formatClosureInfo(report, Number(values.top ?? 20)));
+      return 0;
     }
     if (command === "metadata") {
       if (positionals.length !== 2 || !values["metadata-dir"]) throw new Error("metadata requires an image@digest or layout:DIR and --metadata-dir");

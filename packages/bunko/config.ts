@@ -106,7 +106,7 @@ export interface Project {
   labels: Record<string, string>;
   inheritBaseOciLabels?: boolean;
   allowIgnoredScripts?: string[];
-  undeclaredImports: "warn" | "error" | "off";
+  undeclaredImports: "warn" | "error" | "off" | "strict";
   annotations: Record<string, string>;
   dataPath?: string;
   ports?: number[];
@@ -217,7 +217,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const allowIgnoredScripts = [...new Set(strings(deps.allowIgnoredScripts, "deps.allowIgnoredScripts"))].sort();
   if (allowIgnoredScripts.some((name) => packageRoot(name) !== name)) throw new Error("deps.allowIgnoredScripts requires exact package names");
   const undeclaredImports = deps.undeclaredImports ?? "warn";
-  if (undeclaredImports !== "warn" && undeclaredImports !== "error" && undeclaredImports !== "off") throw new Error("deps.undeclaredImports must be warn, error or off");
+  if (undeclaredImports !== "warn" && undeclaredImports !== "error" && undeclaredImports !== "strict" && undeclaredImports !== "off") throw new Error("deps.undeclaredImports must be warn, error, strict or off");
   if (config.inheritBaseOciLabels !== undefined && typeof config.inheritBaseOciLabels !== "boolean") throw new Error("inheritBaseOciLabels must be boolean");
   if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
   const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");

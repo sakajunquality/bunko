@@ -4,6 +4,8 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const input = "filename context recursive selector";
   const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run";
   const diagnostic = "runtime-arg define asset-context target platform mode module-locations deps-strategy shared-deps format";
+  // why/closure-info install Linux production dependencies; they take the install cache but no image registry options.
+  const closure = "target platform deps-strategy shared-deps bun-path install-cache cache local-cache json";
   const allowed: Record<string, string> = {
     build: `offline ${build} deps-artifact`, resolve: `${build} ${input}`, apply: `${build} ${input} ${kube}`,
     "cache-info": "cache-dir",
@@ -12,6 +14,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
     "prepare-base": "base base-layout platform oci-layout registry-mirror insecure-registry registry-config",
     "pack-deps": "lockfile platform oci-layout workdir artifact-target", "check-base": "registry-mirror base base-layout platform bun-path run runtime-path runtime-inject runtime-cache insecure-registry registry-config",
     verify: "verify-key private-signatures cosign-path insecure-registry", "check-config": diagnostic, doctor: `${diagnostic} bun-path cosign-path`, version: "",
+    why: closure, "closure-info": `${closure} top`,
   };
   if (!(command in allowed)) throw new Error(`Unknown command: ${command}`);
   const accepted = new Set(`${allowed[command]} help version`.split(" "));
