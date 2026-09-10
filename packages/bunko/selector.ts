@@ -1,4 +1,4 @@
-import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Document, type Node, type Scalar } from "yaml";
+import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, visit, type Document, type Node, type Scalar } from "yaml";
 
 function valueValid(value: string): boolean { return value.length <= 63 && (!value || /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(value)); }
 function keyValid(key: string): boolean {
@@ -83,6 +83,32 @@ function selectedJSON(node: unknown, source: string): string {
   throw new Error("Invalid selected JSON node");
 }
 
+/** Preserve references to anchors removed with a List item, without unbounded alias expansion. */
+function preserveRemovedAnchors(document: Document, aliases: Map<number, Node | undefined>, sourceLength: number): void {
+  const retained = new Set<Node>();
+  visit(document, { Node(_key, node) { retained.add(node); } });
+  let expansions = 0, nodes = 0, bytes = 0;
+  function expand(target: Node | undefined, ancestors = new Set<Node>()): Node {
+    if (!target || ancestors.has(target)) throw new Error("Cyclic or unresolved List alias");
+    if (++expansions > 100) throw new Error("List alias expansion exceeds safe limits");
+    const next = new Set(ancestors).add(target), copy = target.clone();
+    visit(copy, {
+      Node(_key, node) {
+        if (++nodes > 100_000) throw new Error("List alias expansion exceeds safe limits");
+        if (isScalar(node)) bytes += String(node.value).length;
+        if (bytes > Math.max(sourceLength * 2, 1_048_576)) throw new Error("List alias expansion exceeds safe limits");
+        if (isScalar(node) || isMap(node) || isSeq(node)) node.anchor = undefined;
+      },
+      Alias(_key, node) { return expand(aliases.get(node.range![0]), next); },
+    });
+    return copy;
+  }
+  visit(document, { Alias(_key, node) {
+    const target = aliases.get(node.range![0]);
+    if (!target || !retained.has(target)) return expand(target);
+  } });
+}
+
 /** Selection may normalize YAML formatting; unfiltered resolution stays lossless. */
 export function selectDocuments(name: string, source: string, match: (labels: Record<string, string>) => boolean): string | undefined {
   const documents = parseAllDocuments(source, { prettyErrors: true, intAsBigInt: true, merge: true, logLevel: "silent",
@@ -92,6 +118,8 @@ export function selectDocuments(name: string, source: string, match: (labels: Re
     } : tag),
   });
   const selected = [];
+  const aliases = new Map<number, Node | undefined>();
+  for (const document of documents) visit(document, { Alias(_key, node) { aliases.set(node.range![0], node.resolve(document)); } });
   let filteredList = false;
   for (const document of documents) {
     if (document.errors.length || document.warnings.length) throw new Error(`${name}: ${[...document.errors, ...document.warnings][0]!.message}`);
@@ -105,9 +133,9 @@ export function selectDocuments(name: string, source: string, match: (labels: Re
         if (!isScalar(itemKind) || typeof itemKind.value !== "string" || !itemKind.value) throw new Error(`${name}: List items must be Kubernetes objects with a kind`);
         return objectMatches(name, item, document, match);
       });
-      filteredList = true;
+      filteredList ||= retained.length !== items.items.length;
       items.items = retained;
-      if (retained.length) selected.push(document);
+      if (retained.length) { preserveRemovedAnchors(document, aliases, source.length); selected.push(document); }
     } else if (objectMatches(name, document.contents, document, match)) selected.push(document);
   }
   if (!selected.length) return;

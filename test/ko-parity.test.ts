@@ -175,3 +175,29 @@ test("List selection validates items and resolves retained metadata aliases", ()
   const result = selectDocuments("alias.yaml", 'kind: List\nlabels: &labels {app: yes}\nitems:\n  - kind: Pod\n    metadata: {labels: *labels}\n', labelSelector("app=yes"))!;
   expect(parseAllDocuments(result)[0]!.toJS().items.length).toBe(1);
 });
+
+test("selected List items preserve aliases whose anchor belonged to a removed sibling", () => {
+  const source = `kind: List
+items:
+  - kind: ConfigMap
+    metadata: {name: base, labels: {app: other}}
+    data: &shared {large: 900719925474099312345, precise: 1.234567890123456789}
+  - kind: ConfigMap
+    metadata: {name: keep, labels: {app: selected}}
+    data: *shared
+`;
+  const result = selectDocuments("list.yaml", source, labelSelector("app=selected"))!;
+  expect(result).not.toContain("name: base");
+  expect(result).toContain("900719925474099312345");
+  expect(result).toContain("1.234567890123456789");
+  expect(parseAllDocuments(result)[0]!.toJS().items[0].metadata.name).toBe("keep");
+  const unchanged = '{ "kind": "List", "items": [{"kind":"Pod"}] }\n';
+  expect(selectDocuments("list.json", unchanged, labelSelector("!app"))).toBe(unchanged);
+});
+
+test("removed-anchor materialization rejects cycles and excessive alias expansion", () => {
+  const cyclic = 'kind: List\nitems:\n  - kind: Pod\n    metadata: {labels: {app: other}}\n    data: &loop [*loop]\n  - kind: Pod\n    metadata: {labels: {app: yes}}\n    data: *loop\n';
+  expect(() => selectDocuments("cycle.yaml", cyclic, labelSelector("app=yes"))).toThrow("Cyclic or unresolved List alias");
+  const repeated = 'kind: List\nitems:\n  - kind: Pod\n    metadata: {labels: {app: other}}\n    data: &shared {value: text}\n  - kind: Pod\n    metadata: {labels: {app: yes}}\n    data: [' + Array(101).fill('*shared').join(', ') + ']\n';
+  expect(() => selectDocuments("bounded.yaml", repeated, labelSelector("app=yes"))).toThrow("List alias expansion exceeds safe limits");
+});
