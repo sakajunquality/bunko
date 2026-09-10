@@ -206,3 +206,14 @@ test("CLI stdin success prints only documents, and partial publication failure p
     expect(report.pendingTargets).toEqual([await realpath(join(f.root, "later"))]);
   } finally { await server.stop(true); }
 });
+
+
+test.each(["build", "resolve"])("CLI %s accepts and forwards the asset cache path", async (command) => {
+  const f = await fixture(), input = join(f.root, "input.yaml");
+  await writeFile(input, "image: bunko://app\n");
+  const args = command === "build" ? ["build", f.source] : ["resolve", "-f", input, "--context", f.root, "--repo", "registry.test/team"];
+  const result = await cli([...args, "--base-layout", f.options.baseLayout, "--asset-cache", f.root, "--local-cache", "--git-metadata=false"]);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain("Output/cache paths must not contain the source project");
+  expect(result.stderr).not.toContain("not supported");
+});
