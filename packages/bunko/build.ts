@@ -44,7 +44,7 @@ import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot }
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
-import { assertSharedClosure, byteSize, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
+import { assertSharedClosure, byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
@@ -370,7 +370,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           // unchanged closure skips both the frozen Linux install and per-file projection.
           const planKey = cacheKey({ kind: "deps-plan", layout: closurePlanLayout, packFormat, epoch: timestamp, destination, ...closurePlanInputs(plan, toolchain, platform, base.descriptor.digest, context.closureProjects) });
           const notice = `${planKey}/${platform.architecture}`;
-          const planned = options.verifyDeterministic ? undefined : await cache.plan(planKey, { destination, platform });
+          const found = options.verifyDeterministic ? undefined : await cache.plan(planKey, { destination, platform });
+          // The plan key omits the selected targets' own sources, so a recorded closure that
+          // packages one of them (a cycle, a self-external, one shared target externalising
+          // another, or a plan written before the key dropped them) is not reusable.
+          const planned = found && !closureCoversTarget(found.packages, context.closureProjects) ? found : undefined;
           const reused = planned && await cache.get(planned.key, "deps", false, { destination, platform });
           if (planned && reused) {
             aliases = planned.aliases[project.targetPath] ?? [];
@@ -393,7 +397,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             depsEntries = content.entries;
             depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
             if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
-            if (iteration === 1 && depsLayer) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
+            if (iteration === 1 && depsLayer && !closureCoversTarget(content.packages, context.closureProjects)) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
           }
         } else if (project.external.length || project.mode === "source" && plan.lock) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });

@@ -5,7 +5,8 @@ import { build, buildTargets } from "../packages/bunko/build.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
 import { closurePlanInputs } from "../packages/bunko/closure.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { dependencyPlan } from "../packages/bunko/deps.ts";
+import { dependencyInputs, dependencyPlan } from "../packages/bunko/deps.ts";
+import { discover } from "../packages/bunko/workspace.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { pruneLocal } from "../packages/bunko/prune.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
@@ -94,6 +95,121 @@ test("the closure plan key covers the lock, manifests, externals, script policy,
   for (const [name, value] of Object.entries(changed)) expect([name, value === original]).toEqual([name, false]);
   expect(new Set(Object.values(changed)).size).toBe(Object.keys(changed).length);
 });
+
+/** A member that depends on both services: the shape that puts a build target into `workspaceSources`. */
+async function dependent(f: Awaited<ReturnType<typeof workspaceFixture>>) {
+  const manifest = { name: "@fixture/consumer", version: "1.0.0", type: "module", module: "index.ts", dependencies: { "@fixture/api": "workspace:*", "@fixture/worker": "workspace:*" }, bunko: { enabled: false } };
+  await mkdir(join(f.source, "packages/consumer"), { recursive: true });
+  await writeFile(join(f.source, "packages/consumer/package.json"), canonicalJSON(manifest));
+  await writeFile(join(f.source, "packages/consumer/index.ts"), 'export const consumer = "consumer";\n');
+  await writeFile(join(f.source, "bun.lock"), canonicalJSON({ ...f.lock,
+    workspaces: { ...f.lock.workspaces, "packages/consumer": { name: manifest.name, version: manifest.version, dependencies: manifest.dependencies } },
+    packages: { ...f.lock.packages, "@fixture/consumer": ["@fixture/consumer@workspace:packages/consumer"] } }));
+}
+
+test("the closure plan key drops the selected targets' own sources and keeps every other workspace member", async () => {
+  const root = await fixture(), f = await workspaceFixture(root);
+  await dependent(f);
+  const { workspace } = await discover({ path: join(f.source, "services/api") });
+  const api = await loadProject({ path: join(f.source, "services/api"), depsStrategy: "closure" }, workspace);
+  const worker = await loadProject({ path: join(f.source, "services/worker"), depsStrategy: "closure" }, workspace);
+  const toolchain = await selectToolchain(), amd64 = { os: "linux" as const, architecture: "amd64" as const }, base = `sha256:${"0".repeat(64)}`;
+  // Only the workspace and the lock decide workspaceSources, so one plan describes every selection.
+  const plan = () => dependencyPlan(api, f.source);
+  const key = async (projects: (typeof api)[]) => cacheKey(closurePlanInputs(await plan(), toolchain, amd64, base, projects));
+  const production = async () => cacheKey(dependencyInputs(await plan(), toolchain, amd64, base, api));
+  expect(Object.keys((await plan()).workspaceSources ?? {})).toEqual(["packages/shared", "services/api", "services/worker"]);
+  const [target, union, before] = [await key([api]), await key([api, worker]), await production()];
+  await writeFile(join(f.source, "services/api/src/server.ts"), "console.log('api edited');\n");
+  expect(await key([api])).toBe(target);
+  expect(await key([api, worker])).toBe(union);
+  // Production packages the target's files under .bunko-workspace, so its key must still move.
+  expect(await production()).not.toBe(before);
+  // A member that is not a selected target keeps its bytes in the key.
+  await writeFile(join(f.source, "services/worker/src/server.ts"), "console.log('worker edited');\n");
+  expect(await key([api])).not.toBe(target);
+  expect(await key([api, worker])).toBe(union);
+  // So does a workspace package the closure reaches through an external.
+  const externalised = await key([worker]);
+  await writeFile(join(f.source, "packages/shared/index.ts"), 'export const message = "shared-v2";\n');
+  expect(await key([worker])).not.toBe(externalised);
+});
+
+test("an edit to a target other members depend on still reuses the closure", async () => {
+  const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
+  await dependent(f);
+  const options = { path: join(f.source, "services/api"), baseLayout: base, push: false, gitMetadata: false, cacheDir: join(root, "cache"), installCache: f.cache, depsStrategy: "closure" as const };
+  const cold = recorder(), first = await build({ ...options, ...cold.options, output: join(root, "cold") });
+  expect(cold.state.log).toContain("Planning Linux dependency closure (amd64)");
+  await writeFile(join(f.source, "services/api/src/server.ts"), "import {message} from '@fixture/shared'; import msg from 'fixture-msg'; import peer from 'fixture-adapter'; console.log('api edited', message, msg, peer);\n");
+  const warm = recorder(), second = await build({ ...options, ...warm.options, output: join(root, "warm") });
+  expect(warm.state.log).toContain("Reusing dependency closure (amd64)");
+  expect(warm.state.phases()).not.toContain("install");
+  expect(second.layers.find((layer) => layer.kind === "deps")).toEqual(first.layers.find((layer) => layer.kind === "deps")!);
+  expect(second.images[0]!.closure).toEqual(first.images[0]!.closure);
+  // Another member's sources remain part of the key, so its edit reprojects.
+  await writeFile(join(f.source, "packages/shared/index.ts"), 'export const message = "shared-v2";\n');
+  const changed = recorder(); await build({ ...options, ...changed.options, output: join(root, "changed") });
+  expect(changed.state.log).not.toContain("Reusing dependency closure");
+  expect(changed.state.phases()).toContain("install");
+}, 30_000);
+
+test("a workspace cycle that packages the target itself records no reusable plan", async () => {
+  const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
+  // The one shape that puts a target inside its own closure: the target externalises a
+  // workspace package that depends back on it, so its files really are closure bytes.
+  const cycle = { "@fixture/api": "workspace:*" };
+  await writeFile(join(f.source, "packages/shared/package.json"), canonicalJSON({ ...f.manifests["packages/shared"]!, dependencies: cycle }));
+  const api = f.manifests["services/api"]!;
+  await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...api, bunko: { ...api.bunko as object, external: ["fixture-msg", "fixture-adapter", "@fixture/shared"] } }));
+  await writeFile(join(f.source, "bun.lock"), canonicalJSON({ ...f.lock, workspaces: { ...f.lock.workspaces, "packages/shared": { ...f.lock.workspaces["packages/shared"], dependencies: cycle } } }));
+  const cacheDir = join(root, "cache");
+  const options = { path: join(f.source, "services/api"), baseLayout: base, push: false, gitMetadata: false, cacheDir, installCache: f.cache, depsStrategy: "closure" as const };
+  const first = await build({ ...options, output: join(root, "cold") });
+  expect(first.images[0]!.closure!.packages.map((pkg) => pkg.path)).toContain("services/api");
+  expect(await readdir(join(cacheDir, "plans", "deps")).catch(() => [])).toHaveLength(0);
+  const warm = recorder(); await build({ ...options, ...warm.options, output: join(root, "warm") });
+  expect(warm.state.log).not.toContain("Reusing dependency closure");
+  expect(warm.state.phases()).toContain("install");
+}, 30_000);
+
+test("a plan whose recorded projection contains the target is rejected instead of reused", async () => {
+  const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
+  await dependent(f);
+  const cacheDir = join(root, "cache");
+  const options = { path: join(f.source, "services/api"), baseLayout: base, push: false, gitMetadata: false, cacheDir, installCache: f.cache, depsStrategy: "closure" as const };
+  const first = await build({ ...options, output: join(root, "cold") });
+  const planFile = join(cacheDir, "plans/deps", (await readdir(join(cacheDir, "plans/deps")))[0]!);
+  const plan = JSON.parse(await readFile(planFile, "utf8"));
+  // A schema-valid record under the current lookup key that claims the target is closure content:
+  // the plan key no longer separates such a projection from a sound one, so the read side must.
+  plan.packages.push({ name: "@fixture/api", version: "1.0.0", path: "services/api", bytes: 1, files: 1, via: ["@fixture/shared", "@fixture/api"] });
+  await writeFile(planFile, canonicalJSON(plan));
+  await writeFile(join(f.source, "services/api/src/server.ts"), "import {message} from '@fixture/shared'; import msg from 'fixture-msg'; import peer from 'fixture-adapter'; console.log('api edited', message, msg, peer);\n");
+  const warm = recorder(), second = await build({ ...options, ...warm.options, output: join(root, "warm") });
+  expect(warm.state.log).not.toContain("Reusing dependency closure");
+  expect(warm.state.phases()).toContain("install");
+  // The projected closure decides, so the seeded package never reaches the result or the report.
+  expect(second.images[0]!.closure!.packages.map((pkg) => pkg.path)).not.toContain("services/api");
+  expect(second.images[0]!.closure).toEqual(first.images[0]!.closure);
+}, 30_000);
+
+test("sharedDeps records no plan when one selected target externalises another", async () => {
+  const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
+  // No cycle: the api target simply depends on and externalises the worker target, and both are selected.
+  const api = f.manifests["services/api"]!, dependencies = { ...api.dependencies as object, "@fixture/worker": "workspace:*" };
+  await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...api, dependencies, bunko: { ...api.bunko as object, external: ["fixture-msg", "fixture-adapter", "@fixture/worker"] } }));
+  await writeFile(join(f.source, "package.json"), canonicalJSON({ ...f.manifests[""], bunko: { sharedDeps: true } }));
+  await writeFile(join(f.source, "bun.lock"), canonicalJSON({ ...f.lock, workspaces: { ...f.lock.workspaces, "services/api": { ...f.lock.workspaces["services/api"], dependencies } } }));
+  const cacheDir = join(root, "cache");
+  const options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, cacheDir, installCache: f.cache };
+  const first = await buildTargets({ ...options, output: join(root, "cold") });
+  expect(first[0]!.images[0]!.closure!.packages.map((pkg) => pkg.path)).toContain("services/worker");
+  expect(await readdir(join(cacheDir, "plans", "deps")).catch(() => [])).toHaveLength(0);
+  const warm = recorder(); await buildTargets({ ...options, ...warm.options, output: join(root, "warm") });
+  expect(warm.state.log).not.toContain("Reusing dependency closure");
+  expect(warm.state.phases()).toContain("install");
+}, 30_000);
 
 test("a plan hit rejects the same case-colliding runtime namespace that full projection rejects", async () => {
   const root = await fixture(), f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
