@@ -99,13 +99,18 @@ export function validateClosurePlan(input: unknown, planKey: Digest, expected: {
   // Aliases become real symlinks in the application layer, so they are held to the packing rules
   // here rather than at pack time: a stored plan that could not be packed must be a miss while the
   // build can still reproject, never an exception raised after the closure has been accepted.
+  const modules = archivePath(expected.destination.replace(/^\/+/, ""));
   const aliases: Record<string, TarEntry[]> = Object.create(null);
   for (const [target, list] of Object.entries(object(value.aliases, "Closure plan aliases"))) {
     if (!Array.isArray(list) || list.length > maxPlanAliases) throw new Error("Invalid closure plan aliases");
     aliases[target] = list.map((raw) => {
       const entry = object(raw, "Closure plan alias");
       if (entry.type !== "symlink" || typeof entry.path !== "string" || typeof entry.target !== "string" || !entry.target.length) throw new Error("Invalid closure plan alias");
-      return { type: "symlink" as const, path: archivePath(entry.path), target: entry.target };
+      const path = archivePath(entry.path);
+      // Projection emits aliases only below the target's node_modules namespace.
+      // A path elsewhere could collide with app/assets after the plan was accepted.
+      if (!path.startsWith(`${modules}/`)) throw new Error("Closure plan alias is outside runtime node_modules");
+      return { type: "symlink" as const, path, target: entry.target };
     });
     assertArchiveEntries(aliases[target]!);
   }

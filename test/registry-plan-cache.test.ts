@@ -153,6 +153,7 @@ test("a poisoned registry plan alias is a miss, not an exception raised after th
   // that differ only in case, which layer packing refuses as a case collision.
   const first = record.aliases[target][0];
   const variants = {
+    "application-namespace": [{ ...first, path: "app/public/message.txt", target: "../node_modules/fixture-msg" }],
     escaping: [{ ...first, target: `${"../".repeat(12)}etc/passwd` }],
     duplicate: [first, first],
     "case-colliding": [first, { ...first, path: first.path.toUpperCase() }],
