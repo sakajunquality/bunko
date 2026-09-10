@@ -84,6 +84,7 @@ export interface BuildOptions {
 export interface Project {
   inheritedDefaults: string[];
   runtimeCAs: string[];
+  runtimeSystemCaTrust: boolean;
   assetExcludes: string[];
   assetMode?: FileMode;
   runtimeArgs: string[];
@@ -235,9 +236,11 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
-  knownKeys(runtime, ["caCertificates", "args", "bunPath", "libc", "inject"], "runtime");
+  knownKeys(runtime, ["caCertificates", "systemCaTrust", "args", "bunPath", "libc", "inject"], "runtime");
   const runtimeCAs = strings(runtime.caCertificates, "runtime.caCertificates").map((path) => relativePath(path, "runtime CA path"));
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
+  if (runtime.systemCaTrust !== undefined && typeof runtime.systemCaTrust !== "boolean") throw new Error("runtime.systemCaTrust must be boolean");
+  if (runtime.systemCaTrust && !runtimeCAs.length) throw new Error("runtime.systemCaTrust requires runtime.caCertificates");
   const runtimeArgs = validateRuntimeArgs(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
   if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
@@ -319,7 +322,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts, undeclaredImports,
-    runtimeCAs,
+    runtimeCAs, runtimeSystemCaTrust: runtime.systemCaTrust === true,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
     inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain, workspace ? ["package.json", join(relative(workspace.directory, directory), "package.json")] : []),
     mode, moduleLocations, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,

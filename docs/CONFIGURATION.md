@@ -144,6 +144,21 @@ Select up to sixteen exact paths inside the project, with no symlink traversal. 
 
 Runtime certificates are explicit application inputs, distinct from installer `.npmrc` trust and registry TLS configuration. Host trust is never automatically exported. If the same certificate file is explicitly selected for runtime trust, it is allowed as an application input even when also used by host transport. Source mode otherwise preserves that public source file under its normal context rules. Reports include the generated bundle path, digest and certificate count; provenance records its digest without host paths or certificate contents. Base path metadata is checked before adding the bundle, rejecting symlink/non-directory parents and incompatible destinations.
 
-The runtime CA bundle extends Bun/Node TLS trust; it is not a system-store installation for arbitrary native processes. `bun run test:runtime-ca-compile` builds and executes compiled images with a disposable private TLS endpoint on each selected Linux architecture. The server key is mounted only during execution, while the declared public CA is packaged in the image. The fixture exercises nonroot, read-only execution without external networking. Set `BUNKO_CLI` to a prepared JavaScript CLI to validate that exact distribution instead of source imports.
+By default the runtime CA bundle extends Bun/Node TLS trust. For native programs that honor `SSL_CERT_FILE`, opt in with `runtime.systemCaTrust: true` alongside `runtime.caCertificates`. This additionally sets `SSL_CERT_FILE` to the packaged bundle, deliberately replacing any inherited base value. A conflicting explicitly configured `bunko.env.SSL_CERT_FILE` is rejected. The option must be boolean and requires at least one declared certificate path. It does not install a system store or change `SSL_CERT_DIR`; clients that ignore this environment variable need their own configuration. For [Go on Unix other than macOS](https://pkg.go.dev/crypto/x509#SystemCertPool), this overrides the certificate file location, while certificate directories are still considered. Supply the complete roots your native client needs; Bunko does not merge the base trust bundle or download public roots. `check-config` reports `runtimeSystemCaTrust`. `bun run test:runtime-ca-compile` builds and executes compiled images with a disposable private TLS endpoint on each selected Linux architecture. The server key is mounted only during execution, while the declared public CA is packaged in the image. The fixture exercises nonroot, read-only execution without external networking. Set `BUNKO_CLI` to a prepared JavaScript CLI to validate that exact distribution instead of source imports.
 
 Image asset directories also omit incidental `.DS_Store` entries. Selecting a `.DS_Store` image path explicitly is unsupported. Offline diagnostic summaries list image and URL sources without inspecting their remote contents.
+
+Native CA trust example:
+
+```json
+{
+  "bunko": {
+    "runtime": {
+      "caCertificates": ["certs/roots.pem"],
+      "systemCaTrust": true
+    }
+  }
+}
+```
+
+Run `bun run test:native-ca` with Go, OpenSSL and Docker installed to build static Go TLS probes for both Linux architectures, package a gitignored generated asset, and verify positive and negative trust checks in read-only nonroot containers without external networking.

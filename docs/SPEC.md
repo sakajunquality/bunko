@@ -319,3 +319,9 @@ All generated asset destinations are checked against base entry types and parent
 This validation downloads and decodes base layers even when a registry mount or existing blob would have avoided downloading them. It uses the bounded layer decoder and limits inspection to 200,000 tar entries across the selected platform image. Scans are reused for the same pinned manifest across selected contexts and determinism passes, but are not persisted as trusted filesystem metadata across invocations. Their metadata maps remain in memory until the invocation completes; memory use grows with distinct selected base manifests. Independent application construction reuses the already verified base tree rather than decoding it twice. Use a prepared local base layout to avoid repeated registry reads. The `base-inspect` progress/telemetry phase records this read and decode cost. Historical benchmarks predate this additional validation cost.
 
 Base filesystem inspection rejects raw tar paths above 8 KiB, normalized paths above 4 KiB, and paths deeper than 128 components before expanding ancestor metadata. These limits bound PAX path processing independently of the total tar-entry limit.
+
+### Explicit source assets and native CA trust
+
+In source mode, explicit `assets` selections override `.gitignore` for selected files, directory contents, and traversal of their ancestors, without including ignored siblings. All other exclusions and source safety checks remain authoritative. See [source mode](SOURCE_MODE.md).
+
+`runtime.systemCaTrust: true` requires `runtime.caCertificates` and additionally sets `SSL_CERT_FILE` to the packaged bundle. It replaces an inherited base value, rejects a conflicting application value, and leaves `SSL_CERT_DIR` and the base filesystem unchanged. The default remains Bun/Node extra trust only. See [application CA certificates](CONFIGURATION.md#application-ca-certificates).

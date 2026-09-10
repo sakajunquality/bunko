@@ -25,8 +25,8 @@ const rows: Row[] = [
   { label: "Base", keys: ["base"], value: (target) => target.base },
   { label: "Dependencies", keys: ["dependencyStrategy", "lockfileVersion"], value: (target) => join([target.dependencyStrategy, target.lockfileVersion === undefined ? "no lockfile" : `bun.lock version ${target.lockfileVersion}`]) },
   { label: "External", keys: ["external"], value: (target) => list(target.external) },
-  { label: "Assets", keys: ["assets", "assetExcludes", "assetMode"], value: (target) => join([
-    list(target.assets), target.assetExcludes.length ? `excludes ${target.assetExcludes.join(", ")}` : undefined,
+  { label: "Assets", keys: ["assets", "assetExcludes", "assetMode", "explicitAssetsOverrideGitignore"], value: (target) => join([
+    list(target.assets), target.explicitAssetsOverrideGitignore ? "explicit assets override .gitignore" : undefined, target.assetExcludes.length ? `excludes ${target.assetExcludes.join(", ")}` : undefined,
     target.assetMode === undefined ? undefined : `mode ${octal(target.assetMode)}`]) },
   { label: "Asset mappings", keys: ["assetMappings", "assetInputs"], value: (target) => target.assetMappings.length ? [
     ...target.assetMappings.map((mapping) => `${contextMapping(mapping) ? `${mapping.context}:${mapping.from}` : imageMapping(mapping) ? `${mapping.image}:${mapping.from}${mapping.platform ? ` [${mapping.platform}]` : ""}` : `${mapping.url} [sha256:${mapping.sha256}]`} → ${mapping.to}${mapping.mode ? ` (${mapping.mode})` : ""}${contextMapping(mapping) && mapping.exclude?.length ? ` excludes ${mapping.exclude.join(", ")}` : ""}`),
@@ -37,9 +37,9 @@ const rows: Row[] = [
   { label: "User", keys: ["user"], value: (target) => target.user },
   { label: "Workdir", keys: ["workdir"], value: (target) => target.workdir },
   { label: "Ports", keys: ["ports"], value: (target) => target.ports && list(target.ports) },
-  { label: "Runtime", keys: ["runtimePath", "runtimeInjection", "runtimeArgumentCount", "runtimeCertificateCount"], value: (target) => join([
+  { label: "Runtime", keys: ["runtimePath", "runtimeInjection", "runtimeArgumentCount", "runtimeCertificateCount", "runtimeSystemCaTrust"], value: (target) => join([
     target.runtimePath, target.runtimeInjection && `injected ${target.runtimeInjection}`,
-    count(target.runtimeArgumentCount, "runtime argument"), count(target.runtimeCertificateCount, "CA certificate")]) },
+    count(target.runtimeArgumentCount, "runtime argument"), count(target.runtimeCertificateCount, "CA certificate"), target.runtimeSystemCaTrust ? "native CA trust (SSL_CERT_FILE)" : undefined]) },
   { label: "Toolchain", keys: ["toolchainRequirements"], value: (target) => {
     const required = target.toolchainRequirements;
     return [...required.version ? [`version ${required.version} (${required.versionSource ?? "unknown source"})`] : [],

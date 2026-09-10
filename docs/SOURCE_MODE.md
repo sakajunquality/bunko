@@ -13,7 +13,7 @@ This mode packages the selected application context, not only statically reachab
 
 Builds after rc.4 add fixed exclusions for `.ssh`, `.kube`, `.gnupg`, `.netrc`, `.terraform`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `terraform.tfstate`, and `terraform.tfstate.backup` in all modes. Source mode additionally applies root and nested `.gitignore` rules. Git is not required: matching uses project-local patterns, including negation and directory rules, with case-sensitive paths. Global Git excludes, `.git/info/exclude`, and tracked-file state are not consulted. An excluded parent cannot be restored by a nested ignore file. `.bunkoignore` and fixed exclusions remain authoritative. Bundle/compile snapshots retain their existing `.bunkoignore` behavior.
 
-An ignored entrypoint, configuration input or explicitly required asset fails before registry access. Do not exclude files needed at runtime; adjust the project-local ignore rules or supply deliberate generated data through an external asset context. When a workspace invocation includes a source-mode target, the source policy applies to its shared snapshot. Each `.gitignore` must be a regular file of at most 256 KiB; all loaded rules are bounded to 4 MiB.
+Explicit `bunko.assets` selections override `.gitignore`, including ignored parent directories and nested rules. Only matched files and selected directory contents are included; ignored siblings stay excluded. `assetExcludes`, `.bunkoignore`, fixed credential/output/cache exclusions, symlink rejection and private-key scanning still apply. Missing asset patterns still fail. An ignored entrypoint or configuration input that is not explicitly selected as an asset fails before registry access. `check-config` reports `explicitAssetsOverrideGitignore` for source targets; it does not check generated asset availability. When a workspace invocation includes a source-mode target, the source policy applies to its shared snapshot. Each `.gitignore` must be a regular file of at most 256 KiB; all loaded rules are bounded to 4 MiB.
 
 Source mode rejects files containing PEM private-key markers, including markers embedded in JSON strings. This is a conservative marker check, so examples containing those markers must also be excluded. The check scans the copied snapshot with bounded memory and never prints key contents. It does not detect arbitrary API tokens or every secret format. The immutable rc.4 release predates these additional protections.
 
@@ -28,3 +28,11 @@ Runtime injection can supply a verified Bun runtime to an explicit compatible ba
 ## Runtime validation
 
 The generic application fixture passed in source mode on Linux amd64 and arm64 on 2026-09-08. Both platforms ran migrations and a worker against a disposable PostgreSQL database, served HTTP/static content and module data, loaded the native xxhash addon, and drained an in-flight request during shutdown as a nonroot user with a read-only root filesystem. CI repeats the source-mode fixture on Linux amd64. This fixture does not certify unrelated external applications.
+
+A gitignored frontend output can be packaged directly, without a separate context or copy:
+
+```json
+{ "bunko": { "mode": "source", "assets": ["dist"], "assetExcludes": ["dist/**/*.map"] } }
+```
+
+Build the frontend first, then run `bunko build .`. An exact file or glob such as `dist/build.json` or `dist/**/*.js` also works.
