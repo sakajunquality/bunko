@@ -6,13 +6,13 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.2.0** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.3.0** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-See the [feature guide](docs/FEATURES.md), [0.2.0 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). Review the documented compatibility and trust boundaries before adopting it.
+See the [feature guide](docs/FEATURES.md), [0.3.0 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). Review the documented compatibility and trust boundaries before adopting it.
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.2.0 release](https://github.com/sakajunquality/bunko/releases/tag/v0.2.0) into the same directory. Install Bun 1.4.2 (or another supported version), then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.3.0 release](https://github.com/sakajunquality/bunko/releases/tag/v0.3.0) into the same directory. Install Bun 1.4.2 (or another supported version), then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS
@@ -21,13 +21,13 @@ bun ./bunko.js version
 bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
 ```
 
-See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.2.0 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
+See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.3.0 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
 
-Compile mode and runtime injection additionally require `gpgv` and a pinned official Bun revision. Version 0.2.0 supports 1.3.13 and 1.4.0–1.4.2; published 0.1.4 also supports 1.3.11/1.3.12.
+Compile mode and runtime injection additionally require `gpgv` and a pinned official Bun revision. Version 0.3.0 supports 1.3.13 and 1.4.0–1.4.2; published 0.1.4 also supports 1.3.11/1.3.12.
 
 ## Quick start from source
 
-Version **0.2.0** requires Bun `>=1.3.13 <1.5`; CI covers Bun 1.3.13, 1.4.0 and 1.4.2. Published 0.1.4 remains available for Bun 1.3.11/1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
+Version **0.3.0** requires Bun `>=1.3.13 <1.5`; CI covers Bun 1.3.13, 1.4.0 and 1.4.2. Published 0.1.4 remains available for Bun 1.3.11/1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
