@@ -1,5 +1,5 @@
 import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, type CacheExportEvent, type CacheRecord } from "./cache.ts";
-import type { CacheLocation } from "./cache-backend-options.ts";
+import { canonicalCachePath, type CacheLocation } from "./cache-backend-options.ts";
 import type { BlobStore } from "../oci/blob-store.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { canonicalJSON } from "../oci/digest.ts";
@@ -20,6 +20,7 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
   return {
     type: location.type, destination,
     async read(...args) {
+      if (location.type === "local") await canonicalCachePath(location.path);
       const record = await reader.get(...args);
       if (record) verified.set(record.key, record);
       return { record, unavailable: reader.events.at(-1)?.reason === "invalid-or-unavailable" };
@@ -47,6 +48,7 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
       const event: CacheExportEvent = { backend: "local", destination, key: record.key, kind: record.kind, status: "written", bytes: 0, durationMs: 0 };
       let failure: unknown;
       try {
+        await canonicalCachePath(location.path);
         const writer = new CacheDriver(store, { directory: location.path, strictLocal: true, lookupMetrics: false, log });
         const previous = await writer.get(record.key, record.kind, false, { destination: record.destination, platform: record.platform });
         if (previous) {

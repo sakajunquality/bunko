@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { canonicalOutput } from "../oci/layout.ts";
+import { dirname, resolve } from "node:path";
 import { repository, repositoryName } from "../oci/publish.ts";
 
 export type CacheLocation = { type: "registry"; repo: string } | { type: "local"; path: string };
@@ -21,4 +23,14 @@ export function cacheLocations(values: string[] | undefined, direction: "from" |
   const maximum = direction === "from" ? 32 : 8;
   if (values !== undefined && (!Array.isArray(values) || values.length > maximum)) throw new Error(`Use at most ${maximum} cache ${direction === "from" ? "read sources" : "write destinations"}`);
   return [...new Map((values ?? []).map((value) => { const location = cacheLocation(value, direction); return [JSON.stringify(location), location]; })).values()];
+}
+
+/** Existing leaf symlinks must not bypass cache-root overlap checks. */
+export async function canonicalCachePath(path: string): Promise<string> {
+  const canonical = await canonicalOutput(path);
+  if (dirname(canonical) === canonical) throw new Error("A filesystem root cannot be used as an explicit cache location");
+  try {
+    if ((await lstat(canonical)).isSymbolicLink()) throw new Error("Explicit cache roots must not be symbolic links");
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  return canonical;
 }
