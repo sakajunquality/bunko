@@ -1,0 +1,51 @@
+# Build and publish one application on GitHub Actions.
+# `cache: github` lets the build Action restore and save the managed bunko cache itself, so this
+# workflow needs no actions/cache step; see docs/CI.md#the-github-actions-cache.
+# The bunko refs below name the current release tag. `cache: github` needs the release that ships
+# it, so raise both pins to that version, or to a reviewed commit, before copying this workflow.
+name: Build image
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: sakajunquality/bunko@v0.4.0
+        with:
+          bun-version: 1.4.2
+          verify-attestation: 'true'
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - uses: sakajunquality/bunko/build@v0.4.0
+        id: image
+        with:
+          path: .
+          repo: ghcr.io/${{ github.repository_owner }}/applications
+          platforms: linux/amd64,linux/arm64
+          push: 'true'
+          tags: |
+            ${{ github.sha }}
+            latest
+          # Local caches (closure plans, package downloads, asset fetches) for this repository.
+          cache: github
+          # Built layers, shared across runners and repositories and outliving GitHub cache eviction.
+          cache-repo: ghcr.io/${{ github.repository_owner }}/build-cache
+      - name: Report the published image
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+          CACHE_HIT: ${{ steps.image.outputs.cache-hit }}
+          CACHE_KEY: ${{ steps.image.outputs.cache-key }}
+        run: printf 'published %s (cache hit=%s key=%s)\n' "$IMAGE_REFERENCE" "$CACHE_HIT" "$CACHE_KEY"

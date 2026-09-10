@@ -55,6 +55,109 @@ jobs:
           ACTION_LAYOUT: ${{ steps.action-build.outputs.layout }}
         run: bun -e 'const images = JSON.parse(process.env.ACTION_IMAGES!); if (images.length !== 1 || images[0].digest !== process.env.ACTION_DIGEST || !await Bun.file(process.env.ACTION_LAYOUT + "/index.json").exists()) throw new Error("Invalid build Action outputs");'
 
+  # The build Action's `cache: github` block can only be exercised by a real workflow. The cold job seeds a
+  # sentinel into the managed cache before its build and must report a miss; the warm job must report an exact
+  # hit on the identical key and find the sentinel, which proves cached bytes were restored, not just a key.
+  action-cache-cold:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Prepare candidate
+        id: candidate
+        run: |
+          bun run release:prepare
+          bun -e 'import p from "./package.json"; import { appendFileSync } from "node:fs"; appendFileSync(process.env.GITHUB_OUTPUT!, "version=v" + p.version + "\n");'
+      - uses: ./
+        with:
+          version: ${{ steps.candidate.outputs.version }}
+          distribution-directory: dist/release
+          bun-version: 1.4.2
+      - name: Prepare local Action base
+        run: bun -e 'import {baseLayout} from "./test/helpers.ts"; await baseLayout(process.env.RUNNER_TEMP + "/action-base");'
+      - name: Seed a sentinel into the managed cache
+        run: |
+          mkdir -p "$HOME/.cache/bunko"
+          printf '%s\n' "$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" > "$HOME/.cache/bunko/selftest-sentinel"
+      - uses: ./build
+        id: action-build
+        with:
+          path: examples/hello
+          base-layout: ${{ runner.temp }}/action-base
+          push: 'false'
+          cache: github
+          cache-key: bunko-selftest-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Check the cold run reported an explicit miss
+        env:
+          ACTION_CACHE_HIT: ${{ steps.action-build.outputs.cache-hit }}
+          ACTION_CACHE_KEY: ${{ steps.action-build.outputs.cache-key }}
+          EXPECTED_CACHE_KEY: bunko-selftest-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          echo "cache hit: $ACTION_CACHE_HIT key: $ACTION_CACHE_KEY"
+          [[ "$ACTION_CACHE_KEY" == "$EXPECTED_CACHE_KEY" ]]
+          [[ "$ACTION_CACHE_HIT" == "false" ]]
+
+  action-cache-warm:
+    needs: action-cache-cold
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Prepare candidate
+        id: candidate
+        run: |
+          bun run release:prepare
+          bun -e 'import p from "./package.json"; import { appendFileSync } from "node:fs"; appendFileSync(process.env.GITHUB_OUTPUT!, "version=v" + p.version + "\n");'
+      - uses: ./
+        with:
+          version: ${{ steps.candidate.outputs.version }}
+          distribution-directory: dist/release
+          bun-version: 1.4.2
+      - name: Prepare local Action base
+        run: bun -e 'import {baseLayout} from "./test/helpers.ts"; await baseLayout(process.env.RUNNER_TEMP + "/action-base");'
+      - name: Confirm this runner starts without the managed cache
+        run: test ! -e "$HOME/.cache/bunko/selftest-sentinel"
+      - uses: ./build
+        id: action-build
+        with:
+          path: examples/hello
+          base-layout: ${{ runner.temp }}/action-base
+          push: 'false'
+          cache: github
+          cache-key: bunko-selftest-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Check the identical key was restored with its contents
+        env:
+          ACTION_CACHE_HIT: ${{ steps.action-build.outputs.cache-hit }}
+          ACTION_CACHE_KEY: ${{ steps.action-build.outputs.cache-key }}
+          ACTION_CACHE_MATCHED_KEY: ${{ steps.action-build.outputs.cache-matched-key }}
+          EXPECTED_CACHE_KEY: bunko-selftest-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          echo "cache hit: $ACTION_CACHE_HIT key: $ACTION_CACHE_KEY matched: $ACTION_CACHE_MATCHED_KEY"
+          [[ "$ACTION_CACHE_KEY" == "$EXPECTED_CACHE_KEY" ]]
+          [[ "$ACTION_CACHE_MATCHED_KEY" == "$EXPECTED_CACHE_KEY" ]]
+          [[ "$ACTION_CACHE_HIT" == "true" ]]
+          [[ "$(cat "$HOME/.cache/bunko/selftest-sentinel")" == "$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" ]]
+
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
