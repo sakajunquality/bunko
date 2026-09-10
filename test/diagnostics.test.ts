@@ -340,3 +340,11 @@ test("deep CLI checks stay offline and reject explicitly selected metadata or cr
     await expect(checkConfig({ path: source, deep: true })).rejects.toThrow();
   }
 });
+
+test("deep bundle checks reject selected assets under omitted ancestors", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { assets: [".env-private/config.json"] } });
+  await mkdir(join(source, ".env-private"));
+  await writeFile(join(source, ".env-private/config.json"), "{}");
+  await expect(checkConfig({ path: source, deep: true })).rejects.toThrow("Excluded required source input: .env-private/config.json");
+});

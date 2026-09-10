@@ -95,7 +95,8 @@ export async function registryConformance(options: ConformanceOptions) {
   const base = process.env.BUNKO_TEST_BASE ?? "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
   const tags = [`bunko-smoke-${runId}-first`, `bunko-smoke-${runId}-warm`];
   const results: BuildResult[] = [], runtime: unknown[] = [];
-  const report = { schemaVersion: 1, vendor: options.vendor, repository: options.repo, cacheRepository: options.cacheRepo ?? options.repo,
+  const cacheRepo = options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (options.requireCache ? options.repo : undefined);
+  const report = { schemaVersion: 1, vendor: options.vendor, repository: options.repo, cacheRepository: cacheRepo,
     runId, base, tags, invocation: cliDigest ? { kind: "cli", digest: cliDigest } : { kind: "source" },
     status: "running", cacheVerified: false, directDockerPull: !options.archivePull,
     tokenExpiryTest: "not-run", partialPublication: undefined as PublicationError["result"] | undefined, results, runtime, error: undefined as string | undefined };
@@ -106,7 +107,7 @@ export async function registryConformance(options: ConformanceOptions) {
     const original = await readFile(app, "utf8");
     await writeFile(app, original.replace("Hello from bunko dependencies!", `bunko conformance ${runId} first`));
     const common = { path: source, base, platform: "linux/amd64,linux/arm64", push: true, repo: options.repo, bare: true,
-      cacheRepo: options.cacheRepo ?? (options.requireCache ? options.repo : undefined), gitMetadata: false, localCache: false, registryCache: true, installCache,
+      cacheRepo, gitMetadata: false, localCache: false, registryCache: true, installCache,
       registry: { insecure: options.insecure }, log: (message: string) => process.stderr.write(message) };
     const runBuild = async (tag: string, deterministic = false): Promise<BuildResult> => {
       if (!process.env.BUNKO_TEST_CLI) return build({ ...common, tags: [tag], verifyDeterministic: deterministic });
@@ -114,7 +115,7 @@ export async function registryConformance(options: ConformanceOptions) {
       const args = [process.execPath, resolve(process.env.BUNKO_TEST_CLI), "build", source, "--base", base,
         "--platform", common.platform, "--repo", options.repo, "--bare", "--tag", tag,
         "--no-git-metadata", "--no-local-cache", "--install-cache", installCache, "--report", output];
-      if (options.cacheRepo) args.push("--cache-repo", options.cacheRepo);
+      if (cacheRepo) args.push("--cache-repo", cacheRepo);
       if (deterministic) args.push("--verify-deterministic");
       for (const host of options.insecure ?? []) args.push("--insecure-registry", host);
       const result = await cliBuild(args, output);

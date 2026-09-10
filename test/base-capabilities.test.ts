@@ -37,8 +37,8 @@ test("check-base cross-checks a build report against the selected platform", asy
 
 test("cyclic library links are unknown and do not break advisory inspection", () => {
   const tree: BaseFilesystem = new Map([["lib/cycle.so", { type: "symlink", link: "cycle.so", mode: 0o777, size: 0 }]]);
-  const result = baseCapabilities(tree, {}, "/", [{ path: "app/addon.node", architecture: "amd64", needed: ["cycle.so", "relative/lib.so"] }]);
-  expect(result.requirements.map((item) => item.status)).toEqual(["unknown", "unknown"]);
+  const result = baseCapabilities(tree, {}, "/", [{ path: "app/addon.node", architecture: "amd64", needed: ["cycle.so", "relative/lib.so", "/lib/cycle.so", "/lib/missing.so"] }]);
+  expect(result.requirements.map((item) => item.status)).toEqual(["unknown", "unknown", "unknown", "missing-from-base"]);
   expect(result.unresolvedPaths).toContain("/lib/cycle.so");
   expect(result.workdir.type).toBe("directory");
   expect(result.unresolvedPaths).not.toContain("/");

@@ -68,7 +68,7 @@ export async function snapshot(source: string, destination: string, excluded: st
     if (omitted.has(name) || name.startsWith(".env")) {
       if (strictAsset) throw new Error(`Excluded source name inside bunkodata: ${path}`);
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
-      if (input && (sourceMode || explicitAssets.has(path))) throw new Error(`Excluded required source input: ${input}; credential and internal output/cache paths cannot be packaged`);
+      if (input && (sourceMode || explicitAssets.has(path) || assetParents.has(path))) throw new Error(`Excluded required source input: ${input}; credential and internal output/cache paths cannot be packaged`);
       return;
     }
     if (path) {

@@ -26,7 +26,7 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
   }
   const requirements = native.flatMap((binary) => binary.needed.map((name) => {
     const candidates = name.startsWith("/") ? file(name) ? [name] : [] : name.includes("/") ? [] : libraries.get(name) ?? [];
-    return { name, requiredBy: binary.path, candidates, status: candidates.length ? "present" : (name.includes("/") && !name.startsWith("/")) || [...unresolvedPaths].some((path) => posix.basename(path) === name) ? "unknown" : "missing-from-base" };
+    return { name, requiredBy: binary.path, candidates, status: candidates.length ? "present" : (name.includes("/") && !name.startsWith("/")) || [...unresolvedPaths].some((path) => (name.startsWith("/") ? path === name : posix.basename(path) === name)) ? "unknown" : "missing-from-base" };
   }));
   const directory = workdir === "/" ? undefined : nodeAt(workdir);
   const prefix = directoryPath(workdir) ?? workdir.replace(/^\/+|\/+$/g, "");
