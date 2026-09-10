@@ -3,7 +3,8 @@ import { cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, symlink, w
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { buildDependencyFilters, classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock } from "../packages/bunko/deps.ts";
+import { buildDependencyFilters, classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock, type DependencyPlan } from "../packages/bunko/deps.ts";
+import type { Project } from "../packages/bunko/config.ts";
 import { discover } from "../packages/bunko/workspace.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
 import { bundle, selectToolchain } from "../packages/bunko/toolchain.ts";
@@ -47,6 +48,23 @@ describe("isolated Bun dependency preparation", () => {
     const after = cacheKey(dependencyInputs(await dependencyPlan(project, fixture.source), toolchain, platform, base, project));
     expect(after).not.toBe(before);
     expect(plan.patches["patches/msg.patch"]).toMatch(/^sha256:/);
+  });
+
+  // Frozen serialization: the production dependency key must not move when the closure path
+  // changes what it feeds into it, so every production layer in every cache stays valid.
+  test("the production dependency serialization is byte-stable and keeps the target's own workspace sources", () => {
+    const manifests: Record<string, Record<string, unknown>> = {
+      "": { name: "workspace-fixture", private: true, workspaces: ["services/*", "packages/*"] },
+      "services/api": { name: "@fixture/api", version: "1.0.0", dependencies: { "@fixture/shared": "workspace:*", "fixture-msg": "1.0.0" } },
+      "packages/shared": { name: "@fixture/shared", version: "1.0.0" },
+    };
+    const plan = { manifest: manifests[""]!, workspace: { packages: Object.entries(manifests).map(([path, manifest]) => ({ path, manifest })) },
+      workspaceSources: { "packages/shared": `sha256:${"a".repeat(64)}`, "services/api": `sha256:${"b".repeat(64)}` },
+      lock: { lockfileVersion: 1, packages: { "fixture-msg": ["fixture-msg@1.0.0", "", {}, "sha512-x"] } },
+      registry: "https://registry.npmjs.org", resolution: {}, patches: {} } as unknown as DependencyPlan;
+    const project = { targetPath: "services/api", external: ["fixture-msg"] } as unknown as Project;
+    const inputs = dependencyInputs(plan, { path: "/bun", version: "1.4.2", revision: "abcdef" }, { os: "linux", architecture: "amd64" }, `sha256:${"0".repeat(64)}`, project);
+    expect(Buffer.from(canonicalJSON(inputs)).toString()).toBe('{"base":"sha256:0000000000000000000000000000000000000000000000000000000000000000","external":["fixture-msg"],"layout":"workspace-v2","libc":"glibc","linker":"isolated","lock":{"lockfileVersion":1,"packages":{"fixture-msg":["fixture-msg@1.0.0","",{},"sha512-x"]}},"manifests":{"":{"name":"workspace-fixture"},"packages/shared":{"name":"@fixture/shared","version":"1.0.0"},"services/api":{"dependencies":{"@fixture/shared":"workspace:*","fixture-msg":"1.0.0"},"name":"@fixture/api","version":"1.0.0"}},"nativeAddonPolicy":"target-elf-v1","patches":{},"platform":{"architecture":"amd64","os":"linux"},"registry":"https://registry.npmjs.org","resolution":{},"scripts":false,"strategy":"production","targetPath":"services/api","toolchain":{"revision":"abcdef","version":"1.4.2"},"workspaceSources":{"packages/shared":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","services/api":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}');
   });
 
   test.each(['const p = "fixture-msg"; import(p);', 'const p = "fixture-msg"; require(p);', 'import("fixture-" + "msg");'])("rejects computed application imports: %s", async (code) => {

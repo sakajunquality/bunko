@@ -392,7 +392,9 @@ export async function runtimeEntries(root: string, prefix: string, platform: Pla
 
 export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, project: Project): Record<string, unknown> {
   // Production strategy fingerprints all manifests/lock. Workspace source bytes
-  // are included only when the package can appear in the installed runtime tree.
+  // are included only when the package can appear in the installed runtime tree;
+  // the closure path narrows that further through `closureSources`, because a target's
+  // own files are its application layer rather than closure bytes.
   const fields = [...dependencyFields, "peerDependenciesMeta", "overrides", "resolutions", "patchedDependencies", "trustedDependencies", "name", "version", "os", "cpu"];
   const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);

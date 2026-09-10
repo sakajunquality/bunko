@@ -15,16 +15,47 @@ export const closureDirectory = ".bunko-deps";
 export const closureStrategy = "closure-v1";
 
 /**
+ * A selected target is the root of its own closure: the projection follows edges
+ * from the target's declared externals, and the target's own files ship in the
+ * application layer, hashed separately. Its source bytes normally cannot change
+ * the projected closure, so they are dropped from the plan inputs — otherwise
+ * any workspace whose other members declare the target as a dependency (which is
+ * exactly what puts the target into `workspaceSources`) would miss the plan on
+ * every application edit and re-run the Linux production install and the
+ * projection. Workspace packages the closure can reach, such as a shared library
+ * listed in `external`, keep their entry. `closureCoversTarget` catches every
+ * projection this assumption does not hold for.
+ */
+export function closureSources(plan: DependencyPlan, projects: Project[]): DependencyPlan {
+  const targets = new Set(projects.map((project) => project.targetPath).filter(Boolean));
+  if (!plan.workspaceSources || !Object.keys(plan.workspaceSources).some((path) => targets.has(path))) return plan;
+  return { ...plan, workspaceSources: Object.fromEntries(Object.entries(plan.workspaceSources).filter(([path]) => !targets.has(path))) };
+}
+
+/**
+ * True when the projected closure contains any selected target's own package: a workspace
+ * dependency cycle (a reachable member depending back on a target) or a self-referencing
+ * external reaches one, and under sharedDeps one selected target may externalise another
+ * with no cycle at all. The plan key omits the selected targets' sources, so such a closure
+ * must be neither planned nor reused; the content-addressed deps key still covers it.
+ */
+export function closureCoversTarget(packages: Pick<ClosurePackage, "path">[], projects: Project[]): boolean {
+  const targets = new Set(projects.map((project) => project.targetPath).filter(Boolean));
+  return packages.some((pkg) => targets.has(pkg.path));
+}
+
+/**
  * Pre-install identity of a closure: every input that can change the projected
  * bytes, expressed without installing or projecting anything. It reuses the
  * production dependency serialization (manifest fields, full lock, patches,
  * noncredential registry settings, install policy, catalogs, reachable workspace
- * source bytes, Bun version/revision, platform, base digest, libc) and adds the
- * closure-specific policy inputs. Bun's extracted download cache stays a trusted
- * build input here exactly as it is for production dependency keys.
+ * source bytes minus the targets' own, Bun version/revision, platform, base
+ * digest, libc) and adds the closure-specific policy inputs. Bun's extracted
+ * download cache stays a trusted build input here exactly as it is for
+ * production dependency keys.
  */
 export function closurePlanInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, projects: Project[]): Record<string, unknown> {
-  return { ...dependencyInputs(plan, toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
+  return { ...dependencyInputs(closureSources(plan, projects), toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
     targets: projects.map((project) => ({ targetPath: project.targetPath, mode: project.mode, depsStrategy: project.depsStrategy, external: project.external, allowIgnoredScripts: project.allowIgnoredScripts ?? [], undeclaredImports: project.undeclaredImports })),
     undeclaredImports: undeclaredImportPolicy(projects) };
 }
