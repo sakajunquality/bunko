@@ -61,7 +61,10 @@ test("application cache skips installs/bundles, survives corruption and invalida
   const changed = await build({ ...options, output: join(root, "changed") });
   expect(changed.root.digest).not.toBe(first.root.digest); expect(changed.cache.find((c) => c.kind === "app")!.status).toBe("miss");
   const checked = await build({ ...options, output: join(root, "checked"), verifyDeterministic: true });
-  expect(checked.root).toEqual(changed.root); expect(checked.cache.every((c) => c.status === "bypass")).toBe(true);
+  expect(checked.root).toEqual(changed.root);
+  // Layer caches are bypassed; the base inspection is still consulted, and both iterations share it.
+  expect(checked.cache.filter((c) => c.kind !== "base").every((c) => c.status === "bypass")).toBe(true);
+  expect(checked.cache.filter((c) => c.kind === "base").map((c) => c.status)).toEqual(["local"]);
 }, 15_000);
 
 test("parallel workspace builds preserve root order/digests and never publish after a prepare failure", async () => {

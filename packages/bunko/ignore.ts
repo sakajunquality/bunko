@@ -7,6 +7,11 @@ import type { Project } from "./config.ts";
 
 export const sourceOmissions = new Set([".git", ".cursor", "node_modules", ".bunko-output", ".bunko-build", ".npmrc", ".bunko-cache", ".docker", ".aws", ".config", ".yarnrc.yml", ".DS_Store", ".ssh", ".kube", ".gnupg", ".netrc", ".terraform", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "terraform.tfstate", "terraform.tfstate.backup"]);
 
+/** Names snapshot() never packages, checked on every path segment: VCS, dependency, credential and internal output/cache entries. */
+export function omittedSourceName(name: string): boolean {
+  return sourceOmissions.has(name) || name.startsWith(".env");
+}
+
 /** Finder metadata is omitted from directory inputs, including declared assets. */
 export function filesystemMetadata(path: string): boolean {
   return path.split("/").includes(".DS_Store");

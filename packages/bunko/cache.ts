@@ -132,7 +132,8 @@ export function validateClosurePlan(input: unknown, planKey: Digest, expected: {
     omitted: value.omitted as number, packages };
 }
 
-export interface CacheEvent { kind: CacheKind; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
+/** Base inspection and closure plans are metadata lookups, not image layers. */
+export interface CacheEvent { kind: CacheKind | "base"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
 export function cacheTag(kind: string, key: Digest) { assertDigest(key); return `bunko-cache-v1-${kind}-${key.slice(7)}`; }
 
@@ -529,6 +530,11 @@ export class LayerCache {
       metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": kind, "bunko.cache.result": event.status });
     }
     return record;
+  }
+  /** Record a lookup this cache did not perform itself, such as the metadata-only base inspection. */
+  note(event: CacheEvent): void {
+    this.events.push(event);
+    metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": event.kind, "bunko.cache.result": event.status });
   }
   /**
    * Local first, then the ordered registry sources, so a runner whose local cache is empty still

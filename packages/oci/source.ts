@@ -31,7 +31,10 @@ export class LayoutSource implements ImageSource {
     return { bytes, descriptor: { mediaType: media.index, digest: sha256(bytes), size: bytes.length } };
   }
   async blob(d: Descriptor) {
-    return createReadStream(new BlobStore(this.directory).path(d.digest));
+    const path = new BlobStore(this.directory).path(d.digest);
+    // Open only when consumed: a missing file must reject the reader, even when its
+    // caller awaits destination setup before attaching stream error handlers.
+    return (async function* () { yield* createReadStream(path); })();
   }
 }
 

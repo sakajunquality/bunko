@@ -44,7 +44,7 @@ export async function smoke() {
     await writeFile(file, (await readFile(file, "utf8")).replace("Hello from bunko dependencies!", "Hello from bunko dependencies, rebuilt!"));
     const warmStart = performance.now();
     const second = await build(options), warmMs = Math.round(performance.now() - warmStart);
-    if (!second.cache.filter((event) => event.kind !== "app").every((event) => event.status === "registry")) throw new Error("Expected registry cache hits");
+    if (!second.cache.filter((event) => ["deps", "assets", "runtime"].includes(event.kind)).every((event) => event.status === "registry")) throw new Error("Expected registry cache hits");
     if (second.publication!.transfers.some((transfer) => ["deps", "assets"].includes(transfer.kind) && transfer.uploaded !== 0)) throw new Error("Deps/assets were uploaded again after a source-only change");
     let reusedLog = "";
     const third = await build({ ...options, log: (message) => { reusedLog += message; } });

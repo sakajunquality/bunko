@@ -52,7 +52,12 @@ export async function checkConfig(options: BuildOptions) {
   const projects: DiagnosticTarget[] = [];
   for (const target of discovery.targets) {
     const project = await loadProject({ ...options, path: join(discovery.directory, target.path) }, discovery.workspace);
-    const plan = await dependencyPlan(project, discovery.directory, false);
+    // The project directory is a working tree, not a build snapshot, so the plan is
+    // taken without workspace source digests: hashing members here walked files no
+    // build packages (node_modules, .git, ignored and asset-excluded paths) and failed
+    // on the symlinks bun install leaves behind. --deep validates the source tree with
+    // the build's own walker below, which is the only place the exclusions are known.
+    const plan = await dependencyPlan(project, discovery.directory, false, undefined, false);
     assertAssetRuntime(project.assetMappings, project.bunPath);
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts, options.deep);
     if (options.deep) {
