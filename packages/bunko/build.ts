@@ -42,7 +42,7 @@ import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateD
 import { platformKey } from "./platforms.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot, OUTPUT_DIRECTORY } from "./files.ts";
 import { bundle, selectToolchain, unresolvedBundleImport, type Toolchain } from "./toolchain.ts";
-import { assertLockToolchain, buildDependencyFilters, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
+import { assertLockToolchain, buildDependencyFilters, bundleOutsideBuildScope, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
 import { assertSharedClosure, byteSize, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
@@ -437,16 +437,23 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
           log(`${project.mode === "source" ? "Packaging source for" : "Bundling"} ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
           let built = project.mode === "source" ? await sourceApplication(project, root) : sharedBundle;
-          if (!built) try { built = await runBundle(); } catch (error) {
-            // Input containment spans the whole snapshot, so a target may import a
-            // sibling member's source directly. That sibling's own dependencies exist
-            // only in a full workspace install, so widen and bundle once more.
-            if (!scoped || !unresolvedBundleImport(error)) throw error;
-            log(`Build dependencies: falling back to a full workspace install (${(error as Error).message})\n`);
-            await rm(join(root, project.targetPath, OUTPUT_DIRECTORY, "out"), { recursive: true, force: true });
-            await installBuildDeps();
-            built = await runBundle();
+          if (!built) {
+            let retry: string | undefined;
+            try {
+              built = await runBundle();
+              if (scoped && bundleOutsideBuildScope(plan, project.targetPath, built.inputs)) retry = "bundle reaches workspace source outside the filtered install";
+            } catch (error) {
+              if (!scoped || !unresolvedBundleImport(error)) throw error;
+              retry = (error as Error).message;
+            }
+            if (retry) {
+              log(`Build dependencies: falling back to a full workspace install (${retry})\n`);
+              await rm(join(root, project.targetPath, OUTPUT_DIRECTORY, "out"), { recursive: true, force: true });
+              await installBuildDeps();
+              built = await runBundle();
+            }
           }
+          if (!built) throw new Error("Missing application bundle");
           if (project.mode === "bundle") sharedBundle = built;
           cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");

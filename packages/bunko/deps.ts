@@ -228,6 +228,28 @@ const plainPathSegment = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
  * what the isolated linker exposes to the bundler; unrelated members and their
  * trees are skipped. Filters are paths so a member never has to be named.
  */
+/** Only explicit workspace edges establish a guaranteed filtered install scope.
+ * Ambiguous semver/catalog edges conservatively trigger the full-install fallback. */
+export function bundleOutsideBuildScope(plan: DependencyPlan, targetPath: string, inputs: string[]): boolean {
+  const members = plan.workspace?.packages ?? [];
+  const included = new Set(["", targetPath]);
+  const pending = members.filter((member) => included.has(member.path));
+  for (const member of pending) {
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const [name, version] of Object.entries(object(member.manifest[field] ?? {}, field))) {
+        if (typeof version !== "string" || !version.startsWith("workspace:")) continue;
+        const dependency = members.find((candidate) => candidate.manifest.name === name);
+        if (dependency && !included.has(dependency.path)) { included.add(dependency.path); pending.push(dependency); }
+      }
+    }
+  }
+  const owners = members.filter((member) => member.path).sort((a, b) => b.path.length - a.path.length);
+  return inputs.some((input) => {
+    const owner = owners.find((member) => input === member.path || input.startsWith(`${member.path}/`));
+    return owner !== undefined && !included.has(owner.path);
+  });
+}
+
 export function buildDependencyFilters(plan: DependencyPlan, targetPath: string): string[] | undefined {
   const path = targetPath.replace(/^\.?\/+|\/+$/g, "");
   if (!plan.workspace || !path || !plan.workspace.packages.some((pkg) => pkg.path === path)) return undefined;

@@ -62,6 +62,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved, dependencies }), { mode: 0o600 });
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
+  await rm(join(root, OUTPUT_DIRECTORY, "errors.json"), { force: true });
   const child = Bun.spawn(args, {
     cwd: root,
     env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", NODE_ENV: "production", TZ: "UTC", LANG: "C", LC_ALL: "C" },

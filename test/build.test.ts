@@ -103,6 +103,35 @@ describe("Bun to OCI layout", () => {
     expect(appLayer(recovered)).toBe(appLayer(reference));
   });
 
+  test("rebuilds successful scoped bundles that resolve a sibling dependency to the root version", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    f.manifests[""]!.dependencies = { "fixture-msg": "1.0.0" };
+    const updatedLock = JSON.parse(JSON.stringify(f.lock));
+    updatedLock.workspaces[""].dependencies = f.manifests[""]!.dependencies;
+    await writeFile(join(f.source, "package.json"), canonicalJSON(f.manifests[""]!));
+    await writeFile(join(f.source, "bun.lock"), canonicalJSON(updatedLock));
+    f.manifests["services/api"]!.bunko = { external: [] };
+    await writeFile(join(f.source, "services/api/package.json"), canonicalJSON(f.manifests["services/api"]!));
+    await writeFile(join(f.source, "services/worker/src/helper.ts"), 'import msg from "fixture-msg"; export const helper = () => msg;\n');
+    await writeFile(join(f.source, "services/api/src/server.ts"), 'import {helper} from "../../worker/src/helper.ts"; console.log(helper());\n');
+    const messages: string[] = [];
+    const options = { baseLayout: base, gitMetadata: false, installCache: f.cache, path: join(f.source, "services/api") };
+    const recovered = await build({ ...options, output: join(root, "recovered"), log: (message) => messages.push(message) });
+    expect(messages.join("")).toContain("falling back to a full workspace install");
+    // Declaring the sibling installs its tree under the same scope, so the recovered
+    // build must produce exactly the application layer the wider install produces.
+    const manifest = f.manifests["services/api"]!;
+    await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...manifest, dependencies: { ...manifest.dependencies as Record<string, string>, "@fixture/worker": "workspace:*" } }));
+    const lock = updatedLock;
+    lock.workspaces["services/api"].dependencies["@fixture/worker"] = "workspace:*";
+    await writeFile(join(f.source, "bun.lock"), canonicalJSON(lock));
+    const declared: string[] = [];
+    const reference = await build({ ...options, output: join(root, "reference"), log: (message) => declared.push(message) });
+    expect(declared.join("")).not.toContain("falling back");
+    const appLayer = (result: typeof recovered) => result.layers.find((layer) => layer.kind === "app")!.descriptor.digest;
+    expect(appLayer(recovered)).toBe(appLayer(reference));
+  });
+
   test("the full-install retry discards the failed attempt's bundle output", async () => {
     const { root, base } = await setup(), f = await workspaceFixture(root);
     await writeFile(join(f.source, "services/worker/src/helper.ts"), 'import {message} from "@fixture/shared"; export const helper = () => "helper " + message;\n');
