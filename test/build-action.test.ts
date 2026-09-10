@@ -70,6 +70,7 @@ test("installed CLI builds two workspace targets and exposes report/layout witho
 test("build Action forwards typed cache sources, destinations and export policy literally", () => {
   const result = buildArguments({ "cache-from": "type=local,src=cache with spaces", "cache-to": "type=registry,repo=registry.test/cache\ntype=local,dest=exported cache", "cache-export-error": "fail" }, "/tmp/action");
   expect(result.args).toContain("type=local,src=cache with spaces");
-  expect(result.args.filter((value) => value === "--cache-to")).toHaveLength(2);
+  const destinations = result.args.flatMap((value, index) => value === "--cache-to" ? [result.args[index + 1]] : []);
+  expect(destinations).toEqual(["type=registry,repo=registry.test/cache", "type=local,dest=exported cache"]);
   expect(result.args.slice(result.args.indexOf("--cache-export-error"), result.args.indexOf("--cache-export-error") + 2)).toEqual(["--cache-export-error", "fail"]);
 });

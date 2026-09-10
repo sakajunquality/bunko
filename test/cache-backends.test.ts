@@ -120,3 +120,21 @@ test("typed exports retain implicit image-repository reads and strict failure ca
     expect((error as Error).cause).toBeInstanceOf(Error);
   }
 });
+
+test("existing and dangling leaf symlinks are rejected before cache access or source snapshot", async () => {
+  const { root, source, base } = await fixture();
+  const { symlink, readFile } = await import("node:fs/promises");
+  const manifest = await readFile(join(source, "package.json"), "utf8");
+  for (const [name, target] of [["source-link", source], ["base-link", base], ["dangling-link", join(root, "absent")]] as const) {
+    const link = join(root, name); await symlink(target, link);
+    for (const direction of ["from", "to"] as const) {
+      const report = join(root, `${name}-${direction}.json`);
+      await expect(build({ path: source, baseLayout: base, push: false, output: join(root, "output"), report, gitMetadata: false,
+        ...(direction === "from" ? { cacheFrom: [`type=local,src=${link}`] } : { cacheTo: [`type=local,dest=${link}`] }) })).rejects.toThrow("must not be symbolic links");
+      await expect(stat(join(root, "output"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  }
+  expect(await readFile(join(source, "package.json"), "utf8")).toBe(manifest);
+  await expect(stat(join(root, "absent"))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(stat(join(source, "keys"))).rejects.toMatchObject({ code: "ENOENT" });
+});

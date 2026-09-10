@@ -1,4 +1,4 @@
-import { cacheLocations } from "./cache-backend-options.ts";
+import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
 import { assertCosign } from "./cosign.ts";
 import { gitLabels, revisionTag } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
@@ -246,7 +246,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (options.cacheTo?.length ? undefined : cacheReadRepo);
     if (options.cacheExportError === "fail" && !cacheRepo && !options.cacheTo?.length) throw new Error("Strict cache export requires a cache write destination; use --cache-to or --cache-repo when --push=false");
     const locations = async (direction: "from" | "to") => Promise.all(cacheLocations(direction === "from" ? options.cacheFrom : options.cacheTo, direction)
-      .map(async (location) => location.type === "local" ? { ...location, path: await canonicalOutput(location.path) } : location));
+      .map(async (location) => location.type === "local" ? { ...location, path: await canonicalCachePath(location.path) } : location));
     const cache = new LayerCache(store, {
       persistence: context.cachePersistence, exportError: options.cacheExportError, directory: cacheDirectory,
       repository: options.cacheWrite === false ? undefined : cacheRepo,
@@ -589,7 +589,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
-  const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalOutput(location.path)] : []));
+  const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache, ...explicitCachePaths]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");
   const jobs = options.jobs ?? 1;
@@ -647,7 +647,6 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
   for (const path of explicitCachePaths) {
-    if (dirname(path) === path) throw new Error("A filesystem root cannot be used as an explicit cache location");
     if (cacheDirectory && cacheDirectory !== path && (path.startsWith(`${cacheDirectory}/`) || cacheDirectory.startsWith(`${path}/`))) throw new Error("Explicit cache paths must not contain or be inside the managed cache");
     for (const other of [output, report, archive, imageRefs, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, signingFile, installCache, assetCache, await runtimeCachePath(options.runtimeCache), ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), ...runtimeCAInputs, ...(installCertificate?.files ?? [])]) {
       if (other && (path === other || path.startsWith(`${other}/`) || other.startsWith(`${path}/`))) throw new Error("Explicit cache paths overlap another input, output or cache");
