@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { buildDependencyFilters, classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock, type DependencyPlan } from "../packages/bunko/deps.ts";
 import type { Project } from "../packages/bunko/config.ts";
 import { discover } from "../packages/bunko/workspace.ts";
+import { requiredInputs } from "../packages/bunko/ignore.ts";
+import { snapshot } from "../packages/bunko/files.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
 import { bundle, selectToolchain } from "../packages/bunko/toolchain.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
@@ -223,4 +225,49 @@ describe("isolated Bun dependency preparation", () => {
     await rm(join(releases, "linux-arm64.node"));
     await expect(runtimeEntries(root, "app", arm64)).rejects.toThrow("no linux/arm64 build: multi");
   });
+});
+
+test("workspace source digests describe the snapshot, so excluded files never move the dependency key", async () => {
+  const root = await dir(), f = await workspaceFixture(root);
+  // Source mode adds .gitignore to the exclusions the snapshot applies before this digest is taken.
+  const api = JSON.parse(await readFile(join(f.source, "services/api/package.json"), "utf8"));
+  await writeFile(join(f.source, "services/api/package.json"), JSON.stringify({ ...api, bunko: { ...api.bunko, mode: "source", build: null } }));
+  let iteration = 0;
+  /** Plan a target the way a build does: required inputs, snapshot, then the plan over that snapshot. */
+  const digest = async () => {
+    const selection = { path: f.source, targets: ["services/api"] };
+    const discovery = await discover(selection);
+    const projects = [await loadProject({ ...selection, path: join(discovery.directory, discovery.targets[0]!.path) }, discovery.workspace)];
+    const staging = join(root, `snapshot-${iteration++}`), assetExclusions: string[] = [], explicitAssets = new Set<string>();
+    const required = await requiredInputs(discovery.directory, projects, [], assetExclusions, explicitAssets);
+    await snapshot(discovery.directory, staging, [], undefined, [], required, assetExclusions, true, explicitAssets);
+    const plan = await dependencyPlan(projects[0]!, staging, false);
+    return plan.workspaceSources!["packages/shared"]!;
+  };
+  const before = await digest();
+  // Pinned so a change to what the digest serializes is visible here, not in a stale cache.
+  expect(before).toBe("sha256:86518a7973a7cf6be0ce31e95a3339d3b3db0350ecf3928715d69cef4d5afd50");
+  // Nothing a snapshot drops may reach the key: excluded names, credentials, VCS state,
+  // .bunkoignore and .gitignore entries, and the symlinks hiding inside them.
+  await mkdir(join(f.source, "packages/shared/node_modules/.bin"), { recursive: true });
+  await symlink("../../index.ts", join(f.source, "packages/shared/node_modules/.bin/tool"));
+  await writeFile(join(f.source, "packages/shared/.env"), "TOKEN=fixture");
+  await mkdir(join(f.source, "packages/shared/.git"));
+  await writeFile(join(f.source, "packages/shared/.git/HEAD"), "ref: refs/heads/main\n");
+  await mkdir(join(f.source, "packages/shared/scratch"));
+  await symlink("../index.ts", join(f.source, "packages/shared/scratch/link"));
+  await writeFile(join(f.source, ".gitignore"), "packages/shared/scratch/\n");
+  await writeFile(join(f.source, "packages/shared/notes.tmp"), "ignored");
+  await writeFile(join(f.source, ".bunkoignore"), "packages/shared/notes.tmp\n");
+  expect(await digest()).toBe(before);
+  // What the image does carry still moves it: an empty directory and an executable bit.
+  await mkdir(join(f.source, "packages/shared/empty"));
+  const directoryAdded = await digest();
+  expect(directoryAdded).not.toBe(before);
+  await writeFile(join(f.source, "packages/shared/run.sh"), "#!/bin/sh\necho fixture\n");
+  await chmod(join(f.source, "packages/shared/run.sh"), 0o755);
+  const executable = await digest();
+  expect(executable).not.toBe(directoryAdded);
+  await chmod(join(f.source, "packages/shared/run.sh"), 0o644);
+  expect(await digest()).not.toBe(executable);
 });
