@@ -1,3 +1,4 @@
+import { canonicalDependencyMap } from "./dependency-map.ts";
 import { join } from "node:path";
 import { loadProject, validateDependencySpecs, type BuildOptions } from "./config.ts";
 import { discover } from "./workspace.ts";
@@ -7,6 +8,7 @@ import { readBunfig } from "./bunfig.ts";
 
 /** Shared offline target validation. Does not install, contact registries, or write outputs. */
 export async function configurationPlan(options: BuildOptions, single = false) {
+  if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const discovered = await discover(options);
   if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
   const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;

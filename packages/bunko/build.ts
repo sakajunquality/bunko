@@ -21,7 +21,6 @@ import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
 import { baseInventory } from "./metadata.ts";
 import { builderIdentity } from "./identity.ts";
-import { canonicalDependencyMap } from "./dependency-map.ts";
 import { requiredInputs } from "./ignore.ts";
 import { targetInputs } from "./inputs.ts";
 import { metric } from "./telemetry.ts";
@@ -650,7 +649,6 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   options = offlineOptions(options);
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
-  if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache, ...explicitCachePaths]);
   if (imageRefs && (options.dryRun || options.local || options.kind || !(options.push ?? (!options.output && !options.tarball)))) throw new Error("--image-refs requires Registry publication");

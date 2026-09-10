@@ -511,3 +511,12 @@ test("offline diagnostics honor root sharedDeps and explicit opt-out", async () 
   expect((await checkConfig({ path: fixture.source, sharedDeps: false })).status).toBe("valid");
   expect((await checkConfig({ path: fixture.source, depsStrategy: "closure" })).status).toBe("valid");
 });
+
+test("offline dependency maps canonicalize target aliases as build planning does", async () => {
+  const root = await temporary(); directories.push(root);
+  const fixture = await workspaceFixture(root), alias = join(root, "api-alias");
+  await symlink(join(fixture.source, "services/api"), alias);
+  const result = await checkConfig({ path: fixture.source, targets: ["services/api"], externalDepsByTarget: { [alias]: { "linux/amd64": "layout:/unused-offline-artifact" } } });
+  expect(result.status).toBe("valid");
+  expect(result.targets).toHaveLength(1);
+});
