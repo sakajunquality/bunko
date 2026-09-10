@@ -1,6 +1,6 @@
 # v0.3.0
 
-Bunko adds independent registry and local cache imports and exports. Use ordered `--cache-from type=registry,repo=...` / `type=local,src=...` and repeated `--cache-to type=registry,repo=...` / `type=local,dest=...`. Bare read repositories and `--cache-repo` remain supported. Explicit exports also work with `--push=false`; typed write destinations replace implicit image-repository cache writes while preserving reads.
+Bunko adds independent registry and local cache imports and exports. Use ordered `--cache-from type=registry,repo=...` / `type=local,src=...` and repeated `--cache-to type=registry,repo=...` / `type=local,dest=...`. Bare repository values and `--cache-repo` remain supported. Explicit exports also work with `--push=false`; typed write destinations replace implicit image-repository cache writes while preserving reads and supplementing an explicit `--cache-repo` or `BUNKO_CACHE_REPO`.
 
 Registry exports reconcile concurrent immutable-tag races only after verifying matching metadata, compressed layer digest and DiffID. Reports include per-destination outcomes, failure reasons, bytes and duration. Export errors warn by default; `--cache-export-error=fail` collects outcomes and then fails without hiding an already-published image. OpenTelemetry adds bounded cache export metrics.
 
