@@ -1,3 +1,4 @@
+import { pause } from "../runtime/invocation.ts";
 import { lstat, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -24,7 +25,7 @@ async function lockDirectory<T>(directory: string, operation: () => Promise<T>, 
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (Date.now() >= deadline) throw new Error("Cache is locked by another operation; inspect .bunko-lock before recovering a crashed process");
-      await Bun.sleep(50);
+      await pause(50);
     }
   }
   try { await Bun.write(join(lock, "owner.json"), JSON.stringify({ pid: process.pid })); return await operation(); }

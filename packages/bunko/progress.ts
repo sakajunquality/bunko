@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../runtime/invocation.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { measured } from "./telemetry.ts";
 
@@ -20,7 +21,9 @@ export async function phase<T>(emit: ((event: ProgressEvent) => void) | undefine
   const start = performance.now();
   emit?.({ schemaVersion: 1, phase: name, status: "started", target, platform });
   try {
+    throwIfCancelled();
     const result = await measured(name, () => active.run({ emit, target, platform, targetKey }, task), targetKey ?? target, platform);
+    throwIfCancelled();
     emit?.({ schemaVersion: 1, phase: name, status: "completed", target, platform, durationMs: performance.now() - start });
     return result;
   } catch (error) {

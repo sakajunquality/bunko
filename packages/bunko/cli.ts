@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { runInvocation } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
 import { prepareBase } from "./prepare-base.ts";
 import { selectRegistryMirrors } from "../oci/mirrors.ts";
@@ -457,4 +458,4 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (import.meta.main) process.exitCode = await main(process.argv.slice(2));
+if (import.meta.main) process.exitCode = await runInvocation(() => main(process.argv.slice(2)));

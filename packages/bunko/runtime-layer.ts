@@ -1,8 +1,9 @@
+import { mkdtemp } from "../runtime/invocation.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { canonicalJSON } from "../oci/digest.ts";
 import { extract } from "tar-stream";
 import { createReadStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
 import { join, posix } from "node:path";

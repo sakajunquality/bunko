@@ -1,3 +1,4 @@
+import { invocationSignal, throwIfCancelled } from "../runtime/invocation.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomBytes } from "node:crypto";
@@ -156,8 +157,9 @@ export class Telemetry {
           const body = JSON.stringify(payload);
           const post = async () => {
             for (let attempt = 0; ; attempt++) {
+              throwIfCancelled();
               let response: Response | undefined;
-              try { response = await fetch(url, { method: "POST", headers: { ...this.config.headers, "content-type": "application/json" }, body, redirect: "manual", signal: controller.signal }); }
+              try { response = await fetch(url, { method: "POST", headers: { ...this.config.headers, "content-type": "application/json" }, body, redirect: "manual", signal: invocationSignal(controller.signal) }); }
               catch { if (attempt || controller.signal.aborted) throw new Error(); }
               if (response && ![429, 502, 503, 504].includes(response.status)) return response;
               const retryAfter = response?.headers.get("retry-after");
@@ -168,7 +170,7 @@ export class Telemetry {
               }
               if (response) await response.body?.cancel();
               if (attempt || backoff >= this.config.timeout) throw new Error();
-              await delay(backoff, undefined, { signal: controller.signal });
+              await delay(backoff, undefined, { signal: invocationSignal(controller.signal) });
             }
           };
           const response = await post();

@@ -1,3 +1,4 @@
+import { throwIfCancelled } from "../runtime/invocation.ts";
 import { assertNoSourcePrivateKey, gitSourceIgnore } from "./source-policy.ts";
 import { filesystemMetadata, omittedSourceName, sourceIgnore } from "./ignore.ts";
 import { createHash } from "node:crypto";
@@ -52,6 +53,7 @@ export async function snapshot(source: string, destination: string, excluded: st
   const names = new Map<string, string>();
   const exclude = excluded.map((p) => resolve(p));
   async function walk(path: string) {
+    throwIfCancelled();
     const current = join(source, path);
     if (filesystemMetadata(path)) {
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
@@ -117,6 +119,7 @@ export async function snapshot(source: string, destination: string, excluded: st
 export async function fileEntries(root: string, prefix: string, selected?: Set<string>, rule?: (path: string) => string | undefined): Promise<TarEntry[]> {
   const entries: TarEntry[] = [];
   async function walk(path: string) {
+    throwIfCancelled();
     const file = join(root, path);
     const info = await lstat(file);
     if (info.isDirectory()) {

@@ -1,5 +1,6 @@
+import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { createWriteStream } from "node:fs";
-import { link, lstat, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -42,7 +43,7 @@ export async function exportDockerArchive(store: BlobStore, manifest: Descriptor
 }
 
 async function command(args: string[]): Promise<string> {
-  const child = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const child = spawn(args, { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(`${args[0]} ${args[1]} failed (exit ${code}): ${stderr.trim()}`);
   return stdout.trim();

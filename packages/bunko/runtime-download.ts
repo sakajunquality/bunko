@@ -1,9 +1,11 @@
+import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
+import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { runtimePins } from "./runtime-pins.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 import { constants } from "node:fs";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { fromBufferPromise } from "yauzl";
-import { mkdtemp, open, writeFile, rm, rename } from "node:fs/promises";
+import { open, writeFile, rm, rename } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -41,7 +43,7 @@ export async function verifiedChecksums(signed: Uint8Array): Promise<string> {
   try {
     await writeFile(join(root, "trusted.gpg"), Buffer.from(runtimeKey, "base64"), { mode: 0o600 });
     await writeFile(join(root, "checksums.asc"), signed, { mode: 0o600 });
-    const child = Bun.spawn([executable, "--homedir", root, "--keyring", join(root, "trusted.gpg"), "--status-fd", "1", join(root, "checksums.asc")],
+    const child = spawn([executable, "--homedir", root, "--keyring", join(root, "trusted.gpg"), "--status-fd", "1", join(root, "checksums.asc")],
       { cwd: root, env: { HOME: root, GNUPGHOME: root, PATH: process.env.PATH ?? "", LANG: "C" }, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
     const timer = setTimeout(() => child.kill(), 30_000);
     try {
@@ -88,13 +90,14 @@ type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 /** Restart bounded downloads after transient connection/body failures. Never forward credentials. */
 export async function runtimeBytes(url: string, limit: number, fetcher: Fetcher = fetch): Promise<Buffer> {
   for (let attempt = 0; ; attempt++) {
+    throwIfCancelled();
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5 * 60_000);
     let retry = true;
     try {
       let current = new URL(url);
       for (let redirects = 0; redirects <= 5; redirects++) {
         if (current.protocol !== "https:" || current.port || current.username || current.password || current.hash || !["github.com", "release-assets.githubusercontent.com"].includes(current.hostname)) { retry = false; throw new Error("Unexpected runtime release download origin"); }
-        const response = await fetcher(current.href, { redirect: "manual", signal: controller.signal, headers: { Accept: "application/octet-stream" } });
+        const response = await fetcher(current.href, { redirect: "manual", signal: invocationSignal(controller.signal), headers: { Accept: "application/octet-stream" } });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
           const location = response.headers.get("location"); await response.body?.cancel();
           if (!location || redirects === 5) { retry = false; throw new Error("Invalid runtime release redirect"); }
@@ -117,7 +120,7 @@ export async function runtimeBytes(url: string, limit: number, fetcher: Fetcher 
     } catch (error) {
       if (!retry || attempt >= 2) throw new Error(error instanceof Error && /^(Runtime|Unexpected|Invalid|Empty)/.test(error.message) ? error.message : "Runtime release connection or body transfer failed");
     } finally { clearTimeout(timer); }
-    await Bun.sleep(100 * (attempt + 1));
+    await pause(100 * (attempt + 1));
   }
 }
 

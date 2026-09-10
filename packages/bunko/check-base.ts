@@ -1,3 +1,4 @@
+import { spawn, cleanupSpawn, mkdtemp } from "../runtime/invocation.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
 import type { NativeBinary } from "./deps.ts";
 import { downloadRuntime, type InjectedRuntime } from "./runtime-download.ts";
@@ -5,7 +6,7 @@ import { baseFilesystem, injectedLayer } from "./runtime-layer.ts";
 import { assembleImage } from "../oci/image.ts";
 import { exportDockerArchive } from "../oci/archive.ts";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { repositoryName } from "../oci/publish.ts";
@@ -50,18 +51,18 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
             composed = `bunko.local/runtime-check:${randomUUID()}`;
             const archive = join(directory, `runtime-${selected.architecture}.tar`);
             await exportDockerArchive(store, image.manifest, archive, composed, 0);
-            const load = Bun.spawn(["docker", "load", "--input", archive], { stdout: "ignore", stderr: "ignore" });
+            const load = spawn(["docker", "load", "--input", archive], { stdout: "ignore", stderr: "ignore" });
             if (await load.exited) throw new Error("Docker could not load the composed runtime image");
           }
         }
         if (options.run && (composed || source instanceof RegistrySource)) {
           const image = composed ?? `${repositoryName((source as RegistrySource).ref)}@${base.descriptor.digest}`;
           if (!composed) {
-            const pull = Bun.spawn(["docker", "pull", "--platform", `${selected.os}/${selected.architecture}`, image], { stdout: "ignore", stderr: "ignore" });
+            const pull = spawn(["docker", "pull", "--platform", `${selected.os}/${selected.architecture}`, image], { stdout: "ignore", stderr: "ignore" });
             if (await pull.exited) throw new Error("Docker could not pull the pinned base for runtime verification");
           }
           const container = `bunko-check-${randomUUID()}`;
-          const child = Bun.spawn(["docker", "run", "--name", container, "--rm", "--pull=never", "--platform", `${selected.os}/${selected.architecture}`,
+          const child = spawn(["docker", "run", "--name", container, "--rm", "--pull=never", "--platform", `${selected.os}/${selected.architecture}`,
             "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m",
             "--user=65532:65532", "--entrypoint", options.runtimePath ?? "/usr/local/bin/bun", image, "--revision"],
           { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
@@ -72,14 +73,14 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
             runtimeRevision = text.trim();
           } finally {
             clearTimeout(timer);
-            const cleanup = Bun.spawn(["docker", "rm", "--force", container], { stdout: "ignore", stderr: "ignore" });
+            const cleanup = cleanupSpawn(["docker", "rm", "--force", container], { stdout: "ignore", stderr: "ignore" });
             await cleanup.exited;
           }
         }
         results.push({ capabilities, runtime: runtime ? { ...runtime, revisionVerified: Boolean(runtimeRevision) } : undefined, platform: selected, digest: base.descriptor.digest, user: base.config.config?.User ?? "",
           layers: base.manifest.layers.length, runtimeVerified: Boolean(runtimeRevision), runtimeRevision });
       } finally {
-        if (composed) { const cleanup = Bun.spawn(["docker", "image", "rm", composed], { stdout: "ignore", stderr: "ignore" }); await cleanup.exited; }
+        if (composed) { const cleanup = cleanupSpawn(["docker", "image", "rm", composed], { stdout: "ignore", stderr: "ignore" }); await cleanup.exited; }
       }
     }
     return { schemaVersion: 1, indexDigest: pinned.descriptor.digest, toolchain: { version: toolchain.version, revision: toolchain.revision }, platforms: results };

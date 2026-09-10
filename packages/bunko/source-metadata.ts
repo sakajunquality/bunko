@@ -1,3 +1,4 @@
+import { spawn } from "../runtime/invocation.ts";
 import { lstat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -33,7 +34,7 @@ export async function gitLabels(directory: string, log?: (message: string) => vo
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) delete env[key];
   const run = async (args: string[]) => {
     try {
-      const child = Bun.spawn([executable, "-C", directory, ...args], { stdout: "pipe", stderr: "ignore", env });
+      const child = spawn([executable, "-C", directory, ...args], { stdout: "pipe", stderr: "ignore", env });
       const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
       try {
         const [stdout, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);
