@@ -1,0 +1,9 @@
+# Exclude duplicate local agent checkouts from Snyk Code scans only.
+# Finding-level triage is documented in docs/SNYK_TRIAGE.md; this file does
+# not suppress Snyk Code findings or exclude production source files.
+version: v1.25.0
+exclude:
+  code:
+    - .claude/**
+ignore: {}
+patch: {}
