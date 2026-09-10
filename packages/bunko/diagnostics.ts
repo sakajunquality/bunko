@@ -1,24 +1,58 @@
-import { assertToolchain } from "./toolchain-policy.ts";
-import { assertAssetRuntime, inspectAssetMappings, normalizeAssetContexts } from "./asset-contexts.ts";
+import { assertToolchain, type ToolchainRequirements } from "./toolchain-policy.ts";
+import { assertAssetRuntime, inspectAssetMappings, normalizeAssetContexts, type AssetMapping } from "./asset-contexts.ts";
 import { join } from "node:path";
 import { VERSION, loadProject, type BuildOptions } from "./config.ts";
 import { assertLockToolchain, dependencyPlan } from "./deps.ts";
 import { discover } from "./workspace.ts";
 import { selectToolchain } from "./toolchain.ts";
+import type { FileMode } from "../oci/tar.ts";
+import type { Platform } from "../oci/types.ts";
+
+/** One selected target as reported by check-config and doctor. Rendered by diagnostics-format.ts. */
+export interface DiagnosticTarget {
+  inheritedDefaults: string[];
+  lockfileVersion?: number;
+  entrypoints?: Record<string, string>;
+  defaultEntrypoint?: string;
+  assetMappings: AssetMapping[];
+  assetInputs: { entries: number; contexts: string[] };
+  name: string;
+  path: string;
+  entrypoint: string;
+  mode: "bundle" | "compile" | "source";
+  platforms: Platform[];
+  dependencyStrategy: "production" | "closure";
+  external: string[];
+  base?: string;
+  user?: string;
+  ports?: number[];
+  workdir: string;
+  runtimePath: string;
+  runtimeInjection?: "release";
+  assets: string[];
+  runtimeCertificateCount: number;
+  assetExcludes: string[];
+  assetMode?: FileMode;
+  toolchainRequirements: ToolchainRequirements;
+  runtimeArgumentCount: number;
+  environmentKeys: string[];
+  defineKeys: string[];
+  unmatchedAllowances: string[];
+}
 
 /** Offline configuration diagnostics. Never expose env, define or npmrc values. */
 export async function checkConfig(options: BuildOptions) {
   const contexts = normalizeAssetContexts(options.assetContexts);
   const discovery = await discover(options);
-  const projects = [];
+  const projects: DiagnosticTarget[] = [];
   for (const target of discovery.targets) {
     const project = await loadProject({ ...options, path: join(discovery.directory, target.path) }, discovery.workspace);
     const plan = await dependencyPlan(project, discovery.directory, false);
     assertAssetRuntime(project.assetMappings, project.bunPath);
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts);
     const locked = lockedPackageNames(plan.lock), unmatchedAllowances = (project.allowIgnoredScripts ?? []).filter((name) => !locked.has(name));
-    projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
-      platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external,
+    projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
+      platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,
       workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
       runtimeCertificateCount: project.runtimeCAs.length, assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
@@ -44,7 +78,7 @@ export async function doctor(options: BuildOptions) {
     assertToolchain(project.toolchainRequirements, toolchain);
     assertLockToolchain({ lock: { lockfileVersion: project.lockfileVersion } }, toolchain);
   }
-  return { ...config, toolchain: { version: toolchain.version, revision: toolchain.revision },
+  return { ...config, toolchain: { version: toolchain.version, revision: toolchain.revision, path: toolchain.path },
     host: { os: process.platform, architecture: process.arch, runtime: Bun.version },
     optionalTools: Object.fromEntries(["docker", "kubectl", "cosign", "gpgv"].map((name) => [name, Boolean(Bun.which(name === "cosign" ? options.cosignPath ?? name : name))])),
     advice: ["Use check-base --run to verify a base in Docker.", "Use build --push=false --oci-layout DIR for a complete local build check."] };
