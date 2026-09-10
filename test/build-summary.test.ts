@@ -108,7 +108,7 @@ test("summary caps field lengths, row counts and total bytes", () => {
   }));
   // A single oversized field is clipped, the table keeps a bounded number of rows, and the whole
   // section stays inside the byte budget GitHub accepts for a step summary.
-  expect(huge).toContain("xxx…");
+  expect(huge).toContain("deps=miss (…)");
   expect(huge.length).toBeLessThan(20_000);
   expect(huge).toContain("160 more phase rows omitted.");
   expect(Buffer.byteLength(huge)).toBeLessThanOrEqual(summaryBytes);
@@ -122,4 +122,17 @@ test("summary caps field lengths, row counts and total bytes", () => {
   expect(Buffer.byteLength(clipped)).toBeLessThanOrEqual(200);
   expect(clipped).toContain("### bunko build");
   expect(clipped).toContain("_Summary truncated to fit the job summary size limit._");
+});
+
+
+test("truncated URL userinfo cannot expose a credential prefix", () => {
+  const secret = "private-credential-".repeat(100);
+  const summary = renderSummary({ target: `https://${secret}@registry.example/app` });
+  expect(summary).not.toContain("private-credential");
+});
+
+test("tiny summary budgets never overflow even for malformed reports", () => {
+  for (const report of [null, {}, { target: "app" }]) {
+    for (const limit of [0, 1, 20, 100]) expect(Buffer.byteLength(renderSummary(report, limit))).toBeLessThanOrEqual(limit);
+  }
 });

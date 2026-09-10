@@ -25,10 +25,11 @@ const redact = (value: string) => redactInstallerOutput(value).replace(credentia
 
 /** Redact, flatten control and format characters, and cap the length of one report string.
  * The value is cut to `sourceLimit` before redaction because the scrubbers cost superlinear time in
- * the length of an unbroken token; the margin over `limit` is wide enough that a credential
- * delimiter (`@`, `?`) can never fall outside the redacted window while its secret stays inside. */
+ * the length of an unbroken token. Drop a token cut by the window before redacting:
+ * its credential delimiter may occur beyond the window and must not expose its prefix. */
 function clamp(value: string, limit = fieldLimit): string {
-  const source = value.slice(0, sourceLimit);
+  const window = value.slice(0, sourceLimit);
+  const source = value.length > sourceLimit ? window.replace(/\S+$/, "") : window;
   const flat = redact(source).replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/ {2,}/g, " ").trim();
   const characters = [...flat];
   return characters.length > limit || value.length > source.length ? `${characters.slice(0, limit).join("")}…` : flat;
@@ -156,8 +157,9 @@ function targetSection(target: Record<string, unknown>, heading: boolean): strin
 }
 
 /** Keep whole lines while they fit the byte budget; the notice itself is always affordable. */
-function fit(lines: string[], limit: number): string {
+export function fitSummary(lines: string[], limit: number): string {
   const notice = Buffer.byteLength(`${truncated}\n`);
+  if (limit < notice) return "";
   const kept: string[] = [];
   let used = 0;
   for (const line of lines) {
@@ -171,7 +173,7 @@ function fit(lines: string[], limit: number): string {
 /** Render the whole job summary section for one build report; never throws for malformed input.
  * `limit` is the byte budget left for this section in the step summary file. */
 export function renderSummary(report: unknown, limit = summaryBytes): string {
-  if (!isRecord(report)) return summaryNote("The build report was not a JSON object; no summary is available.");
+  if (!isRecord(report)) return fitSummary(summaryNote("The build report was not a JSON object; no summary is available.").split("\n"), limit);
   const all = Array.isArray(report.targets) ? records(report.targets) : [report];
   const targets = all.slice(0, targetLimit);
   const version = targets.flatMap((target) => (isRecord(target.builder) ? [text(target.builder.version)] : [])).find(Boolean);
@@ -187,5 +189,5 @@ export function renderSummary(report: unknown, limit = summaryBytes): string {
   }
   for (const target of targets) lines.push(...targetSection(target, targets.length > 1), "");
   lines.push(...omitted(all.length, targetLimit, "targets"));
-  return fit(lines, limit);
+  return fitSummary(lines, limit);
 }

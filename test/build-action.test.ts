@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { buildArguments, buildSummary, imageResults, runBuildAction } from "../build/run.ts";
+import { appendReportSummary, buildArguments, buildSummary, imageResults, runBuildAction } from "../build/run.ts";
 import { prepareRelease } from "../scripts/release.ts";
 import { setup } from "../scripts/setup.ts";
 import metadata from "../package.json";
@@ -146,4 +146,16 @@ test("build Action forwards typed cache sources, destinations and export policy 
   const destinations = result.args.flatMap((value, index) => value === "--cache-to" ? [result.args[index + 1]] : []);
   expect(destinations).toEqual(["type=registry,repo=registry.test/cache", "type=local,dest=exported cache"]);
   expect(result.args.slice(result.args.indexOf("--cache-export-error"), result.args.indexOf("--cache-export-error") + 2)).toEqual(["--cache-export-error", "fail"]);
+});
+
+
+test("summary appends respect the remaining budget including missing reports", async () => {
+  const output = join(root, "nearly-full-summary");
+  const limit = 900 * 1024;
+  await writeFile(output, "x".repeat(limit - 10));
+  await appendReportSummary(output, join(root, "absent-report"));
+  expect(Buffer.byteLength(await readFile(output))).toBeLessThanOrEqual(limit);
+  const images = Array.from({ length: 4000 }, () => ({ target: "&".repeat(200), digest: `sha256:${"a".repeat(64)}` }));
+  expect(Buffer.byteLength(buildSummary(images))).toBeLessThan(limit);
+  expect(buildSummary(images)).toContain("3950 more image rows omitted");
 });

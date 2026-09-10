@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { escape, renderSummary, summaryBytes, summaryNote } from "./summary.ts";
+import { escape, fitSummary, renderSummary, summaryBytes, summaryNote } from "./summary.ts";
 
 type Inputs = Record<string, string | undefined>;
 export interface ActionImage { target: string; digest: string; reference?: string }
@@ -43,13 +43,18 @@ export function imageResults(report: unknown): ActionImage[] {
   });
 }
 export function buildSummary(images: ActionImage[]): string {
-  return `## Bunko build\n\n| Target | Image digest | Published reference |\n| --- | --- | --- |\n${images.map((i) => `| ${escape(i.target)} | ${i.digest} | ${escape(i.reference ?? "Local OCI layout")} |`).join("\n")}\n`;
+  return `## Bunko build\n\n| Target | Image digest | Published reference |\n| --- | --- | --- |\n${images.slice(0, 50).map((i) => `| ${escape(i.target)} | ${i.digest} | ${escape(i.reference ?? "Local OCI layout")} |`).join("\n")}\n${images.length > 50 ? `\n${images.length - 50} more image rows omitted.\n` : ""}`;
 }
 
 /** The job summary is diagnostic output: a step summary that cannot be written, or a report that
  * cannot be read, never changes the result of the build. Returns the bytes actually appended. */
 async function appendSummary(destination: string, text: string): Promise<number> {
-  try { await appendFile(destination, text); return Buffer.byteLength(text); }
+  try {
+    const existing = await stat(destination).catch((error) => { if (error.code === "ENOENT") return { size: 0 }; throw error; });
+    const fitted = fitSummary(text.split("\n"), Math.max(0, summaryBytes - existing.size));
+    if (fitted) await appendFile(destination, fitted);
+    return Buffer.byteLength(fitted);
+  }
   catch (error) { process.stderr.write(`Bunko build Action could not write the job summary: ${error instanceof Error ? error.message : String(error)}\n`); return 0; }
 }
 
