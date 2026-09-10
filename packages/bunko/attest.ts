@@ -46,7 +46,7 @@ export function provenance(result: BuildResult, lockDigest?: string) {
         externalParameters: { ...result.buildParameters, platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => mapping) } : {}) },
         internalParameters: { builder: result.builder }, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
           ...(result.runtimeCA ? [dependency("urn:bunko:runtime-ca", result.runtimeCA.digest)] : []),
-          ...(result.assetMaterials ?? []).map((material, index) => dependency(`urn:bunko:asset:${material.context}:${index}`, material.digest)),
+          ...(result.assetMaterials ?? []).map((material, index) => ({ ...dependency(`urn:bunko:asset:${"context" in material ? material.context : "image" in material ? "image" : "url"}:${index}`, material.digest), ...(material.platforms ? { annotations: { platforms: material.platforms } } : {}) })),
           ...(lockDigest ? [dependency("urn:bunko:lock", lockDigest)] : []),
           ...result.images.flatMap((image) => { const release = image.runtime ?? image.compileRuntime; return release ? [dependency(release.url, release.archiveDigest), { ...dependency(release.url.replace(/\/[^/]+$/, "/SHASUMS256.txt.asc"), release.checksumDocumentDigest), annotations: { signer: release.signer, policy: release.policy } }] : []; }),
           ...result.images.map((image) => dependency(`urn:bunko:base:${image.platform.architecture}`, image.baseDigest)),

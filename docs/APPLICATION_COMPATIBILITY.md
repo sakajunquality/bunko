@@ -158,6 +158,36 @@ Mappings cannot target system directories such as `/usr`, `/etc`, or `/proc`, or
 
 Reports and provenance record logical context names, selected relative paths, exact destinations, and content digests. Asset cache identity includes these mappings and the frozen contents; host input directory paths are omitted. These logical names and relative paths are public metadata when publishing provenance, so choose names appropriate for publication. Additional source files copied as assets do not become executable bundle inputs. This feature does not make missing runtime dependencies or shared libraries available.
 
+### Image and URL asset sources
+
+A mapping can name an external source instead of a local context. Use `image` for a file or directory that already exists in another image, and `url` for a single published file with a known checksum. Exactly one of `context`, `image` and `url` may be present.
+
+```json
+{
+  "bunko": {
+    "assetMappings": [
+      { "image": "ghcr.io/OWNER/spannerdef:v0.6.1", "from": "/usr/local/bin/spannerdef", "to": "/app/bin/spannerdef", "mode": "0755" },
+      { "url": "https://github.com/OWNER/spannerdef/releases/download/v0.6.1/spannerdef-linux-amd64", "sha256": "<64 hex characters>", "to": "/app/bin/spannerdef", "mode": "0755" }
+    ]
+  }
+}
+```
+
+`image` accepts any reference the base setting accepts and uses the same registry credentials. It is resolved once per target platform: a multi-platform index selects the manifest matching the platform being built, so one mapping produces the right binary for `linux/amd64` and `linux/arm64`. A tool image published for a single platform can be pinned with `"platform": "linux/amd64"`, which then supplies the same content to every target platform; use it only when that is what you intend. Tags are accepted, but `--reproducible` requires `image@sha256:...`. `from` is an exact absolute path inside that image, without globs or `..`; a file maps to the exact filename `to`, and a directory copies recursively into `to`.
+
+Layers are applied in order with whiteout semantics, so the mapping sees the same filesystem a container would: a file deleted by a later layer is not copied, and a replaced file is copied at its final version. Directories that a layer populates without writing their own header are resolved as directories, as an extractor would create them, including a directory a whiteout removed and a later layer repopulated. An implied directory never displaces something that is still there: a surviving symlink or file at that path stays visible and the selection is rejected, so only an explicit header or whiteout changes what a path is. Selecting a file that a later layer populated through without replacing it is rejected rather than silently dropping those entries. Only regular files and directories are extracted. Symlinks, hard links, device nodes and sockets inside the selection are rejected, and a selection whose parent path passes through a link is rejected rather than resolved; name the resolved path instead.
+
+The selected content is bounded to 512 MiB and 20,000 entries, counting directories, implied parent directories, and every version a later layer replaces or deletes, not only the surviving files. The bound measures extraction work, so it never decreases as layers are applied. These are bounds on the selection, not on temporary disk: layers are decoded in full before entries are filtered, under the separate 2 GiB decoded-layer limit, so peak scratch space during extraction follows the source image's layer sizes. Prefer a small purpose-built tool image over a general-purpose one.
+
+`url` sources reach whatever the build host can reach, including private and link-local addresses, and the request is made before the checksum can be verified. A URL in a project's `package.json` is therefore a request the build host makes on the project's behalf. This matches the trust boundary in [SECURITY.md](../SECURITY.md): build untrusted projects on isolated runners.
+
+`url` fetches exactly one file, so it never produces a directory. Only `https:` is accepted, without userinfo or a fragment, and no authorization header is ever sent; a private artifact belongs in an asset context. At most four redirects are followed, and every hop must stay on the original host, a subdomain of it, or — for GitHub release downloads — one of GitHub's own release-asset hosts. The body streams to a temporary file under a 512 MiB cap and is checked against `sha256`, which is mandatory; a mismatch fails the build and names both digests. Files default to non-executable, so set `"mode": "0755"` for a binary.
+
+Both sources are cached under `--asset-cache` (default `~/.cache/bunko/assets/v1`, disabled by `--no-local-cache`): URL files by their declared digest, and extracted image subtrees by resolved image digest, selection and mode, beside a manifest recording each entry's path, type, executable bit, size and SHA-256. A repeated build re-resolves the reference but transfers no layer bytes. Nothing is packed straight from a cache: every entry is copied into private build staging through a single descriptor and checked against its digest on the way, and only that private copy is hashed and packed. A mismatch discards the cache entry and fetches or extracts a verified replacement, except offline, where it fails with the mismatch. Like the layer cache, the asset cache is trusted build input and its writers must be trusted; the difference is that corruption or substitution is detected rather than inherited.
+
+`--offline` uses a cached URL file and fails clearly when it is absent; image sources need a registry and are rejected offline. Reports and provenance record the mapping without host paths, including the resolved platform manifest digest for `image`, the `url`/`sha256` pair for `url`, and the target platforms each material was resolved for.
+
+
 ## Before workload validation
 
 Follow [application validation](APPLICATION_VALIDATION.md) for a disposable functional fixture, private output handling, and the remote acceptance checklist. `check-config` and `doctor` require bindings for selected asset mappings and inspect selected filesystem entries without copying or hashing their contents. They report named entries, the default command, logical mappings, and selected entry counts. They reject missing inputs, normal source omissions, context-root `.bunkoignore` exclusions, symlinks, mapping collisions, and overlap with the configured runtime. Build-specific output/cache/staging-directory exclusions are checked only during a build. Regular project assets, bundle/dependency collisions, file content, and actual runtime behavior still require a build and runtime checks.
