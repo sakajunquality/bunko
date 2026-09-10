@@ -36,7 +36,7 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
     const base = "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9";
     async function build(iteration: number, shared = false) {
       const report = join(temporary, `report-${iteration}.json`);
-      const args = [process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--repo", repo, "--base", base, "--platform", "linux/amd64,linux/arm64", "--no-local-cache", "--git-metadata=false", "--insecure-registry", host, "--report", report, "--install-cache", process.env.BUNKO_SMOKE_NPM_CACHE ?? join(temporary, "npm-cache")];
+      const args = [process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--repo", repo, "--cache-repo", `${host}/bunko-cache`, "--base", base, "--platform", "linux/amd64,linux/arm64", "--no-local-cache", "--git-metadata=false", "--insecure-registry", host, "--report", report, "--install-cache", process.env.BUNKO_SMOKE_NPM_CACHE ?? join(temporary, "npm-cache")];
       if (options.resolve) args.splice(2, 2, "resolve", "--context", source, "-f", manifest);
       if (options.closure) args.push("--deps-strategy", "closure");
       if (shared) args.push("--shared-deps");
