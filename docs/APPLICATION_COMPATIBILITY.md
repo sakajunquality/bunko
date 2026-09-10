@@ -89,6 +89,37 @@ Packages that ship one prebuilt `.node` per platform in a single tree, such as T
 
 `inheritBaseOciLabels: false` omits inherited `org.opencontainers.image.*` labels. Explicit application labels and Bunko-generated labels remain; other base labels retain their existing behavior. This option alone does not anonymize image metadata, provenance, inventories, or sourcemaps.
 
+## Trimming a dependency closure
+
+A closure keeps every concrete instance the declared externals reach, so a single well-behaved external can quietly carry a large transitive tree, including the same package under two versions. Nothing about that is visible in an image digest, so start from measurement rather than intuition. The abridged report below shows the shape of the problem for a Bun service depending on `@google-cloud/spanner`, whose closure was 204 packages and roughly 150 MB of packaged files:
+
+```console
+$ bunko closure-info . --top 5
+api (.) — linux/amd64, deps.strategy closure
+204 packages, 150.3 MB, 21874 files; 2 duplicated package(s)
+
+Largest packages (5 of 204)
+    SIZE  FILES  PACKAGE                              VERSION  VIA
+ 12.0 MB   1420  @opentelemetry/semantic-conventions   1.40.0  @google-cloud/spanner > @google-cloud/opentelemetry-cloud-trace-exporter
+  7.0 MB    880  @opentelemetry/semantic-conventions   1.28.0  @google-cloud/spanner > google-gax
+  5.0 MB   1310  caniuse-lite                          1.0.x   @google-cloud/spanner > @babel/core > browserslist
+...
+
+Duplicate versions (largest first)
+   SIZE  PACKAGE                              VERSIONS
+19.0 MB  @opentelemetry/semantic-conventions  1.40.0 (12.0 MB), 1.28.0 (7.0 MB)
+```
+
+`bunko why PACKAGE` answers the follow-up question for one name, listing every instance with its version, size, install path and the dependency path from a declared external. `--json` emits the same records (`packages[]` and `duplicates[]`) for scripts, and a closure build writes them into the report under `images[].closure`. A size is the payload of the regular files that instance contributes, before compression; tar headers, padding, directories, symlinks and addons omitted for another platform are not counted, so it sits just under the instance's share of the extracted layer. The registry transfers the compressed layer, which is much smaller and deduplicates repeated trees well, but the extracted image, the page cache and the container filesystem still pay close to the full number.
+
+Three levers, in order of preference:
+
+- **Update the dependency that lags.** Two versions of one package usually mean one dependency pins an older range. `bun update <package>` or a newer major of the direct dependency collapses them without changing resolution semantics for anyone else.
+- **Add a `package.json` override.** `"overrides": { "@opentelemetry/semantic-conventions": "1.40.0" }` at the workspace root forces one version for the whole graph. This is a resolution change, not a packaging trick: run the application's tests against the installed tree, because the deduplicated version must actually satisfy every consumer. Bunko validates that `overrides` agree between `package.json` and `bun.lock`, so run `bun install` after editing.
+- **Narrow `bunko.external`.** Only packages that must stay unbundled — native addons, packages reading their own files at runtime — need to be external. Every other dependency is better bundled into the application layer, where the bundler keeps only reached code. A build-time-only package such as `@babel/core` or `browserslist` reaching a server image is almost always a dependency of an external that does not need to be external at all.
+
+Removing an instance from the closure is only safe when nothing loads it at runtime; the closure never guesses. Re-run `closure-info` after each change and verify the application in the image, not only in tests.
+
 ## Validation and remaining work
 
 Generic fixtures cover catalog frozen installs, pre-execution macro rejection, copy-only assets, imported sibling configuration, data loaders, script-free allowances, unresolved imports, and label inheritance. The CI matrix includes Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS. The distributed CLI smoke test runs outside the checkout without external npm dependencies.

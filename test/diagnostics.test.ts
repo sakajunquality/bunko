@@ -2,8 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkConfig, doctor } from "../packages/bunko/diagnostics.ts";
+import { closureReport, formatClosureInfo, formatWhy, whyPackage } from "../packages/bunko/closure-report.ts";
 import { validateCommandOptions } from "../packages/bunko/command-options.ts";
-import { project, temporary } from "./helpers.ts";
+import { cli, project, temporary } from "./helpers.ts";
+import { workspaceFixture } from "./workspace-fixture.ts";
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -83,4 +85,52 @@ test("diagnostics check named entries and external bindings without staging or e
   }
   await rm(join(inputs,"config.json")); await symlink("/nonexistent",join(inputs,"config.json"));
   await expect(checkConfig({path:source,assetContexts:{data:inputs}})).rejects.toThrow("symlinks");
+});
+
+test("closure-info and why explain the closure with sizes, paths and duplicate versions", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  const options = { path: f.source, installCache: f.cache, depsStrategy: "closure", sharedDeps: true };
+  const report = await closureReport(options);
+  expect(report.targets.map((target) => target.name)).toEqual(["fixture-api", "fixture-worker"]);
+  const target = report.targets[0]!;
+  expect(report.platform).toBe("linux/amd64");
+  expect(target.bytes).toBe(target.packages.reduce((total, pkg) => total + pkg.bytes, 0));
+  expect(target.duplicates).toEqual([{ name: "fixture-msg", bytes: expect.any(Number), versions: [expect.objectContaining({ version: "1.0.0", instances: 1 }), expect.objectContaining({ version: "2.0.0", instances: 1 })] }]);
+  const table = formatClosureInfo(report, 2);
+  expect(table).toContain("fixture-api (services/api) — linux/amd64, deps.strategy closure, shared closure");
+  expect(table).toContain("Largest packages (2 of ");
+  expect(table).toContain("Duplicate versions (largest first)");
+  const why = formatWhy(whyPackage(report, "fixture-msg"), "fixture-msg");
+  expect(why).toContain("fixture-msg in fixture-api (services/api)");
+  expect(why).toContain("2 instance(s)");
+  expect(why).toMatch(/1\.0\.0 +\d+ B +\d+ +node_modules/);
+  expect(() => whyPackage(report, "fixture-dev")).toThrow("fixture-dev is not in the dependency closure");
+  expect(() => validateCommandOptions("closure-info", ["repo"])).toThrow("not supported");
+  // The commands need no registry access or publication, only the offline plan and the Linux production install.
+  const command = await cli(["why", "fixture-msg", f.source, "--install-cache", f.cache, "--deps-strategy", "closure"]);
+  expect(command.exit).toBe(0); expect(command.stderr).toBe("");
+  expect(command.stdout).toContain("1 instance(s)");
+  const absent = await cli(["why", "fixture-dev", f.source, "--install-cache", f.cache, "--deps-strategy", "closure"]);
+  expect(absent.exit).toBe(1); expect(absent.stdout).toBe("");
+  expect(absent.stderr).toContain("fixture-dev is not in the dependency closure");
+});
+
+test("closure diagnostics apply the build's source, sharing and platform policies", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  // Root sharedDeps selects the closure strategy and the union closure, exactly as a build resolves it.
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ ...f.manifests[""], bunko: { sharedDeps: true } }));
+  // Ignored bytes inside a workspace package are not in the image, so they must not be counted.
+  await mkdir(join(f.source, "packages/shared/generated"));
+  await writeFile(join(f.source, "packages/shared/generated/blob.txt"), "x".repeat(4096));
+  await writeFile(join(f.source, ".bunkoignore"), "packages/shared/generated\n");
+  const report = await closureReport({ path: f.source, installCache: f.cache });
+  expect(report.targets.every((target) => target.shared && target.strategy === "closure")).toBe(true);
+  expect(report.targets[0]!.duplicates.map((item) => item.name)).toEqual(["fixture-msg"]);
+  const shared = report.targets[0]!.packages.find((pkg) => pkg.name === "@fixture/shared")!;
+  expect(shared.files).toBe(2); expect(shared.bytes).toBeLessThan(1024);
+  await expect(closureReport({ path: f.source, installCache: f.cache, platform: "linux/amd64,linux/arm64" })).rejects.toThrow("report one platform");
+  await symlink("/etc/passwd", join(f.source, "packages/shared/escape"));
+  await expect(closureReport({ path: f.source, installCache: f.cache })).rejects.toThrow("Source symlinks are not supported");
 });

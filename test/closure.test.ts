@@ -8,7 +8,7 @@ import { discover } from "../packages/bunko/workspace.ts";
 import { dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
-import { baseLayout, temporary } from "./helpers.ts";
+import { baseLayout, project, temporary } from "./helpers.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { workspaceFixture } from "./workspace-fixture.ts";
 import { runImage } from "./run-image.ts";
@@ -23,8 +23,12 @@ async function fixture() {
 }
 
 test("closure excludes unrelated versions and bundled workspaces while preserving peer resolution", async () => {
-  const f = await fixture();
-  const result = await buildTargets({ ...f.options, output: join(f.root, "out"), verifyDeterministic: true });
+  const f = await fixture(), logs: string[] = [];
+  const result = await buildTargets({ ...f.options, log: (message) => logs.push(message), output: join(f.root, "out"), verifyDeterministic: true });
+  // One summary per projected closure, on the first iteration only.
+  expect(logs.filter((message) => message.startsWith("Dependency closure:"))).toHaveLength(2);
+  const closure = result[0]!.images[0]!.closure!;
+  expect(closure.bytes).toBe(closure.packages.reduce((total, pkg) => total + pkg.bytes, 0));
   expect(result[0]!.images[0]!.inventory.filter((p) => p.name === "fixture-msg").map((p) => p.version)).toEqual(["1.0.0"]);
   expect(result[1]!.images[0]!.inventory.filter((p) => p.name === "fixture-msg").map((p) => p.version)).toEqual(["2.0.0"]);
   expect(result[0]!.images[0]!.inventory.some((p) => p.name === "@fixture/shared")).toBe(false);
@@ -86,6 +90,38 @@ test("closure follows optional edges, preserves bins/data and rejects missing re
   await expect(dependencyClosure(stage, "app", platform, [project])).rejects.toThrow("escapes the installed tree");
 });
 
+
+test("closure accounting matches the packaged bytes and records paths and duplicate versions", async () => {
+  const f = await fixture(), discovered = await discover({ path: f.source });
+  const projects = await Promise.all(discovered.targets.map((target) => loadProject({ ...f.options, path: join(f.source, target.path) }, discovered.workspace)));
+  const plan = await dependencyPlan(projects[0]!, f.source), stage = join(f.root, "stage"), platform = { os: "linux" as const, architecture: "amd64" as const };
+  await cp(f.source, stage, { recursive: true });
+  await installDependencies(stage, plan, await selectToolchain(), platform, f.cache);
+  const closure = await dependencyClosure(stage, "app", platform, projects);
+  // Every instance is accounted for exactly once, and the totals are the bytes the layer carries.
+  expect(closure.packages.map((pkg) => pkg.path)).toEqual(closure.inventory.map((item) => item.path));
+  const files = closure.entries.filter((entry) => entry.type === "file" && "size" in entry);
+  expect(closure.packages.reduce((total, pkg) => total + pkg.bytes, 0)).toBe(files.reduce((total, entry) => total + ("size" in entry ? entry.size : 0), 0));
+  expect(closure.packages.reduce((total, pkg) => total + pkg.files, 0)).toBe(files.length);
+  expect(closure.packages.every((pkg) => pkg.bytes > 0 && pkg.files > 0)).toBe(true);
+  // The peer contexts keep both versions of fixture-msg, each with its own adapter instance.
+  expect(closure.packages.filter((pkg) => pkg.name === "fixture-adapter")).toHaveLength(2);
+  expect(closure.duplicates.map((item) => [item.name, item.versions.map((version) => version.version)])).toEqual([["fixture-msg", ["1.0.0", "2.0.0"]]]);
+  const duplicate = closure.duplicates[0]!;
+  expect(duplicate.versions.every((version) => version.instances === 1 && version.bytes > 0)).toBe(true);
+  expect(duplicate.bytes).toBe(closure.packages.filter((pkg) => pkg.name === "fixture-msg").reduce((total, pkg) => total + pkg.bytes, 0));
+  expect(closure.packages.filter((pkg) => pkg.name === "fixture-msg").every((pkg) => JSON.stringify(pkg.via) === '["fixture-msg"]')).toBe(true);
+  // A package that no target declares is explained by the edge that pulls it in.
+  const transitive = await dependencyClosure(stage, "app", platform, [{ ...projects[0]!, external: ["fixture-adapter"] }]);
+  expect(transitive.packages.map((pkg) => [pkg.name, pkg.via])).toEqual([["fixture-adapter", ["fixture-adapter"]], ["fixture-msg", ["fixture-adapter", "fixture-msg"]]]);
+});
+
+test("a closure target without runtime externals reports an empty closure", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "app")), base = await baseLayout(join(root, "base"));
+  const result = await build({ path: source, baseLayout: base, output: join(root, "out"), push: false, localCache: false, gitMetadata: false, depsStrategy: "closure" });
+  expect(result.images[0]!.closure).toEqual({ bytes: 0, files: 0, packages: [], duplicates: [] });
+});
 
 test("standalone closure retains package data and is independent of checkout depth", async () => {
   const root = await temporary(); directories.push(root);
