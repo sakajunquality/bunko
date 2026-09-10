@@ -38,7 +38,7 @@ const fixtureTarget: DiagnosticTarget = {
   inheritedDefaults: ["user"], lockfileVersion: 1,
   entrypoints: { server: "src/server.ts", worker: "src/worker.ts" }, defaultEntrypoint: "server",
   assetMappings: [{ context: "data", from: "config.json", to: "/repo/config.json", mode: "0644", exclude: ["*.tmp"] }],
-  assetInputs: { entries: 1, contexts: ["data"] },
+  assetInputs: { entries: 1, contexts: ["data"], external: 0 },
   name: "api", path: "services/api", entrypoint: "src/server.ts", mode: "bundle",
   platforms: [{ os: "linux", architecture: "amd64" }, { os: "linux", architecture: "arm64", variant: "v8" }],
   dependencyStrategy: "closure", external: ["sharp"], base: "oven/bun:1.4.2-distroless",
@@ -81,7 +81,7 @@ test("check-config renders an aligned summary of the object it also serializes a
     "  - registry credentials and connectivity",
     "",
   ].join("\n"));
-  const minimal = renderDiagnostics({ ...fixture, workspace: false, targets: [{ ...fixtureTarget, entrypoints: undefined, defaultEntrypoint: undefined, assetMappings: [], assetInputs: { entries: 0, contexts: [] }, base: undefined, user: undefined, ports: undefined, external: [], assets: [], assetExcludes: [], assetMode: undefined, lockfileVersion: undefined, runtimeInjection: undefined, runtimeArgumentCount: 0, runtimeCertificateCount: 0, environmentKeys: [], defineKeys: [], inheritedDefaults: [], unmatchedAllowances: [], toolchainRequirements: { ranges: [] } }] });
+  const minimal = renderDiagnostics({ ...fixture, workspace: false, targets: [{ ...fixtureTarget, entrypoints: undefined, defaultEntrypoint: undefined, assetMappings: [], assetInputs: { entries: 0, contexts: [], external: 0 }, base: undefined, user: undefined, ports: undefined, external: [], assets: [], assetExcludes: [], assetMode: undefined, lockfileVersion: undefined, runtimeInjection: undefined, runtimeArgumentCount: 0, runtimeCertificateCount: 0, environmentKeys: [], defineKeys: [], inheritedDefaults: [], unmatchedAllowances: [], toolchainRequirements: { ranges: [] } }] });
   expect(minimal).toContain("check-config · valid · single project");
   expect(minimal).toContain("  Dependencies  closure · no lockfile\n");
   expect(minimal).toContain("  Toolchain     none declared\n");
@@ -279,4 +279,16 @@ test("text diagnostics escape terminal controls in project metadata", () => {
   const report = { schemaVersion: 1 as const, bunko: VERSION, status: "valid" as const, workspace: false, targets: [], unchecked: ["name\u001b[2J\r\tvalue"] };
   expect(renderDiagnostics(report)).toContain("name\\u001b[2J\\u000d\\u0009value");
   expect(renderDiagnostics(report)).not.toContain("\u001b");
+});
+
+
+test("offline text diagnostics describe image and URL sources without claiming their content was inspected", () => {
+  const target: DiagnosticTarget = { ...fixtureTarget, assetMappings: [
+    { image: "registry.test/tool:v1", from: "/bin/tool", to: "/app/tool", platform: "linux/amd64" },
+    { url: "https://example.test/data", sha256: "a".repeat(64), to: "/app/data" },
+  ], assetInputs: { entries: 0, contexts: [], external: 2 } };
+  const text = renderDiagnostics({ ...fixture, targets: [target] });
+  expect(text).toContain("registry.test/tool:v1:/bin/tool [linux/amd64]");
+  expect(text).toContain(`https://example.test/data [sha256:${"a".repeat(64)}]`);
+  expect(text).toContain("2 external source(s); content not checked offline");
 });

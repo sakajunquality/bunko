@@ -1,3 +1,4 @@
+import { writeAssetBytes } from "./asset-write.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, rename, rm } from "node:fs/promises";
@@ -50,7 +51,7 @@ async function download(url: string, destination: string, sha256: string, limit:
           size += value.byteLength;
           if (size > limit) throw new Error(`Asset download exceeds the ${limit} byte limit: ${url}`);
           hash.update(value);
-          await handle.write(value);
+          await writeAssetBytes(handle, value);
         }
       } finally { await handle.close(); void reader.cancel().catch(() => {}); }
       const digest = `sha256:${hash.digest("hex")}`;
@@ -77,7 +78,7 @@ async function snapshotFile(source: string, destination: string, sha256: string,
         size += bytesRead;
         if (size > limit) throw new Error(`Asset download exceeds the ${limit} byte limit: sha256:${sha256}`);
         hash.update(buffer.subarray(0, bytesRead));
-        await output.write(buffer.subarray(0, bytesRead));
+        await writeAssetBytes(output, buffer.subarray(0, bytesRead));
       }
     } finally { await output.close(); }
     const digest = `sha256:${hash.digest("hex")}`;

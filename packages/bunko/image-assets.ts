@@ -1,3 +1,5 @@
+import { filesystemMetadata } from "./ignore.ts";
+import { writeAssetBytes } from "./asset-write.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -42,7 +44,7 @@ async function extractImagePath(store: BlobStore, image: BaseImage, from: string
       for await (const chunk of stream) {
         bytes += (chunk as Uint8Array).byteLength;
         if (bytes > limit) throw new Error("Image asset selection exceeds the extraction size limit");
-        await handle.write(chunk as Uint8Array);
+        await writeAssetBytes(handle, chunk as Uint8Array);
       }
     } finally { await handle.close(); }
   });
@@ -103,7 +105,7 @@ async function snapshotContent(content: string, staging: string, limit: number, 
           size += bytesRead; total += bytesRead;
           if (total > limit) throw new Error("Image asset selection exceeds the extraction size limit");
           hash.update(buffer.subarray(0, bytesRead));
-          await output.write(buffer.subarray(0, bytesRead));
+          await writeAssetBytes(output, buffer.subarray(0, bytesRead));
         }
       } finally { await output.close(); }
       entries.push({ path, type: "file", executable: Boolean(opened.mode & 0o111), size, digest: `sha256:${hash.digest("hex")}` });
@@ -126,7 +128,7 @@ async function readManifest(path: string, resolved: Digest, from: string, mode: 
 }
 
 function assetEntries(entries: ContentEntry[], staging: string, destination: string, mode: FileMode | undefined, validate: (path: string) => void): TarEntry[] {
-  return entries.map((entry) => {
+  return entries.filter((entry) => !filesystemMetadata(entry.path)).map((entry) => {
     const path = entry.path ? `${destination}/${entry.path}` : destination;
     validate(path);
     if (entry.type === "directory") return { type: "directory", path };

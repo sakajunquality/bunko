@@ -1,3 +1,4 @@
+import { writeAssetBytes } from "../packages/bunko/asset-write.ts";
 import { MockRegistry } from "./mock-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -563,4 +564,28 @@ test.each([
   const entry = staged.entries[0]!;
   if (entry.type !== "file" || !("source" in entry)) throw new Error("Expected a staged file");
   expect(await Bun.file(entry.source).text()).toBe(body);
+});
+
+
+test("asset writes complete partial writes and reject zero progress", async () => {
+  const input = Buffer.from("verified asset payload"), written: Buffer[] = [];
+  await writeAssetBytes({ write: async (bytes) => { const part = bytes.slice(0, 3); written.push(Buffer.from(part)); return { bytesWritten: part.length }; } }, input);
+  expect(Buffer.concat(written)).toEqual(input);
+  await expect(writeAssetBytes({ write: async () => ({ bytesWritten: 0 }) }, input)).rejects.toThrow("invalid progress");
+});
+
+test("image mapping platforms are validated before offline diagnostics or network requests", () => {
+  for (const platform of ["windows/amd64", "linux/386", "", "linux/arm64/v9"])
+    expect(() => assetMappings([{ image: "registry.test/tool:v1", from: "/bin/tool", to: "/app/tool", platform }])).toThrow("Supported platforms");
+});
+
+
+test("image asset directories omit incidental Finder metadata and reject explicitly selected metadata", async () => {
+  const root = await temporary(); roots.push(root);
+  const registry = new MockRegistry(), image = toolImage(registry, "tools/metadata", "v1", [{ platform: amd64, layers: [await layer([
+    { name: "opt/data/keep.txt", content: "keep" }, { name: "opt/data/.DS_Store", content: "metadata" },
+  ])] }]);
+  const result = await stageAssetMappings([{ image: image.reference, from: "/opt/data", to: "/app/data" }], {}, join(root, "stage"), [], { platform: amd64, registry: { fetcher: registry.fetch, credentials: async () => undefined } });
+  expect(result.entries.map((entry) => entry.path)).toEqual(["app/data", "app/data/keep.txt"]);
+  expect(() => assetMappings([{ image: image.reference, from: "/opt/data/.DS_Store", to: "/app/data" }])).toThrow("Excluded image asset input");
 });

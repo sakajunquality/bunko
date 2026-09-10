@@ -1,3 +1,4 @@
+import { platform as parsePlatform } from "./platforms.ts";
 import { systemFontPath, fontFileKind, validateFontFile } from "./font-assets.ts";
 import { assetExcluder, assetMode } from "./asset-policy.ts";
 import { chmod, copyFile, lstat, mkdir, readdir, realpath } from "node:fs/promises";
@@ -61,7 +62,9 @@ export function assetMappings(value: unknown): AssetMapping[] {
       if (typeof row.image !== "string" || !row.from.startsWith("/")) throw new Error("Image asset mappings require an image reference and an absolute from path");
       parseReference(row.image);
       archivePath(row.from.slice(1));
+      if (filesystemMetadata(row.from)) throw new Error("Excluded image asset input: .DS_Store");
       if (row.platform !== undefined && typeof row.platform !== "string") throw new Error("Asset mapping platform must be a string");
+      if (row.platform !== undefined) parsePlatform(row.platform as string);
       return { image: row.image, from: row.from, ...common, ...(row.platform !== undefined ? { platform: row.platform as string } : {}) };
     }
     if (typeof row.context !== "string" || !contextName.test(row.context)) throw new Error("Asset mappings require context, from, and to strings");
