@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
-import { rm, realpath } from "node:fs/promises";
+import { rm, realpath, stat } from "node:fs/promises";
 import { cacheLocation, cacheLocations } from "../packages/bunko/cache-backend-options.ts";
 import { validateCacheOptions } from "../packages/bunko/cache-options.ts";
 import { build } from "../packages/bunko/build.ts";
@@ -51,7 +51,7 @@ test("ordered mixed sources promote local hits to multiple independent destinati
 test("invalid local imports fall through and never create missing read directories", async () => {
   const { root, source, base } = await fixture(), missing = join(root, "missing");
   await build({ path: source, baseLayout: base, output: join(root, "image"), push: false, gitMetadata: false, cacheDir: join(root, "managed"), cacheFrom: [`type=local,src=${missing}`] });
-  expect(await Bun.file(join(missing, "keys")).exists()).toBe(false);
+  await expect(stat(missing)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("local cache paths cannot overlap source roots, layouts or reports", async () => {
@@ -70,7 +70,7 @@ test("offline local imports work and dry runs leave explicit exports untouched",
   expect(offline.root.digest).toBe(first.root.digest);
   expect(offline.cache.some((event) => event.source === portable)).toBe(true);
   await build({ ...options, output: join(root, "dry"), dryRun: true, cacheTo: [`type=local,dest=${untouched}`] });
-  expect(await Bun.file(join(untouched, "keys")).exists()).toBe(false);
+  await expect(stat(untouched)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("explicit destinations replace implicit image cache writes and all destinations are attempted", async () => {

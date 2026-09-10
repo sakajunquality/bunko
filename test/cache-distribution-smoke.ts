@@ -28,9 +28,16 @@ try {
   await consumer.persistHits(); await consumer.publish();
   const fresh = new LayerCache(new BlobStore(join(directory, "fresh")), { readRepositories: [`${host}/branch`], registry, log: () => {} });
   if (!await fresh.get(item.key, "assets")) throw new Error("Read hit was not promoted to write destination");
+  const portable = join(directory, "portable");
+  const typed = new LayerCache(new BlobStore(join(directory, "typed")), { sources: [{ type: "registry", repo: `${host}/branch` }], destinations: [{ type: "local", path: portable }, { type: "registry", repo: `${host}/typed` }], exportError: "fail", registry, log: () => {} });
+  if (!await typed.get(item.key, "assets")) throw new Error("Typed registry read failed");
+  await typed.publish();
+  if (typed.exports.length !== 2 || typed.exports.some((event) => event.status !== "written")) throw new Error("Typed exports failed");
+  const restored = new LayerCache(new BlobStore(join(directory, "restored")), { sources: [{ type: "local", path: portable }], registry, log: () => {} });
+  if (!await restored.get(item.key, "assets")) throw new Error("Portable local cache restore failed");
   const preview = await pruneLocal(local, false, 0, 0), applied = await pruneLocal(local, true, 0, 0);
   if (preview.bytes !== applied.bytes || applied.remainingBytes !== 0 || !applied.deleted.length) throw new Error("Quota preview and deletion disagreed");
-  const report = { schemaVersion: 1, registry: "Distribution 3", orderedReadFallback: true, readHitPromotion: true, freshDestinationRead: true,
+  const report = { schemaVersion: 1, registry: "Distribution 3", orderedReadFallback: true, readHitPromotion: true, freshDestinationRead: true, typedRegistryAndLocalExports: true, portableLocalRestore: true,
     managedBytes: preview.managedBytes, reclaimedBytes: applied.bytes, remainingManagedBytes: applied.remainingBytes };
   if (process.argv[2]) await writeFile(resolve(process.argv[2]), JSON.stringify(report, null, 2) + "\n", { flag: "wx" });
   console.log(JSON.stringify(report));
