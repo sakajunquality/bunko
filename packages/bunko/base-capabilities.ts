@@ -9,6 +9,7 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
   const nodeAt = (path: string) => { try { return baseNode(tree, path); } catch { unresolvedPaths.add(path); return undefined; } };
   const file = (path: string) => { const node = nodeAt(path); return node?.type === "file" && node.size > 0; };
   const paths = [...tree.keys()].sort();
+  // baseFilesystem creates distinct nodes for explicit and implied directories; baseNode returns those exact nodes.
   const directoryPath = (path: string) => {
     if (path === "/") return "";
     const node = nodeAt(path);
@@ -16,11 +17,11 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
   };
   const configuredFile = env.SSL_CERT_FILE, configuredDirectory = env.SSL_CERT_DIR;
   const caFiles = [...new Set(["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem", ...(configuredFile?.startsWith("/") ? [configuredFile] : [])])].filter(file);
-  const caDirectories = [...new Set(["/etc/ssl/certs", "/etc/pki/tls/certs", ...(configuredDirectory ?? "").split(":").filter((path) => path.startsWith("/"))])]
-    .filter((directory) => { const prefix = directoryPath(directory); return prefix !== undefined && paths.some((path) => (prefix === "" || path.startsWith(prefix + "/")) && /(?:\.(?:crt|pem)|\.[0-9]+)$/.test(path) && file("/" + path)); });
+  const caDirectories = [...new Set(["/etc/ssl/certs", "/etc/pki/tls/certs", ...(configuredDirectory ?? "").split(":").filter((path) => path.startsWith("/")).map((path) => posix.normalize(path).replace(/\/$/, "") || "/")])]
+    .filter((directory) => { const prefix = directoryPath(directory); return prefix !== undefined && paths.some((path) => posix.dirname(path) === (prefix || ".") && /(?:\.(?:crt|pem)|\.[0-9]+)$/.test(path) && file("/" + path)); });
   const fonts = paths.filter((path) => /(?:^|\/)fonts\//.test(path) && /\.(?:ttf|otf|ttc|otc|pcf|pfa|pfb)(?:\.gz)?$/i.test(path) && file("/" + path));
   const libraries = new Map<string, string[]>();
-  for (const path of paths) if (/\.so(?:\.|$)/.test(posix.basename(path)) && file("/" + path)) {
+  for (const path of paths) if (/\.so(?:\.|$)/.test(posix.basename(path)) && !["ld.so.conf", "ld.so.cache", "ld.so.preload"].includes(posix.basename(path)) && file("/" + path)) {
     const name = posix.basename(path); libraries.set(name, [...(libraries.get(name) ?? []), "/" + path]);
   }
   const requirements = native.flatMap((binary) => binary.needed.map((name) => {

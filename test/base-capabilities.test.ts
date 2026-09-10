@@ -66,7 +66,23 @@ test("configured CA directories and workdirs resolve image-local directory links
     ["cert-store/root.pem", { type: "file", mode: 0o644, size: 20 }],
     ["cert-alias", { type: "symlink", link: "cert-store", mode: 0o777, size: 0 }],
   ]);
-  const result = baseCapabilities(tree, { Env: ["MALFORMED", "SSL_CERT_DIR=/cert-alias"] }, "/cert-alias");
-  expect(result.ca.directories).toContain("/cert-alias");
+  const result = baseCapabilities(tree, { Env: ["MALFORMED", "SSL_CERT_DIR=/cert-alias/:/cert-alias"] }, "/cert-alias");
+  expect(result.ca.directories).toEqual(["/cert-alias"]);
   expect(result.workdir).toEqual({ path: "/cert-alias", type: "directory", empty: false });
+});
+
+test("capability inventories disclose truncation and do not count loader configuration as libraries", () => {
+  const tree: BaseFilesystem = new Map();
+  for (let i = 0; i < 1001; i++) tree.set(`lib/libfixture${i}.so`, { type: "file", mode: 0o644, size: 1 });
+  for (let i = 0; i < 101; i++) tree.set(`usr/share/fonts/font${i}.ttf`, { type: "file", mode: 0o644, size: 1 });
+  tree.set("etc/ld.so.conf", { type: "file", mode: 0o644, size: 20 });
+  tree.set("certs", { type: "directory", mode: 0o755, size: 0 });
+  tree.set("certs/nested/root.pem", { type: "file", mode: 0o644, size: 20 });
+  const result = baseCapabilities(tree, { Env: ["SSL_CERT_DIR=/certs"] });
+  expect(result.ca.directories).toEqual([]);
+  expect(result.fonts).toMatchObject({ count: 101, truncated: true });
+  expect(result.fonts.files).toHaveLength(100);
+  expect(result.sharedLibraryCount).toBe(1001);
+  expect(result.sharedLibrariesTruncated).toBe(true);
+  expect(result.sharedLibraries).toHaveLength(1000);
 });
