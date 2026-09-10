@@ -360,3 +360,13 @@ test("prune holds a current-version record to the rules a build reads it by", as
   await writeFile(old, canonicalJSON({ schemaVersion: 1, kind: "base-inspect", version: "base-inspect-v0", digest: `sha256:${"e".repeat(64)}`, entries: [{ shape: "from a future version" }] }));
   expect((await pruneLocal(f.cache, false, Number.MAX_SAFE_INTEGER)).keys).toContain(join(baseInspectDirectory, "base-inspect-v0", `${"e".repeat(64)}.json`));
 }, 120000);
+
+
+test("a missing layout blob rejects consumption after destination setup", async () => {
+  const root = await temporary(); roots.push(root);
+  const descriptor = { digest: sha256("missing"), size: 7, mediaType: media.tar };
+  const stream = await new LayoutSource(join(root, "missing-layout")).blob(descriptor);
+  // Consumers may await filesystem setup before reading the returned iterable.
+  await Bun.sleep(25);
+  await expect(new BlobStore(join(root, "destination")).putStream(stream, media.tar, descriptor)).rejects.toThrow("ENOENT");
+});
