@@ -61,8 +61,13 @@ export async function resolveVersion(env: Record<string, string | undefined>, re
   // Only the ref's spelling is available here: the runner reports the requested ref without distinguishing tags from branches, so any version-shaped ref
   // selects that release and anything else falls through to the checkout it resolved to. A ref reported for a different Action repository belongs to a
   // wrapping Action and never names a release here.
-  const repository = env.INPUT_REPOSITORY?.trim() || "sakajunquality/bunko", actionRepository = (env.GITHUB_ACTION_REPOSITORY || env.BUNKO_ACTION_REPOSITORY)?.trim();
-  const ref = !actionRepository || actionRepository.toLowerCase() === repository.toLowerCase() ? candidateTag((env.GITHUB_ACTION_REF || env.BUNKO_ACTION_REF)?.trim(), true) : undefined;
+  const repository = env.INPUT_REPOSITORY?.trim() || "sakajunquality/bunko";
+  // Keep the ref and repository from the same context; a wrapper's ref must never
+  // borrow this Action's repository identity from a different environment source.
+  const context = env.BUNKO_ACTION_REF?.trim()
+    ? { ref: env.BUNKO_ACTION_REF.trim(), repository: env.BUNKO_ACTION_REPOSITORY?.trim() }
+    : { ref: env.GITHUB_ACTION_REF?.trim(), repository: env.GITHUB_ACTION_REPOSITORY?.trim() };
+  const ref = context.repository?.toLowerCase() === repository.toLowerCase() ? candidateTag(context.ref, true) : undefined;
   if (ref) return { version: ref, source: "GITHUB_ACTION_REF" };
   const actionPath = env.GITHUB_ACTION_PATH?.trim() || env.BUNKO_ACTION_PATH?.trim();
   const checkout = actionPath ? candidateTag((await readPackageVersion(join(actionPath, "package.json")))?.trim(), false) : undefined;

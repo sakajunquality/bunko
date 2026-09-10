@@ -11,7 +11,7 @@ Use this checklist for each new version, starting with the next patch release. C
 - [ ] Merge the release PR and record the resulting **main commit**, which can differ from the reviewed PR head after a squash merge. Confirm CI for the resulting main commit. Keep unrelated work and stashes separate.
 - [ ] Prepare a candidate with `gh workflow run release.yml --repo sakajunquality/bunko --ref main`. Confirm the run's `headSha` is the selected main commit and that prepare/verify-candidate pass. This dispatch does not publish a release or create a tag. Manual candidate provenance uses `refs/heads/main`; published release provenance must use the tag ref.
 
-The setup Action derives its CLI version from its own tag ref or checked-out `package.json`, so the new tag installs the new release as soon as it is published; no default bump follows the tag. `bun-version` and container digests remain literals and stay on the previously verified values until the new artifacts pass acceptance.
+When the `version` input is omitted, the setup Action derives its CLI version from its own tag ref or checked-out `package.json`, so the new tag installs the new release as soon as it is published. An explicit `version` input takes precedence and must be updated separately; no default bump follows the tag. `bun-version` and container digests remain literals and stay on the previously verified values until the new artifacts pass acceptance.
 
 ## 2. Check the exact commit, then create the tag
 

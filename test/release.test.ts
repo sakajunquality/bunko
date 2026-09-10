@@ -78,17 +78,19 @@ test("the setup Action installs the release matching its own ref or checkout", a
   const checkout = join(root, "action"), read = async (path: string) => (path === join(checkout, "package.json") ? "0.1.2" : undefined);
   const select = (env: Record<string, string | undefined>) => resolveVersion(env, read);
   expect(await select({ INPUT_VERSION: " v0.1.1 ", GITHUB_ACTION_REF: "v0.1.2", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v0.1.1", source: "the version input" });
-  expect(await select({ GITHUB_ACTION_REF: "v0.1.2", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v0.1.2", source: "GITHUB_ACTION_REF" });
-  expect(await select({ BUNKO_ACTION_REF: "v0.2.0-rc.1", BUNKO_ACTION_PATH: checkout })).toEqual({ version: "v0.2.0-rc.1", source: "GITHUB_ACTION_REF" });
+  expect(await select({ GITHUB_ACTION_REF: "v0.1.2", GITHUB_ACTION_REPOSITORY: "sakajunquality/bunko", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v0.1.2", source: "GITHUB_ACTION_REF" });
+  expect(await select({ BUNKO_ACTION_REF: "v0.2.0-rc.1", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual({ version: "v0.2.0-rc.1", source: "GITHUB_ACTION_REF" });
   expect(await select({ GITHUB_ACTION_REF: "v0.1.2", GITHUB_ACTION_REPOSITORY: "SakaJunQuality/Bunko", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v0.1.2", source: "GITHUB_ACTION_REF" });
   // The runner reports the requested ref without distinguishing tags from branches, so a version-shaped ref outranks the checkout even when they differ.
-  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v9.9.9", source: "GITHUB_ACTION_REF" });
+  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "sakajunquality/bunko", GITHUB_ACTION_PATH: checkout })).toEqual({ version: "v9.9.9", source: "GITHUB_ACTION_REF" });
   // Branch, alias, malformed and foreign-repository refs never name a release, so the tagged checkout decides instead.
   const checkoutSource = { version: "v0.1.2", source: "the Action checkout package.json" };
   for (const ref of ["main", "a".repeat(40), "latest", "0.1.3", "v0.1", "v0.1.3.4", "v01.2.3", "release-v0.1.3", "v0.1.3\ninvalid", ""])
     expect(await select({ GITHUB_ACTION_REF: ref, GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
   expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "other/wrapper", GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
   expect(await select({ GITHUB_ACTION_REF: "v9.9.9", BUNKO_ACTION_REPOSITORY: "other/wrapper", INPUT_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual(checkoutSource);
+  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
+  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "other/wrapper", BUNKO_ACTION_REF: "v0.2.0-rc.1", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual({ version: "v0.2.0-rc.1", source: "GITHUB_ACTION_REF" });
   const literal = { version: fallbackVersion, source: "the built-in default" };
   expect(await select({ INPUT_VERSION: "", GITHUB_ACTION_REF: "main", GITHUB_ACTION_PATH: join(root, "missing") })).toEqual(literal);
   expect(await select({})).toEqual(literal);
