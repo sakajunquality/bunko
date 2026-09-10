@@ -59,6 +59,13 @@ function entriesWithParents(input: TarEntry[], roots?: string[]): TarEntry[] {
   return [...entries.values()].filter((entry) => !roots || explicit.has(entry.path) || roots.some((root) => entry.path === root || entry.path.startsWith(`${root}/`))).sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
 }
 
+/**
+ * Applies exactly the path, collision and symlink rules layer packing applies, without producing a
+ * layer. Callers that accept entries from storage use it so an unusable set is rejected while the
+ * decision is still reversible, instead of throwing once the build has committed to those entries.
+ */
+export function assertArchiveEntries(entries: TarEntry[]): void { entriesWithParents(entries); }
+
 function octal(header: Buffer, start: number, width: number, value: number) {
   const encoded = value.toString(8);
   if (!Number.isSafeInteger(value) || value < 0 || encoded.length >= width) throw new Error("Tar number overflow");

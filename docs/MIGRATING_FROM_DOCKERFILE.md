@@ -31,7 +31,7 @@ Bunko has no Dockerfile and no `RUN`. Image content comes from three sources: th
 | `tags: registry/repo/app:sha` | `--repo registry/repo` (+ `imageName`) or `--repo registry/repo/app --bare`; `--tag sha --tag latest` (default: `latest` and the Git revision) | `repo`, `bare`, `tags` |
 | `push: true` | default; `--push=false` disables | `push` |
 | `platforms: linux/amd64,linux/arm64` | `--platform linux/amd64,linux/arm64` | `platforms` |
-| `cache-from/cache-to: type=gha` | the managed cache directory persisted with the GitHub Actions cache, or `--cache-repo` / `--cache-from` registry caches | `cache: github` (no `actions/cache` step of your own), `cache-repo`, `cache-from` |
+| `cache-from/cache-to: type=gha` | the managed cache directory persisted with the GitHub Actions cache, or `--cache-repo` / `--cache-from` registry caches carrying layers and closure plan indexes | `cache: github` (no `actions/cache` step of your own), `cache-repo`, `cache-from` |
 | `load: true` | `--local` (single platform, needs Docker) | not in the Action |
 | `outputs: type=oci` | `--oci-layout DIR`, `--tarball FILE` | `export-layout` |
 | `build-contexts: name=path` | `--asset-context NAME=DIR`, or an `image`/`url` asset mapping needing no CI step | `asset-contexts` |

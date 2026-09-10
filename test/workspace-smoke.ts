@@ -12,7 +12,7 @@ import { exportDockerArchive, loadArchive } from "../packages/oci/archive.ts";
 import { command } from "./command.ts";
 import { pullImage } from "./docker-pull.ts";
 
-export async function workspaceSmoke(options: { closure?: boolean; resolve?: boolean } = {}) {
+export async function workspaceSmoke(options: { closure?: boolean; resolve?: boolean; registryPlans?: boolean } = {}) {
   const temporary = await mkdtemp(join(tmpdir(), "bunko-workspace-smoke-"));
   const id = randomUUID(), registryName = `bunko-workspace-registry-${id}`;
   const containers = new Set<string>(), images = new Set<string>();
@@ -37,6 +37,10 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
     async function build(iteration: number, shared = false) {
       const report = join(temporary, `report-${iteration}.json`);
       const args = [process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--repo", repo, "--cache-repo", `${host}/bunko-cache`, "--base", base, "--platform", "linux/amd64,linux/arm64", "--no-local-cache", "--git-metadata=false", "--insecure-registry", host, "--report", report, "--install-cache", process.env.BUNKO_SMOKE_NPM_CACHE ?? join(temporary, "npm-cache")];
+      if (options.registryPlans) {
+        // Each build starts with a fresh managed cache; only registry records can supply a warm plan.
+        args.splice(args.indexOf("--no-local-cache"), 1, "--cache-dir", join(temporary, `cache-${iteration}`));
+      }
       if (options.resolve) args.splice(2, 2, "resolve", "--context", source, "-f", manifest);
       if (options.closure) args.push("--deps-strategy", "closure");
       if (shared) args.push("--shared-deps");
@@ -57,8 +61,14 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
     await writeFile(app, (await readFile(app, "utf8")).replace('service: "api"', 'service: "api-v2"'));
     const second = await build(2);
     for (const target of second) {
+      // Base inspection and closure plans are metadata lookups, separate from layer hits.
       if (!target.cache.length || !target.cache.filter((event) => ["deps", "assets", "runtime"].includes(event.kind)).every((event) => event.status === "registry")) throw new Error("Expected workspace Registry cache hits");
       if (target.publication!.transfers.some((transfer) => ["deps", "assets"].includes(transfer.kind) && transfer.uploaded !== 0)) throw new Error("Workspace deps/assets uploaded after source-only edit");
+    }
+    if (options.registryPlans) {
+      const api = second.find((target) => target.target === "api")!;
+      if (api.cache.filter((event) => event.kind === "deps-plan" && event.status === "registry").length !== 2) throw new Error("Expected registry closure plans on both platforms with fresh local caches");
+      if (!api.timings || api.timings.some((event) => event.phase === "install")) throw new Error("Registry closure plan replay repeated installation");
     }
     const shared = options.closure ? await build(3, true) : [];
     if (options.closure) {

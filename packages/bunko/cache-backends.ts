@@ -1,4 +1,4 @@
-import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, type CacheExportEvent, type CacheRecord } from "./cache.ts";
+import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, type CacheExportEvent, type CacheRecord, type ClosurePlanRecord } from "./cache.ts";
 import { canonicalCachePath, type CacheLocation } from "./cache-backend-options.ts";
 import type { BlobStore } from "../oci/blob-store.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
@@ -11,12 +11,17 @@ export interface CacheBackend {
   readonly destination: string;
   read(...args: Parameters<CacheDriver["get"]>): Promise<{ record?: CacheRecord; unavailable: boolean }>;
   write(record: CacheRecord): Promise<{ event: CacheExportEvent; error?: unknown }>;
+  /** Closure plan artifacts are a registry-cache transport; explicit local locations carry layer records only,
+   * and the managed local cache directory keeps its own `plans/deps` index. */
+  readPlan?(...args: Parameters<CacheDriver["remotePlan"]>): Promise<{ record?: ClosurePlanRecord; unavailable: boolean }>;
+  writePlan?(record: ClosurePlanRecord): Promise<{ event: CacheExportEvent; error?: unknown }>;
 }
 
 export function cacheBackend(location: CacheLocation, store: BlobStore, registry: RegistryOptions | undefined, log: (message: string) => void): CacheBackend {
   const destination = location.type === "registry" ? location.repo : location.path;
   const reader = new CacheDriver(store, { ...(location.type === "registry" ? { readRepositories: [location.repo], registry } : { directory: location.path }), lookupMetrics: false, log });
   const verified = new Map<string, CacheRecord>();
+  const verifiedPlans = new Map<string, ClosurePlanRecord>();
   return {
     type: location.type, destination,
     async read(...args) {
@@ -25,6 +30,25 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
       if (record) verified.set(record.key, record);
       return { record, unavailable: reader.events.at(-1)?.reason === "invalid-or-unavailable" };
     },
+    ...(location.type === "registry" ? {
+      async readPlan(...args) {
+        const hit = await reader.remotePlan(...args);
+        if (hit.record) verifiedPlans.set(hit.record.planKey, hit.record);
+        return { record: hit.record, unavailable: hit.unavailable };
+      },
+      async writePlan(record: ClosurePlanRecord) {
+        // A plan this backend just supplied is already there; skip the round trip that would prove it.
+        const previous = verifiedPlans.get(record.planKey);
+        if (previous && Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
+          const event: CacheExportEvent = { backend: "registry", destination, key: record.planKey, kind: record.kind, status: "already-present", bytes: 0, durationMs: 0 };
+          recordMetrics(event); return { event };
+        }
+        const writer = new CacheDriver(store, { repository: location.repo, exportError: "fail", registry, log });
+        const outcome = await writer.publishPlan(record);
+        recordMetrics(outcome.event);
+        return outcome;
+      },
+    } : {}),
     async write(record) {
       if (canonicalJSON(record).length > cacheMetadataLimit) {
         const event: CacheExportEvent = { backend: location.type, destination, key: record.key, kind: record.kind, status: "failed", reason: "invalid", bytes: 0, durationMs: 0 };

@@ -394,19 +394,31 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           // unchanged closure skips both the frozen Linux install and per-file projection.
           const planKey = cacheKey({ kind: "deps-plan", layout: closurePlanLayout, packFormat, epoch: timestamp, destination, ...closurePlanInputs(plan, toolchain, platform, base.descriptor.digest, context.closureProjects) });
           const notice = `${planKey}/${platform.architecture}`;
-          const found = options.verifyDeterministic ? undefined : await cache.plan(planKey, { destination, platform });
           // The plan key omits the selected targets' own sources, so a recorded closure that
           // packages one of them (a cycle, a self-external, one shared target externalising
-          // another, or a plan written before the key dropped them) is not reusable.
-          const planned = found && !closureCoversTarget(found.packages, context.closureProjects) ? found : undefined;
-          const reused = planned && await cache.get(planned.key, "deps", false, { destination, platform });
+          // another, or a plan written before the key dropped them) is not reusable. That, and the
+          // layer the plan names, decide acceptance inside the lookup, so a source holding an
+          // unusable plan does not hide a usable one behind it.
+          let reused: CacheRecord | undefined;
+          // Sources often hold plans naming the same closure layer, so each layer key is resolved
+          // once: a second candidate reuses the outcome instead of repeating the lookup and its event.
+          const attemptedDeps = new Map<Digest, CacheRecord | undefined>();
+          const { record: planned, origin: planOrigin } = await cache.plan(planKey, { destination, platform }, {
+            bypass: options.verifyDeterministic,
+            accept: async (candidate) => {
+              if (closureCoversTarget(candidate.packages, context.closureProjects)) return false;
+              if (!attemptedDeps.has(candidate.key)) attemptedDeps.set(candidate.key, await cache.get(candidate.key, "deps", false, { destination, platform }));
+              reused = attemptedDeps.get(candidate.key);
+              return Boolean(reused);
+            },
+          });
           if (planned && reused) {
             aliases = planned.aliases[project.targetPath] ?? [];
             inventory = reused.inventory; native = reused.native; depsLayer = reused.layer;
             closureSizes = { bytes: planned.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: planned.packages.reduce((total, pkg) => total + pkg.files, 0), packages: planned.packages, duplicates: closureDuplicates(planned.packages) };
             noteOmittedAddons(planned.omitted);
             reportUndeclaredImports(planned.undeclared, planned.optionalUndeclared, context.closureProjects, notice, context.closureNotices, iteration, log);
-            log(`Reusing dependency closure (${platform.architecture})\n`);
+            log(`Reusing dependency closure (${platform.architecture})${planOrigin === "registry" ? " from registry plan" : ""}\n`);
           } else {
             const content = await context.closure(context.closureProjects, platform, iteration, notice);
             aliases = content.aliases.get(project.targetPath) ?? [];
@@ -416,8 +428,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination,
               strategy: closureStrategy, entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
               toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
-            // A plan that already missed on this exact key needs no second lookup or event.
-            const hit = planned?.key === key ? undefined : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
+            // A plan candidate that already resolved this exact key needs no second lookup or event.
+            const hit = attemptedDeps.has(key) ? attemptedDeps.get(key) : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
             depsEntries = content.entries;
             depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
             if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
@@ -544,6 +556,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     for (const record of records) await cache.remember(record);
     await cache.persistHits();
     // Index the closure only after its layer is durable; rememberPlan reconfirms the record under its own lock.
+    await cache.persistPlanHits();
     for (const entry of plans) await cache.rememberPlan(entry);
     const first = images[0]!;
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, annotations: { ...project.annotations, ...baseAnnotations(pinned.descriptor.digest) }, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
