@@ -35,8 +35,8 @@ test("real workspace builds inherit runtime flags and override member environmen
 
 test("toolchain declarations constrain local selection without provisioning or network probes", async () => {
   const selected = await selectToolchain();
-  expect(() => assertToolchain(toolchainRequirements([{ packageManager: `bun@${selected.version}`, engines: { bun: ">=1.3.11 <1.5" } }], { revision: selected.revision }), selected)).not.toThrow();
-  expect(() => toolchainRequirements([{ packageManager: "bun@1.3.11" }], { version: "1.3.12" })).toThrow("Conflicting");
+  expect(() => assertToolchain(toolchainRequirements([{ packageManager: `bun@${selected.version}`, engines: { bun: ">=1.3.13 <1.5" } }], { revision: selected.revision }), selected)).not.toThrow();
+  expect(() => toolchainRequirements([{ packageManager: "bun@1.3.13" }], { version: "1.4.0" })).toThrow("Conflicting");
   expect(() => assertToolchain({ revision: "0".repeat(40), ranges: [] }, selected)).toThrow("declared revision");
   expect(() => toolchainRequirements([{ packageManager: `bun@${selected.version}+sha512.fixture` }])).toThrow("exact supported version");
   expect(() => toolchainRequirements([{ packageManager: "bun@1.4.0-rc.1" }])).toThrow("exact supported version");

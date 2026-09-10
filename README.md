@@ -27,7 +27,7 @@ Compile mode and runtime injection additionally require `gpgv` and an official B
 
 ## Quick start from source
 
-Requires Bun `>=1.3.11 <1.5`; the tested CI matrix covers Bun 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
+The development branch targets **0.2.0 (unreleased)** and requires Bun `>=1.3.13 <1.5`; CI covers Bun 1.3.13, 1.4.0 and 1.4.2. Published 0.1.4 remains available for Bun 1.3.11/1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -106,7 +106,7 @@ bun run dev build examples/dependencies \
   --verify-deterministic --report .bunko-output/dependencies.json
 ```
 
-This example bundles `is-number` and externalizes `@node-rs/xxhash`. Its Linux native addon has run successfully on both platforms. Native dependencies require an explicit base containing their shared libraries; the example uses `oven/bun:1.3.11-slim`. Compatibility with arbitrary native packages or base ABIs is not established.
+This example bundles `is-number` and externalizes `@node-rs/xxhash`. Its Linux native addon has run successfully on both platforms. Native dependencies require an explicit base containing their shared libraries; the example uses `oven/bun:1.3.13-slim`. Compatibility with arbitrary native packages or base ABIs is not established.
 
 Layer order is `base → deps (if needed) → assets (if present) → app`. The production strategy retains production dependencies and excludes dev dependencies. A source-only rebuild can avoid dependency and asset transfers. Build dependencies are still prepared for bundling on cache hits.
 

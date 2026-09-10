@@ -1,13 +1,13 @@
 # Compatibility and diagnostics
 
-The accepted bundling toolchain range is Bun >=1.3.11 <1.5. The CI matrix pins Bun 1.3.11, 1.3.12, 1.3.13, 1.4.0, and 1.4.2 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bun 1.3.12 and 1.3.13 are additional compatibility points, not claims about the latest release.
+The accepted bundling toolchain range is Bun >=1.3.13 <1.5. The CI matrix pins Bun 1.3.13, 1.4.0, and 1.4.2 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bunko 0.2.0 raises the minimum to 1.3.13. Bunko 0.1.4 remains available for 1.3.11/1.3.12.
 
 Linux images support amd64 and arm64 with glibc bases. Bundle mode requires the selected Bun runtime in the image, either already in the base or added with opt-in [signed runtime injection](RUNTIME_INJECTION.md). Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
 
 ```sh
 bunko doctor ./examples/hello
 bunko check-config ./examples/workspace --target @example/api
-bunko check-base --base oven/bun:1.3.11-distroless --platform linux/amd64,linux/arm64 --run
+bunko check-base --base oven/bun:1.3.13-distroless --platform linux/amd64,linux/arm64 --run
 ```
 
 `check-config` is offline and validates selected manifests, workspace membership, supported settings and the text lockfile/dependency contract. Use repeatable `--asset-context NAME=DIR` bindings for declared mappings; selected external entries are checked without staging or hashing contents. It reports named entrypoints, default entries, logical asset mappings, modes, platforms, external packages and environment/define **names**, without their values or npm authentication configuration. Missing npm authentication variables do not block diagnostics; variables used in registry URLs must resolve. `doctor` also runs the selected Bun's `--revision` and checks whether optional docker, kubectl and cosign executables exist on PATH. Presence does not prove those tools, a daemon, credentials or a cluster work. Neither command installs dependencies, builds sources, contacts a registry or executes an image. Both list the checks they did not perform.
@@ -48,7 +48,7 @@ Moving an existing Dockerfile build to Bunko is covered in [migrating from a Doc
 
 ## Verified compile runtime
 
-rc.3 and later require GnuPG's `gpgv` for compile mode as well as runtime injection. Compilation embeds the signature-verified, pinned official Linux Bun runtime through `--compile-executable-path`; it does not delegate runtime downloads to Bun. The output is checked for the target Linux ELF architecture and authenticated release revision marker; runtime smoke tests also execute it and compare the full revision. Bun 1.3.12 and later rewrite ELF sections, so the compiled output is not a byte-identical copy of the runtime input. The selected compiler remains part of the build trust boundary. Supported compile releases are 1.3.11–1.3.13 and 1.4.0–1.4.2, using x64-baseline or aarch64 glibc assets. Custom or unpinned compiler revisions fail verification. The host Bun executable remains selected by `--bun-path` and its digest remains an input to application caching.
+rc.3 and later require GnuPG's `gpgv` for compile mode as well as runtime injection. Compilation embeds the signature-verified, pinned official Linux Bun runtime through `--compile-executable-path`; it does not delegate runtime downloads to Bun. The output is checked for the target Linux ELF architecture and authenticated release revision marker; runtime smoke tests also execute it and compare the full revision. Bun 1.3.12 and later rewrite ELF sections, so the compiled output is not a byte-identical copy of the runtime input. The selected compiler remains part of the build trust boundary. Supported compile releases are 1.3.13 and 1.4.0–1.4.2, using x64-baseline or aarch64 glibc assets. Custom or unpinned compiler revisions fail verification. The host Bun executable remains selected by `--bun-path` and its digest remains an input to application caching.
 
 `--runtime-cache` and `--no-cache` apply to these authenticated runtime inputs. Every build verifies cached signature and archive bytes before application-cache lookup. Compile input metadata appears as `images[].compileRuntime` in reports, enters the application cache key, and contributes release archive and signed-checksum dependencies to provenance. SBOMs identify the embedded runtime using the archive checksum; the unmodified Bun executable checksum is not presented as the compiled application's file checksum. Runtime execution is only verified by a separate runtime test. Runtime notices and release source information are packaged under `.bunko-runtime` in the application directory.
 
@@ -60,7 +60,7 @@ In every mode, Bunko defaults `BUN_RUNTIME_TRANSPILER_CACHE_PATH` to `0` in gene
 
 ## Bun 1.4 migration (rc.4 and later)
 
-Bun 1.4 support is available in rc.4 and later; the immutable rc.3 CLI accepts only the previous range. Stable host versions `>=1.3.11 <1.5` are accepted, with the CI points listed above. Canaries, prereleases and Bun 1.5 are rejected. Official compile/injection archives are separately pinned for 1.3.11–1.3.13 and 1.4.0–1.4.2, and every archive still requires the embedded trusted GPG signature policy.
+Bun 1.4 support is available in rc.4 and later; the immutable rc.3 CLI accepts only the previous range. Stable host versions `>=1.3.13 <1.5` are accepted, with the CI points listed above. Canaries, prereleases and Bun 1.5 are rejected. Official compile/injection archives are separately pinned for 1.3.13 and 1.4.0–1.4.2, and every archive still requires the embedded trusted GPG signature policy.
 
 Bun 1.4 generates text lockfile version 2. Bunko accepts lock versions 1 and 2 with config version 1, preserving registry-only resolution and integrity requirements. Version 2 requires a selected Bun >=1.4.0; builds and `doctor` reject an older compiler before dependency installation or registry access. `check-config` reports the lock version without executing Bun. Existing version 1 locks remain supported and are not automatically rewritten by Bunko. To adopt version 2, regenerate with the selected Bun 1.4 binary in your project and commit the resulting lockfile.
 

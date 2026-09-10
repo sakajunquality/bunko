@@ -15,7 +15,7 @@ try {
   await writeFile(join(source, "index.ts"), 'import answer from "is-number"; console.log(answer());');
   const install = Bun.spawn([process.execPath, "install", "--lockfile-only", "--ignore-scripts"], { cwd: source, stdout: "ignore", stderr: "pipe" });
   if (await install.exited) throw Error(await new Response(install.stderr).text());
-  const base = `oven/bun@${(await new RegistrySource("oven/bun:1.3.11-slim").root()).descriptor.digest}`;
+  const base = `oven/bun@${(await new RegistrySource("oven/bun:1.3.13-slim").root()).descriptor.digest}`;
   // This fixture deliberately replaces an installed module with generated test
   // code. It is never published as an npm package or a production artifact.
   await writeFile(join(source, "addon.c"), `#include <stddef.h>\ntypedef void* napi_env; typedef void* napi_value; typedef void* napi_callback_info;\nextern int napi_create_int32(napi_env,int,napi_value*);\nextern int napi_create_function(napi_env,const char*,size_t,napi_value(*)(napi_env,napi_callback_info),void*,napi_value*);\nextern int napi_set_named_property(napi_env,napi_value,const char*,napi_value);\nstatic napi_value answer(napi_env env,napi_callback_info info){napi_value v;napi_create_int32(env,42,&v);return v;}\nnapi_value napi_register_module_v1(napi_env env,napi_value exports){napi_value fn;napi_create_function(env,"answer",6,answer,NULL,&fn);napi_set_named_property(env,exports,"answer",fn);return exports;}\n`);

@@ -5,7 +5,7 @@
   "module": "src/server.ts",
   "dependencies": { "is-number": "7.0.0", "@node-rs/xxhash": "1.7.7" },
   "bunko": {
-    "base": "oven/bun:1.3.11-slim",
+    "base": "oven/bun:1.3.13-slim",
     "external": ["@node-rs/xxhash"],
     "assets": ["public"],
     "ports": [3000],

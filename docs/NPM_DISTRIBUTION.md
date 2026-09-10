@@ -1,8 +1,10 @@
 # npm and bunx distribution
 
+The development branch targets 0.2.0 (unreleased), requiring Bun >=1.3.13 <1.5. The published 0.1.4 distribution retains its original >=1.3.11 <1.5 support. Until 0.2.0 is published, use the v0.1.4 Action tag or explicitly set `version: v0.1.4` when using a development Action ref.
+
 The npm package is [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko), first published as `0.1.0-rc.5` on 2026-09-09. The unscoped `bunko` package is unrelated to this distribution. See [initial publication evidence](validation/npm-rc5.md).
 
-The repository root remains private to prevent publishing the development checkout. `scripts/npm-package.ts` creates a separate, allowlisted package from an existing GitHub release. Its `bunko.js`, licenses, checksums and release provenance are copied without modification. No lifecycle scripts or runtime npm dependencies are included. Bun must already be installed and on PATH; npm does not install it. Supported hosts are Linux and macOS, x64 and arm64, with Bun >=1.3.11 <1.5.
+The repository root remains private to prevent publishing the development checkout. `scripts/npm-package.ts` creates a separate, allowlisted package from an existing GitHub release. Its `bunko.js`, licenses, checksums and release provenance are copied without modification. No lifecycle scripts or runtime npm dependencies are included. Bun must already be installed and on PATH; npm does not install it. Supported hosts are Linux and macOS, x64 and arm64. Published 0.1.4 requires Bun >=1.3.11 <1.5; 0.2.0 requires >=1.3.13 <1.5.
 
 The current stable release is **0.1.4**, published through GitHub Actions trusted publishing with npm provenance. See [stable publication evidence](validation/v0.1.4.md).
 

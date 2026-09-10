@@ -40,8 +40,8 @@ Signing explicitly disables cosign's public signing configuration and transparen
 
 ```sh
 bunko build . --mode compile --platform linux/amd64,linux/arm64 --repo ghcr.io/OWNER
-bunko check-base --base oven/bun:1.3.11-distroless --platform linux/amd64,linux/arm64
-bunko check-base --base oven/bun:1.3.11-distroless --platform linux/amd64,linux/arm64 --run
+bunko check-base --base oven/bun:1.3.13-distroless --platform linux/amd64,linux/arm64
+bunko check-base --base oven/bun:1.3.13-distroless --platform linux/amd64,linux/arm64 --run
 ```
 
 Compile mode bundles and validates inputs first, then creates a Linux executable with the selected Bun toolchain. amd64 uses the baseline CPU target. Runtime externals, native addons, bytecode, and external sourcemaps are not supported in compile mode. The base must still provide compatible system libraries. The default base remains the Bun distroless image; compile does not imply a static executable or scratch compatibility. `--verify-deterministic` compares independent compiled outputs.
