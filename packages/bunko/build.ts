@@ -40,9 +40,9 @@ import { packLayer } from "../oci/tar.ts";
 import { media, type BaseImage, type Descriptor, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
 import { platformKey } from "./platforms.ts";
-import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
-import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
-import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
+import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot, OUTPUT_DIRECTORY } from "./files.ts";
+import { bundle, selectToolchain, unresolvedBundleImport, type Toolchain } from "./toolchain.ts";
+import { assertLockToolchain, buildDependencyFilters, bundleOutsideBuildScope, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
 import { assertSharedClosure, byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
@@ -432,10 +432,32 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
-          log(`Preparing build dependencies (${platform.architecture})\n`);
-          if (!sharedBundle && project.mode !== "source") await installDependencies(root, plan, toolchain, undefined, installCache, options.offline);
+          const installBuildDeps = (filters?: string[]) => phase(options.progress, "build-deps", () => installDependencies(root, plan, toolchain, undefined, installCache, options.offline, filters), undefined, `${platform.os}/${platform.architecture}`);
+          const runBundle = () => stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
+          const scoped = !sharedBundle && project.mode !== "source" ? buildDependencyFilters(plan, project.targetPath) : undefined;
+          if (!sharedBundle && project.mode !== "source") {
+            log(`Preparing build dependencies (${platform.architecture})${scoped ? ` for ${project.targetPath}` : ""}\n`);
+            await installBuildDeps(scoped);
+          }
           log(`${project.mode === "source" ? "Packaging source for" : "Bundling"} ${project.entrypoint} for ${platform.os}/${platform.architecture}${iteration > 1 ? " (determinism verification)" : ""}\n`);
-          const built = project.mode === "source" ? await sourceApplication(project, root) : sharedBundle ?? await stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
+          let built = project.mode === "source" ? await sourceApplication(project, root) : sharedBundle;
+          if (!built) {
+            let retry: string | undefined;
+            try {
+              built = await runBundle();
+              if (scoped && bundleOutsideBuildScope(plan, project.targetPath, built.inputs)) retry = "bundle reaches workspace source outside the filtered install";
+            } catch (error) {
+              if (!scoped || !unresolvedBundleImport(error)) throw error;
+              retry = (error as Error).message;
+            }
+            if (retry) {
+              log(`Build dependencies: falling back to a full workspace install (${retry})\n`);
+              await rm(join(root, project.targetPath, OUTPUT_DIRECTORY, "out"), { recursive: true, force: true });
+              await installBuildDeps();
+              built = await runBundle();
+            }
+          }
+          if (!built) throw new Error("Missing application bundle");
           if (project.mode === "bundle") sharedBundle = built;
           cacheable = !context.inputPaths || built.inputs.every((path) => context.inputPaths!.has(path));
           if (!cacheable) log("Application input tracking could not account for all bundled inputs; skipping cache write\n");

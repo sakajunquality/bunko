@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build as rawBuild, writeFailureReport, writeReport } from "../packages/bunko/build.ts";
 import { VERSION, epoch, loadProject } from "../packages/bunko/config.ts";
 import { validateCommandOptions } from "../packages/bunko/command-options.ts";
+import { unresolvedBundleImport } from "../packages/bunko/toolchain.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
-import { sha256 } from "../packages/oci/digest.ts";
+import { canonicalJSON, sha256 } from "../packages/oci/digest.ts";
 import { media, type Descriptor, type ImageConfig, type ImageIndex, type ImageManifest } from "../packages/oci/types.ts";
 import { baseLayout, cli, inspectTar, project, readJSON, temporary } from "./helpers.ts";
+import { workspaceFixture } from "./workspace-fixture.ts";
 
 const build: typeof rawBuild = (options) => rawBuild({ localCache: false, registryCache: false, ...options });
 
@@ -61,6 +65,111 @@ describe("Bun to OCI layout", () => {
     expect(await child.exited).toBe(0);
     expect(JSON.parse(await readFile(join(root, "result.json"), "utf8")).root.digest).toBe(result.root.digest);
     expect((await readdir(source)).sort()).toEqual(["package.json", "src"]);
+  });
+
+  test("bundles a workspace member from its scoped dependency tree and times the host install", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    const messages: string[] = [];
+    const result = await build({ path: join(f.source, "services/api"), baseLayout: base, output: join(root, "out"), gitMetadata: false, installCache: f.cache, log: (message) => messages.push(message) });
+    expect(result.target).toBe("fixture-api");
+    // The scope reaches the install, and bundling resolved @fixture/shared through it.
+    expect(messages).toContain("Preparing build dependencies (amd64) for services/api\n");
+    const install = result.timings!.filter((timing) => timing.phase === "build-deps");
+    expect(install).toHaveLength(1);
+    expect(install[0]).toMatchObject({ status: "completed", platform: "linux/amd64" });
+    expect(install[0]!.durationMs).toBeGreaterThan(0);
+    expect(await readdir(f.source)).not.toContain("node_modules");
+  });
+
+  test("falls back to a full workspace install when a target imports a sibling member's source", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    await writeFile(join(f.source, "services/worker/src/helper.ts"), 'import {message} from "@fixture/shared"; export const helper = () => "helper " + message;\n');
+    await writeFile(join(f.source, "services/api/src/server.ts"), 'import {helper} from "../../worker/src/helper.ts"; import msg from "fixture-msg"; import peer from "fixture-adapter"; console.log("api", msg, peer, helper());\n');
+    const messages: string[] = [];
+    const options = { baseLayout: base, gitMetadata: false, installCache: f.cache, path: join(f.source, "services/api") };
+    const recovered = await build({ ...options, output: join(root, "recovered"), log: (message) => messages.push(message) });
+    expect(messages.join("")).toContain("falling back to a full workspace install");
+    // Declaring the sibling installs its tree under the same scope, so the recovered
+    // build must produce exactly the application layer the wider install produces.
+    const manifest = f.manifests["services/api"]!;
+    await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...manifest, dependencies: { ...manifest.dependencies as Record<string, string>, "@fixture/worker": "workspace:*" } }));
+    const lock = JSON.parse(JSON.stringify(f.lock));
+    lock.workspaces["services/api"].dependencies["@fixture/worker"] = "workspace:*";
+    await writeFile(join(f.source, "bun.lock"), canonicalJSON(lock));
+    const declared: string[] = [];
+    const reference = await build({ ...options, output: join(root, "reference"), log: (message) => declared.push(message) });
+    expect(declared.join("")).not.toContain("falling back");
+    const appLayer = (result: typeof recovered) => result.layers.find((layer) => layer.kind === "app")!.descriptor.digest;
+    expect(appLayer(recovered)).toBe(appLayer(reference));
+  });
+
+  test("rebuilds successful scoped bundles that resolve a sibling dependency to the root version", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    f.manifests[""]!.dependencies = { "fixture-msg": "1.0.0" };
+    const updatedLock = JSON.parse(JSON.stringify(f.lock));
+    updatedLock.workspaces[""].dependencies = f.manifests[""]!.dependencies;
+    await writeFile(join(f.source, "package.json"), canonicalJSON(f.manifests[""]!));
+    await writeFile(join(f.source, "bun.lock"), canonicalJSON(updatedLock));
+    f.manifests["services/api"]!.bunko = { external: [] };
+    await writeFile(join(f.source, "services/api/package.json"), canonicalJSON(f.manifests["services/api"]!));
+    await writeFile(join(f.source, "services/worker/src/helper.ts"), 'import msg from "fixture-msg"; export const helper = () => msg;\n');
+    await writeFile(join(f.source, "services/api/src/server.ts"), 'import {helper} from "../../worker/src/helper.ts"; console.log(helper());\n');
+    const messages: string[] = [];
+    const options = { baseLayout: base, gitMetadata: false, installCache: f.cache, path: join(f.source, "services/api") };
+    const recovered = await build({ ...options, output: join(root, "recovered"), log: (message) => messages.push(message) });
+    expect(messages.join("")).toContain("falling back to a full workspace install");
+    // Declaring the sibling installs its tree under the same scope, so the recovered
+    // build must produce exactly the application layer the wider install produces.
+    const manifest = f.manifests["services/api"]!;
+    await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...manifest, dependencies: { ...manifest.dependencies as Record<string, string>, "@fixture/worker": "workspace:*" } }));
+    const lock = updatedLock;
+    lock.workspaces["services/api"].dependencies["@fixture/worker"] = "workspace:*";
+    await writeFile(join(f.source, "bun.lock"), canonicalJSON(lock));
+    const declared: string[] = [];
+    const reference = await build({ ...options, output: join(root, "reference"), log: (message) => declared.push(message) });
+    expect(declared.join("")).not.toContain("falling back");
+    const appLayer = (result: typeof recovered) => result.layers.find((layer) => layer.kind === "app")!.descriptor.digest;
+    expect(appLayer(recovered)).toBe(appLayer(reference));
+  });
+
+  test("the full-install retry discards the failed attempt's bundle output", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    await writeFile(join(f.source, "services/worker/src/helper.ts"), 'import {message} from "@fixture/shared"; export const helper = () => "helper " + message;\n');
+    await writeFile(join(f.source, "services/api/src/server.ts"), 'import {helper} from "../../worker/src/helper.ts"; import msg from "fixture-msg"; import peer from "fixture-adapter"; console.log("api", msg, peer, helper());\n');
+    const marker = `fixture-marker-${Math.random().toString(36).slice(2)}`;
+    await writeFile(join(f.source, marker), "marker\n");
+    const seeded: string[] = [];
+    // The staging root only exists during the build, so plant the leftover output the
+    // failed attempt would have written at the moment the retry is announced.
+    const log = (message: string) => {
+      if (!message.includes("falling back to a full workspace install")) return;
+      for (const name of readdirSync(tmpdir())) {
+        const staging = join(tmpdir(), name, "build-1-amd64");
+        if (!name.startsWith("bunko-") || !existsSync(join(staging, marker))) continue;
+        const out = join(staging, "services/api", ".bunko-build", "out", "src");
+        mkdirSync(out, { recursive: true });
+        writeFileSync(join(out, "stale.js"), "throw new Error('stale');\n");
+        seeded.push(join(out, "stale.js"));
+      }
+    };
+    const result = await build({ path: join(f.source, "services/api"), baseLayout: base, output: join(root, "out"), gitMetadata: false, installCache: f.cache, log });
+    expect(seeded).toHaveLength(1);
+    const files = await inspectTar(new BlobStore(result.layout!).path(result.layers.find((layer) => layer.kind === "app")!.descriptor.digest));
+    expect(files.map((file) => file.name)).not.toContain("app/src/stale.js");
+  });
+
+  test("a build failure naming a file like a resolver diagnostic is not retried", async () => {
+    const { root, base } = await setup(), f = await workspaceFixture(root);
+    await writeFile(join(f.source, "services/api/src/Could not resolve:.ts"), 'const name = "fixture-msg"; import(name); export const value = 1;\n');
+    await writeFile(join(f.source, "services/api/src/server.ts"), 'import {value} from "./Could not resolve:.ts"; console.log("api", value);\n');
+    const messages: string[] = [];
+    await expect(build({ path: join(f.source, "services/api"), baseLayout: base, output: join(root, "out"), gitMetadata: false, installCache: f.cache, log: (message) => messages.push(message) })).rejects.toThrow("Computed require/import");
+    expect(messages.join("")).toContain("Bundling");
+    expect(messages.join("")).not.toContain("falling back");
+    // Only Bun's own resolver class widens the install; matching the text would not.
+    expect(unresolvedBundleImport(Object.assign(new Error("Bun build failed (exit 1)"), { diagnostics: [{ name: "BuildMessage", message: 'Could not resolve: "x"' }] }))).toBe(false);
+    expect(unresolvedBundleImport(Object.assign(new Error("Bun build failed (exit 1)"), { diagnostics: [{ name: "ResolveMessage", message: 'Could not resolve: "x". Maybe you need to "bun install"?' }] }))).toBe(true);
+    expect(unresolvedBundleImport(new Error('Could not resolve: "x"'))).toBe(false);
   });
 
   test("different checkout depths produce identical image and sourcemap digests", async () => {

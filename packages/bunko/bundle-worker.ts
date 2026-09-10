@@ -109,13 +109,18 @@ if (import.meta.main) {
   try {
     const options = JSON.parse(await readFile(process.argv[2]!, "utf8")) as WorkerOptions;
     const result = await guardedBuild(options);
-    if (!result.success) throw new Error(result.logs.map((error) => error.message).join("; "));
+    // Keep each diagnostic separate, with the class Bun assigned it, so the caller
+    // can tell a resolver failure from a build error that merely mentions one.
+    if (!result.success) throw new AggregateError(result.logs.map((entry) => Object.assign(new Error(String(entry.message)), { name: String(entry.name || "BuildMessage") })), "Bun build failed");
     await Bun.write(resolve(directory, "meta.json"), JSON.stringify(result.metafile));
     await Bun.write(resolve(directory, "validation.json"), JSON.stringify(result.validation));
     await Bun.write(resolve(directory, "locations.json"), JSON.stringify(result.locations));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Build worker failed";
-    await Bun.write(resolve(directory, "errors.json"), JSON.stringify([message]));
+    const diagnostics = error instanceof AggregateError
+      ? (error.errors as Error[]).map((entry) => ({ name: entry.name, message: entry.message }))
+      : [{ name: error instanceof Error ? error.name : "Error", message: error instanceof Error ? error.message : "Build worker failed" }];
+    const message = diagnostics.map((entry) => entry.message).join("; ");
+    await Bun.write(resolve(directory, "errors.json"), JSON.stringify(diagnostics));
     console.error(message);
     process.exitCode = 1;
   }

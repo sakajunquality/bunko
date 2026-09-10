@@ -212,7 +212,51 @@ export function assertLockToolchain(plan: Pick<DependencyPlan, "lock">, toolchai
   if (plan.lock?.lockfileVersion === 2 && !Bun.semver.satisfies(toolchain.version, ">=1.4.0")) throw new Error("bun.lock version 2 requires Bun >=1.4.0; select a compatible --bun-path");
 }
 
-export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string, offline = false): Promise<void> {
+/**
+ * Bun filter values are patterns, not literal paths: `*` globs, a leading `!`
+ * negates, and a trailing `...` selects a package's dependency relations, so a
+ * member directory spelled with any of them would silently select the wrong
+ * packages (or none, with only a warning). Only plain path segments are
+ * filtered; anything else falls back to the full install.
+ */
+const plainPathSegment = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+
+/** Only explicit workspace edges establish a guaranteed filtered install scope.
+ * Ambiguous semver/catalog edges conservatively trigger the full-install fallback. */
+export function bundleOutsideBuildScope(plan: DependencyPlan, targetPath: string, inputs: string[]): boolean {
+  const members = plan.workspace?.packages ?? [];
+  const included = new Set(["", targetPath]);
+  const pending = members.filter((member) => included.has(member.path));
+  for (const member of pending) {
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const [name, version] of Object.entries(object(member.manifest[field] ?? {}, field))) {
+        if (typeof version !== "string" || !version.startsWith("workspace:")) continue;
+        const dependency = members.find((candidate) => candidate.manifest.name === name);
+        if (dependency && !included.has(dependency.path)) { included.add(dependency.path); pending.push(dependency); }
+      }
+    }
+  }
+  const owners = members.filter((member) => member.path).sort((a, b) => b.path.length - a.path.length);
+  return inputs.some((input) => {
+    const owner = owners.find((member) => input === member.path || input.startsWith(`${member.path}/`));
+    return owner !== undefined && !included.has(owner.path);
+  });
+}
+
+/**
+ * Host build installs only need the bundled target's dependency subtree, so a
+ * workspace member is installed with `--filter`. Bun also installs the root
+ * package and every workspace package the target depends on, which is exactly
+ * what the isolated linker exposes to the bundler; unrelated members and their
+ * trees are skipped. Filters are paths so a member never has to be named.
+ */
+export function buildDependencyFilters(plan: DependencyPlan, targetPath: string): string[] | undefined {
+  const path = targetPath.replace(/^\.?\/+|\/+$/g, "");
+  if (!plan.workspace || !path || !plan.workspace.packages.some((pkg) => pkg.path === path)) return undefined;
+  return path.split("/").every((segment) => plainPathSegment.test(segment)) ? [".", `./${path}`] : undefined;
+}
+
+export async function installDependencies(root: string, plan: DependencyPlan, toolchain: Toolchain, target?: Platform, cacheDirectory?: string, offline = false, filters?: string[]): Promise<void> {
   if (!plan.lock) return;
   assertLockToolchain(plan, toolchain);
   if (offline) throw new Error("Offline dependency installation is unavailable; prepare matching application/dependency caches while online");
@@ -225,6 +269,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (plan.npmrc) await writeFile(auth, plan.npmrc, { mode: 0o600 });
   const args = [toolchain.path, "install", "--frozen-lockfile", "--ignore-scripts", "--linker=isolated", "--backend=copyfile", "--no-progress", `--config=${config}`, `--registry=${plan.registry}`];
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
+  else for (const filter of filters ?? []) args.push(`--filter=${filter}`);
   // Keep downloads outside node_modules even in the isolated installer environment.
   args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
   const certificateFile = join(home, "npm-ca.pem");
