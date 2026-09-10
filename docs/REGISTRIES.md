@@ -140,7 +140,7 @@ bun run test:registry-local
 
 This starts a disposable Distribution 3 Registry with Basic authentication, rejects anonymous/wrong-password requests, then uses the same conformance harness with a separate cache repository. CI directly pulls and runs linux/amd64 with Docker. On macOS, the harness uses a digest-verified host pull and Docker archive load because Docker Desktop cannot reach the host's loopback Registry in the validated environment. Reports distinguish that path with `directDockerPull:false`; it does not establish direct Docker pull conformance.
 
-Prerequisite Docker pulls retry transient 429/503/5xx and connection failures at most three times. Container creation is not retried. This addresses an observed Docker Hub 500 while starting the merged-main CI job; rerunning that original job succeeded.
+Prerequisite Docker pulls retry transient 429/5xx and connection failures at most three times. Container creation is not retried. This addresses an observed Docker Hub 500 while starting the merged-main CI job; rerunning that original job succeeded.
 
 Local validation on 2026-09-08 passed with authenticated Distribution 3, separate image/cache repositories, and both amd64/arm64 runtime checks on macOS. Cache reuse was verified, both Docker-exported config digests matched, and both nonroot/read-only containers exited 0 on SIGTERM. This run used the archive path, not direct Docker pull. The Linux CI run exercises direct Docker pull separately.
 
