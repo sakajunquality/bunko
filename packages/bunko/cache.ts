@@ -16,6 +16,7 @@ import { withCacheLock } from "./cache-lock.ts";
 import { mapFiles } from "./concurrency.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { InventoryEntry, NativeBinary } from "./deps.ts";
+import type { ClosurePackage } from "./closure.ts";
 import type { UndeclaredImport } from "./undeclared-imports.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
@@ -32,7 +33,7 @@ async function readMetadata(path: string): Promise<unknown> {
 }
 const maxLayerBytes = 2 * 1024 ** 3;
 /** Bumping this invalidates every stored closure plan without touching content-addressed layer identity. */
-export const closurePlanLayout = "closure-plan-v1";
+export const closurePlanLayout = "closure-plan-v2";
 const maxPlanAliases = 100_000, maxPlanFindings = 100_000;
 
 export interface CacheRecord {
@@ -50,7 +51,8 @@ export interface CacheRecord {
  */
 export interface ClosurePlanRecord {
   schemaVersion: 1; kind: "deps-plan"; layout: string; packFormat: string; planKey: Digest; key: Digest;
-  destination: string; platform: Platform; aliases: Record<string, TarEntry[]>; undeclared: UndeclaredImport[]; omitted: number;
+  destination: string; platform: Platform; aliases: Record<string, TarEntry[]>; undeclared: UndeclaredImport[]; optionalUndeclared: UndeclaredImport[]; omitted: number;
+  packages: ClosurePackage[];
 }
 export function validateClosurePlan(input: unknown, planKey: Digest, expected: { destination: string; platform: Platform }): ClosurePlanRecord {
   const value = object(input, "Closure plan");
@@ -67,9 +69,18 @@ export function validateClosurePlan(input: unknown, planKey: Digest, expected: {
       archivePath(entry.path);
     }
   }
-  for (const raw of value.undeclared) {
+  if (!Array.isArray(value.optionalUndeclared) || value.optionalUndeclared.length > maxPlanFindings) throw new Error("Invalid closure plan optional findings");
+  for (const [findings, code] of [[value.undeclared, "BUNKO_UNDECLARED_IMPORT"], [value.optionalUndeclared, "BUNKO_OPTIONAL_IMPORT"]] as const) for (const raw of findings) {
     const item = object(raw, "Closure plan finding");
-    if (item.code !== "BUNKO_UNDECLARED_IMPORT" || !["package", "version", "path", "name", "file"].every((field) => typeof item[field] === "string")) throw new Error("Invalid closure plan finding");
+    if (item.code !== code || !["package", "version", "path", "name", "file"].every((field) => typeof item[field] === "string")) throw new Error("Invalid closure plan finding");
+  }
+  if (!Array.isArray(value.packages) || value.packages.length > maxPlanAliases) throw new Error("Invalid closure plan packages");
+  for (const raw of value.packages) {
+    const pkg = object(raw, "Closure plan package");
+    if (!["name", "version", "path"].every((field) => typeof pkg[field] === "string")
+      || !["bytes", "files"].every((field) => Number.isSafeInteger(pkg[field]) && (pkg[field] as number) >= 0)
+      || !Array.isArray(pkg.via) || !pkg.via.length || !pkg.via.every((name) => typeof name === "string")) throw new Error("Invalid closure plan package");
+    archivePath(pkg.path as string);
   }
   return value as unknown as ClosurePlanRecord;
 }

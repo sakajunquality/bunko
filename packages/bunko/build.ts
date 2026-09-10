@@ -41,7 +41,7 @@ import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot }
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
-import { assertSharedClosure, byteSize, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
+import { assertSharedClosure, byteSize, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type ClosurePlanRecord } from "./cache.ts";
@@ -347,6 +347,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (planned && reused) {
             aliases = planned.aliases[project.targetPath] ?? [];
             inventory = reused.inventory; native = reused.native; depsLayer = reused.layer;
+            closureSizes = { bytes: planned.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: planned.packages.reduce((total, pkg) => total + pkg.files, 0), packages: planned.packages, duplicates: closureDuplicates(planned.packages) };
             noteOmittedAddons(planned.omitted);
             reportUndeclaredImports(planned.undeclared, planned.optionalUndeclared, context.closureProjects, notice, context.closureNotices, iteration, log);
             log(`Reusing dependency closure (${platform.architecture})\n`);
@@ -364,7 +365,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             depsEntries = content.entries;
             depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
             if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
-            if (iteration === 1 && depsLayer) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, omitted: content.omitted.length });
+            if (iteration === 1 && depsLayer) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
           }
         } else if (project.external.length || project.mode === "source" && plan.lock) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
@@ -377,7 +378,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
-            closureSizes = { bytes: content.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: content.packages.reduce((total, pkg) => total + pkg.files, 0), packages: content.packages, duplicates: content.duplicates };
             noteOmittedAddons(content.omitted.length);
             depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
@@ -672,6 +672,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         await cp(source, runtime, { recursive: true });
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        if (iteration === 1) options.log?.(`Dependency closure: ${content.packages.length} packages, ${byteSize(content.packages.reduce((total, pkg) => total + pkg.bytes, 0))}${content.duplicates.length ? `; ${content.duplicates.length} duplicate versions (see report)` : ""}\n`);
         reportUndeclaredImports(content.undeclared, content.optionalUndeclared, selected, notice, closureNotices, iteration, (message) => options.log?.(message));
         return content;
       })());

@@ -26,8 +26,8 @@ function recorder() {
 
 test("an unchanged closure skips the Linux install and projection while reproducing its layer, inventory and diagnostics", async () => {
   const root = await fixture(), f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
-  // The scan is advisory and does not distinguish guarded requires, so this yields a stable finding.
-  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports="fixture-msg works";try{require("undeclared-helper")}catch{}\n');
+  // An unguarded import yields a stable finding in both the cold and cached paths.
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports="fixture-msg works";require("undeclared-helper");\n');
   const cacheDir = join(root, "cache");
   const options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, cacheDir, installCache: f.cache, depsStrategy: "closure" as const };
   const cold = recorder(), first = await build({ ...options, ...cold.options, output: join(root, "cold") });
@@ -44,6 +44,8 @@ test("an unchanged closure skips the Linux install and projection while reproduc
   expect(second.root).toEqual(first.root);
   expect(second.layers.find((layer) => layer.kind === "deps")).toEqual(first.layers.find((layer) => layer.kind === "deps")!);
   expect(second.images[0]!.inventory).toEqual(first.images[0]!.inventory);
+  expect(first.images[0]!.closure!.packages.length).toBeGreaterThan(0);
+  expect(second.images[0]!.closure).toEqual(first.images[0]!.closure);
   expect(second.images[0]!.native).toEqual(first.images[0]!.native);
   // Retention owns the index: usage counts it and pruning the record it names reclaims it.
   const usage = await pruneLocal(cacheDir, false, 0, Number.MAX_SAFE_INTEGER);
@@ -63,6 +65,7 @@ test("sharedDeps reuses one union closure per platform and keeps target aliases"
   expect(warm.state.log.match(/Reusing dependency closure \(amd64\)/g)).toHaveLength(2);
   expect(second.map((result) => result.root)).toEqual(first.map((result) => result.root));
   expect(second[0]!.layers[0]!.descriptor.digest).toBe(second[1]!.layers[0]!.descriptor.digest);
+  expect(second.map((result) => result.images[0]!.closure)).toEqual(first.map((result) => result.images[0]!.closure));
   expect(second[1]!.images[0]!.inventory).toEqual(first[1]!.images[0]!.inventory);
 }, 15_000);
 
@@ -131,4 +134,29 @@ test("--no-cache and --verify-deterministic never take the closure shortcut", as
   expect(verified.state.log).not.toContain("Reusing dependency closure");
   expect(verified.state.log.match(/Planning Linux dependency closure \(amd64\)/g)).toHaveLength(2);
   expect(result.cache.every((event) => event.status === "bypass")).toBe(true);
+}, 15_000);
+
+
+test("cached closure plans preserve optional findings without warning under error policy", async () => {
+  const root = await fixture(), f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports="fixture-msg works";try{require("optional-helper")}catch{}');
+  const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
+  await writeFile(join(f.source, "package.json"), canonicalJSON({ ...manifest, bunko: { ...manifest.bunko, deps: { undeclaredImports: "error" } } }));
+  const cacheDir = join(root, "cache"), options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, cacheDir, installCache: f.cache, depsStrategy: "closure" as const };
+  const first = await build({ ...options, output: join(root, "cold") });
+  const planFile = join(cacheDir, "plans/deps", (await readdir(join(cacheDir, "plans/deps")))[0]!);
+  const plan = JSON.parse(await readFile(planFile, "utf8"));
+  expect(plan.optionalUndeclared).toHaveLength(1);
+  expect(plan.optionalUndeclared[0].code).toBe("BUNKO_OPTIONAL_IMPORT");
+  const warm = recorder(), second = await build({ ...options, ...warm.options, output: join(root, "warm") });
+  expect(warm.state.phases()).not.toContain("install");
+  expect(warm.state.log).not.toContain("BUNKO_OPTIONAL_IMPORT");
+  expect(second.root).toEqual(first.root);
+  expect(second.images[0]!.closure).toEqual(first.images[0]!.closure);
+  // Incomplete metadata must reproject, never silently discard diagnostics or sizes.
+  delete plan.packages;
+  await writeFile(planFile, canonicalJSON(plan));
+  const invalid = recorder();
+  await build({ ...options, ...invalid.options, output: join(root, "invalid") });
+  expect(invalid.state.phases()).toContain("install");
 }, 15_000);

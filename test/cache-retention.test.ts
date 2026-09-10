@@ -77,7 +77,7 @@ test("closure plan bytes are credited with the record they name and orphans befo
   const first = await deps("first"), second = await deps("second");
   for (const [i, item] of [first, second].entries()) { await cache.remember(item); await utimes(join(directory, "keys/deps", `${item.key.slice(7)}.json`), i + 1, i + 1); }
   const planKey = cacheKey("attached plan");
-  const plan: ClosurePlanRecord = { schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key: first.key, destination, platform, aliases: {}, undeclared: [], omitted: 0 };
+  const plan: ClosurePlanRecord = { schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key: first.key, destination, platform, aliases: {}, undeclared: [], optionalUndeclared: [], packages: [], omitted: 0 };
   await cache.rememberPlan(plan);
   const planPath = (key: string) => join(directory, "plans/deps", `${key.slice(7)}.json`);
   const size = async (path: string) => (await readFile(path)).length;
