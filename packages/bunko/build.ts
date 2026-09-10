@@ -1,3 +1,4 @@
+import { configurationPlan } from "./configuration-plan.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
 import { imageSizeSummary } from "./image-size.ts";
 import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
@@ -14,9 +15,8 @@ import { installCachePath } from "./install-cache.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
 import { locationHint, locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
-import { assertAssetRuntime, imageMapping, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
+import { imageMapping, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { assetCachePath } from "./asset-cache.ts";
-import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
 import { baseInventory } from "./metadata.ts";
@@ -40,13 +40,13 @@ import { accumulate, Publisher, PublicationError, repository, repositoryName, ty
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { packLayer } from "../oci/tar.ts";
 import { media, type BaseImage, type Descriptor, type Digest, type Layer, type Platform } from "../oci/types.ts";
-import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
+import { epoch, loadProject, VERSION, type BuildOptions, type Project } from "./config.ts";
 import { platformKey } from "./platforms.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot, OUTPUT_DIRECTORY } from "./files.ts";
 import { bundle, selectToolchain, unresolvedBundleImport, type Toolchain } from "./toolchain.ts";
 import { assertLockToolchain, buildDependencyFilters, bundleOutsideBuildScope, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
-import { discover, workspaceAt } from "./workspace.ts";
-import { assertSharedClosure, byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
+import { workspaceAt } from "./workspace.ts";
+import { byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { acknowledgedImportSummary, acknowledgedImports, applyAcknowledgements, optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, unusedAcknowledgementMessage, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
@@ -661,37 +661,10 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
   if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
   if (options.signKey || options.depsVerifyKey) await assertCosign(options.cosignPath);
-  const discovered = await discover(options);
-  if (single && discovered.targets.length !== 1) throw new Error("Multiple workspace targets require buildTargets(), or select one member path");
-  const rootConfig = discovered.workspace?.packages[0]?.manifest.bunko as Record<string, unknown> | undefined;
-  if (rootConfig?.sharedDeps !== undefined && typeof rootConfig.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
-  const sharedDeps = options.sharedDeps ?? rootConfig?.sharedDeps === true;
-  options = { ...options, sharedDeps };
-  const multiple = discovered.targets.length > 1;
-  if (multiple && (options.bare || options.tarball)) throw new Error("--bare and --tarball require a single target");
-  const projects = await Promise.all(discovered.targets.map((pkg) => loadProject({ ...options, path: join(discovered.directory, pkg.path) }, discovered.workspace)));
+  const configuration = await configurationPlan(options, single);
+  const { discovered, projects, sharedDeps, multiple } = configuration;
+  options = configuration.options;
   for (const project of projects) if (project.inheritedDefaults.length) options.log?.(`Inherited workspace default keys for ${project.name}: ${JSON.stringify(project.inheritedDefaults)}\n`);
-  for (const project of projects) assertAssetRuntime(project.assetMappings, project.bunPath);
-  if (options.baseSBOMs && Object.keys(options.baseSBOMs).some((key) => !projects.some((p) => p.platforms.some((platform) => `${platform.os}/${platform.architecture}` === key)))) throw new Error("Base SBOM map contains an unselected platform");
-  if (options.externalDeps && options.externalDepsByTarget) throw new Error("Use --deps-artifact or --deps-map, not both");
-  if (options.externalDepsByTarget && Object.keys(options.externalDepsByTarget).some((path) => !projects.some((p) => p.directory === path))) throw new Error("Dependency map contains an unselected target");
-  for (const project of projects) {
-    const artifacts = options.externalDepsByTarget?.[project.directory] ?? options.externalDeps;
-    if (!artifacts) continue;
-    if (options.depsVerifyKey && Object.values(artifacts).some((ref) => !/@sha256:[a-f0-9]{64}$/.test(ref) || ref.startsWith("layout:"))) throw new Error("Dependency signature policy requires a digest-pinned registry artifact");
-    if (sharedDeps || project.mode === "compile" || !project.external.length || options.externalDeps && multiple) throw new Error("Dependency artifacts require a bundle or source target with runtime dependencies and no sharedDeps");
-    const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
-    if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
-  }
-  assertSharedClosure(projects, sharedDeps, Boolean(discovered.workspace));
-  if (new Set(projects.map((project) => project.name.toLowerCase())).size !== projects.length) throw new Error("Workspace image name collision; set distinct bunko.imageName values");
-  if (discovered.workspace) for (const pkg of discovered.workspace.packages) {
-    validateDependencySpecs(pkg.manifest, discovered.workspace);
-    if (pkg.path && ["overrides", "resolutions", "patchedDependencies"].some((key) => pkg.manifest[key] !== undefined)) throw new Error("Workspace overrides/resolutions/patchedDependencies must be configured at the root");
-    const installPolicy = await readBunfig(join(discovered.directory, pkg.path));
-    if (pkg.path && Object.keys(installPolicy).length) throw new Error("Workspace bunfig install settings must be configured at the root");
-    if (pkg.path && await Bun.file(join(discovered.directory, pkg.path, ".npmrc")).exists()) throw new Error("Workspace npm configuration must be in the root .npmrc");
-  }
   const output = options.output ? await canonicalOutput(options.output) : undefined;
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   const archive = options.tarball ? await canonicalOutput(options.tarball) : undefined;
