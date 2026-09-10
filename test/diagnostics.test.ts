@@ -48,7 +48,7 @@ const fixtureTarget: DiagnosticTarget = {
   toolchainRequirements: { version: "1.4.2", versionSource: "package.json#packageManager", ranges: [">=1.3.11 <1.5"], rangeSources: ["package.json#engines.bun"] },
   runtimeArgumentCount: 2, environmentKeys: ["PORT"], defineKeys: ["BUILD_CONSTANT"], unmatchedAllowances: ["fixture-mgs"],
 };
-const fixture = { schemaVersion: 1, status: "valid", bunko: "0.1.2", workspace: true, targets: [fixtureTarget],
+const fixture = { schemaVersion: 1, status: "valid", depth: "configuration", bunko: "0.1.2", workspace: true, targets: [fixtureTarget],
   unchecked: ["base image runtime", "registry credentials and connectivity"] };
 
 test("check-config renders an aligned summary of the object it also serializes as JSON", () => {
@@ -76,7 +76,7 @@ test("check-config renders an aligned summary of the object it also serializes a
     "  Inherited defaults  user",
     "  Warnings            ignored-script allowances matching no locked package: fixture-mgs",
     "",
-    "Not checked offline:",
+    "Not checked offline (2 categories):",
     "  - base image runtime",
     "  - registry credentials and connectivity",
     "",
@@ -276,7 +276,7 @@ test("closure diagnostics apply the build's source, sharing and platform policie
 });
 
 test("text diagnostics escape terminal controls in project metadata", () => {
-  const report = { schemaVersion: 1 as const, bunko: VERSION, status: "valid" as const, workspace: false, targets: [], unchecked: ["name\u001b[2J\r\tvalue"] };
+  const report = { schemaVersion: 1 as const, depth: "configuration", bunko: VERSION, status: "valid" as const, workspace: false, targets: [], unchecked: ["name\u001b[2J\r\tvalue"] };
   expect(renderDiagnostics(report)).toContain("name\\u001b[2J\\u000d\\u0009value");
   expect(renderDiagnostics(report)).not.toContain("\u001b");
 });
@@ -297,4 +297,54 @@ test("diagnostics explain explicit asset and native trust policies", () => {
   const output = renderDiagnostics({ ...fixture, targets: [{ ...fixtureTarget, mode: "source", explicitAssetsOverrideGitignore: true, runtimeSystemCaTrust: true }] });
   expect(output).toContain("explicit assets override .gitignore");
   expect(output).toContain("native CA trust (SSL_CERT_FILE)");
+});
+
+test("deep offline checks validate selected assets, entrypoints and font contents without building", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { mode: "source", assets: ["dist"] } });
+  expect((await checkConfig({ path: source })).status).toBe("valid");
+  await expect(checkConfig({ path: source, deep: true })).rejects.toThrow("Asset pattern matched no files");
+  await mkdir(join(source, "dist"));
+  await writeFile(join(source, "dist/index.html"), "fixture");
+  await writeFile(join(source, "dist/.DS_Store"), "metadata");
+  await writeFile(join(source, ".gitignore"), "dist/\n");
+  const before = (await readdir(source)).sort();
+  const report = await checkConfig({ path: source, deep: true });
+  expect(report.depth).toBe("deep");
+  expect((await readdir(source)).sort()).toEqual(before);
+  expect(renderDiagnostics(report)).toContain("categories)");
+  await writeFile(join(source, "dist/.env"), "TOKEN=fixture");
+  await expect(checkConfig({ path: source, deep: true })).rejects.toThrow("Excluded required source input");
+  await rm(join(source, "dist/.env"));
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "fonts", module: "src/server.ts", bunko: { assetMappings: [{ context: "fonts", from: "fake.ttf", to: "/usr/share/fonts/fake.ttf" }] } }));
+  const fonts = join(root, "fonts"); await mkdir(fonts); await writeFile(join(fonts, "fake.ttf"), "invalid font data");
+  await expect(checkConfig({ path: source, assetContexts: { fonts } })).resolves.toMatchObject({ status: "valid" });
+  await expect(checkConfig({ path: source, assetContexts: { fonts }, deep: true })).rejects.toThrow("font");
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "entry", module: "src/missing.ts" }));
+  await expect(checkConfig({ path: source, deep: true })).rejects.toThrow();
+});
+
+test("deep CLI checks stay offline and reject explicitly selected metadata or credentials", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { assetMappings: [{ url: "https://offline.invalid/fixture.bin", sha256: "a".repeat(64), to: "/app/fixture.bin" }] } });
+  for (const command of ["check-config", "doctor"]) {
+    const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), command, source, "--deep", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+    const result = { stdout: await new Response(child.stdout).text(), stderr: await new Response(child.stderr).text(), exit: await child.exited };
+    expect(result.stderr).toBe("");
+    expect(result.exit).toBe(0);
+    expect(JSON.parse(result.stdout).depth).toBe("deep");
+  }
+  for (const name of [".DS_Store", ".env"]) {
+    await writeFile(join(source, name), "fixture");
+    await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture", module: "src/server.ts", bunko: { assets: [name] } }));
+    await expect(checkConfig({ path: source, deep: true })).rejects.toThrow();
+  }
+});
+
+test("deep bundle checks reject selected assets under omitted ancestors", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "source"), { bunko: { assets: [".env-private/config.json"] } });
+  await mkdir(join(source, ".env-private"));
+  await writeFile(join(source, ".env-private/config.json"), "{}");
+  await expect(checkConfig({ path: source, deep: true })).rejects.toThrow("Excluded required source input: .env-private/config.json");
 });

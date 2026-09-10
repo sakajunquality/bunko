@@ -1,3 +1,5 @@
+import { baseCapabilities } from "./base-capabilities.ts";
+import { imageSizeSummary } from "./image-size.ts";
 import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
 import { assertCosign } from "./cosign.ts";
 import { gitLabels, revisionTag } from "./source-metadata.ts";
@@ -56,6 +58,7 @@ import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  baseCapabilities?: ReturnType<typeof baseCapabilities>;
   runtimeCA?: RuntimeCA;
   runtime?: InjectedRuntime;
   compileRuntime?: Omit<InjectedRuntime, "path">;
@@ -251,8 +254,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const tags = [...new Set(options.tags ?? ["latest", ...(revisionTag(git) ? [revisionTag(git)!] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const cacheReadRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
-    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (options.cacheTo?.length ? undefined : cacheReadRepo);
-    if (options.cacheExportError === "fail" && !cacheRepo && !options.cacheTo?.length) throw new Error("Strict cache export requires a cache write destination; use --cache-to or --cache-repo when --push=false");
+    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO;
+    if (options.cacheExportError === "fail" && !cacheRepo && !options.cacheTo?.length) throw new Error("Strict cache export requires a cache write destination; use --cache-to or --cache-repo");
     const locations = async (direction: "from" | "to") => Promise.all(cacheLocations(direction === "from" ? options.cacheFrom : options.cacheTo, direction)
       .map(async (location) => location.type === "local" ? { ...location, path: await canonicalCachePath(location.path) } : location));
     const cache = new LayerCache(store, {
@@ -510,9 +513,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
+        const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
+        if (iteration === 1) for (const missing of capabilities.missingFromBase) log(`BUNKO_MISSING_BASE_LIBRARY: base lacks ${missing.name}, required by ${missing.requiredBy}; application libraries and runtime loader compatibility remain unchecked\n`);
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
-        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, closure: closureSizes, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ baseCapabilities: capabilities, runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, closure: closureSizes, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;
@@ -587,6 +592,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (report && !context.multiple && !options.imageRefs) await writeReport(report, result, context.reports);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
+        for (const [index, image] of images.entries()) log(imageSizeSummary(image.platform, [...bases[index]!.manifest.layers.map((descriptor) => ({ kind: "base", descriptor })), ...image.layers]));
+        if (archive || localReference) log("Docker archive/loading expands layers; local size reports are not comparable to stored layer bytes.\n");
         if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)} (${result.publication.blobs.reused} reused, ${result.publication.blobs.mounted} mounted, ${options.dryRun ? result.publication.blobs.wouldUpload : result.publication.blobs.uploaded} ${options.dryRun ? "pending" : "uploaded"}, ${result.publication.elapsedMs} ms)\n`);
         return result;
       },

@@ -272,7 +272,7 @@ Builder identity is an input to application caching and runnable image labels. D
 
 ## Cache distribution and managed retention
 
-`--cache-from` supplies up to 32 ordered registry/local read locations after the managed local cache. `--cache-to` supplies up to eight write-only explicit destinations. Use `type=registry,repo=REPO`, `type=local,src=DIR` for reads and `type=local,dest=DIR` for writes. Bare read repositories and `--cache-repo` remain supported. Explicit destinations replace implicit image-repository writes while retaining its reads; an explicit legacy repository remains an additional destination. `--cache-write=false` suppresses explicit exports and Registry cache writes independently of reads.
+`--cache-from` supplies up to 32 ordered registry/local read locations after the managed local cache. `--cache-to` supplies up to eight write-only explicit destinations. Use `type=registry,repo=REPO`, `type=local,src=DIR` for reads and `type=local,dest=DIR` for writes. Bare read repositories and `--cache-repo` remain supported. Registry cache writes require an explicit destination; implicit image-repository reads remain enabled. An explicit legacy cache repository remains an additional destination. `--cache-write=false` suppresses explicit exports and Registry cache writes independently of reads.
 
 All targets are prepared before export. Explicit exports follow the target’s requested image publication and also work with `--push=false`. Dry-run and offline builds skip exports; strict `--cache-export-error=fail` rejects these modes, collects per-destination failures, and preserves already-published image evidence. Matching immutable cache writes reconcile using verified metadata and layer content; conflicting results are never accepted. Local caches use locked atomic writes, share the record validation rules, and are excluded from snapshots after canonical path checks. Offline local imports are supported. GHA/S3 and BuildKit cache formats are outside this contract. `cache-info` reports validated local metadata and referenced blob bytes. `prune --keep-bytes N` previews oldest-metadata-first removal within that managed scope; `--execute` is required for deletion. Unknown and unreferenced files are untouched. See [CACHE_RETENTION.md](CACHE_RETENTION.md).
 
@@ -328,3 +328,17 @@ Base filesystem inspection rejects raw tar paths above 8 KiB, normalized paths a
 In source mode, explicit `assets` selections override `.gitignore` for selected files, directory contents, and traversal of their ancestors, without including ignored siblings. All other exclusions and source safety checks remain authoritative. See [source mode](SOURCE_MODE.md).
 
 `runtime.systemCaTrust: true` requires `runtime.caCertificates` and additionally sets `SSL_CERT_FILE` to the packaged bundle. It replaces an inherited base value, rejects a conflicting application value, and leaves `SSL_CERT_DIR` and the base filesystem unchanged. The setting applies image-wide to clients honoring `SSL_CERT_FILE`, potentially replacing their public-root trust; supply all roots those clients need. The default remains Bun/Node extra trust only. See [application CA certificates](CONFIGURATION.md#application-ca-certificates).
+
+## Offline input and base diagnostics
+
+`check-config --deep` and `doctor --deep` validate current selected local inputs using the shared source walker and configured asset selection rules without copying the source or invoking a bundler, installer, registry or daemon. They check entrypoints, declared assets, local mapping types/modes and font bytes. Incidental Finder metadata is skipped as in builds. Remote URL/image contents and generated outputs that do not yet exist remain unchecked. JSON reports include `depth`; text reports count unchecked categories. Runtime/output collisions remain part of the full build.
+
+`check-base --requirements-report FILE` compares a static base capability inventory with native requirements from a prior build report, per architecture. Builds add `images[].baseCapabilities` and named missing-library advisories. See [base capabilities](BASE_CAPABILITIES.md) for evidence limits; absence is not a universal runtime failure, and presence never proves ABI compatibility.
+
+Final build logs report each platform's stored layer descriptor bytes, including base layers, with kind totals and compression classification. Configuration/manifests, cross-platform deduplication and provider billing are excluded. Docker archive/local loading expands layers, so local size reports are not comparable to this value.
+
+Deep checks do not accept build output, cache, signing or registry credential paths. Those invocation-specific exclusions and collisions are checked by the full build; keep custom output/cache directories outside the project or exclude them with `.gitignore`.
+
+Strict `--cache-export-error=fail` requires an explicit `--cache-to`, `--cache-repo` or `BUNKO_CACHE_REPO` destination, including during a plain push. Existing strict jobs that relied on implicit image-repository writes must add a destination.
+
+Current development also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.

@@ -60,10 +60,10 @@ Usage:
   bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
-  bunko check-base --base <reference> [--platform <list>] [--run]
+  bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
-  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>]
-  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>]
+  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
+  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
   bunko why <package> [path] [--target <name/path>] [--json]
   bunko closure-info [path] [--target <name/path>] [--top <count>] [--json]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
@@ -92,6 +92,7 @@ Options:
   --field-manager <name> Field manager for apply
   --lockfile <file>       Text Bun lock for pack-deps
   --workdir <path>        Image workdir for pack-deps (default: /app)
+  --requirements-report <file>  Compare check-base capabilities with a build report
   --run                  Execute check-base runtime validation through Docker
   --runtime-inject release  Inject a signed official Bun release (requires explicit base and gpgv)
   --runtime-cache <dir>    Verified Bun release download cache
@@ -121,7 +122,7 @@ Options:
   --bun-path <file>        Bun executable used for bundling and installation
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
   --cache-export-error <warn|fail>  Cache export failure policy (default: warn)
-  --cache-repo <repo>      Registry cache repository (default: image repository)
+  --cache-repo <repo>      Explicit registry cache read/write repository
   --no-cache               Disable persistent local/registry layer caches and download caches
   --no-app-cache           Disable reusable application output
   --no-local-cache         Disable persistent local layer and download caches
@@ -154,6 +155,7 @@ Options:
   --top <count>            closure-info rows, largest first (default: 20)
   --json                   Machine-readable why/closure-info output
   --progress <plain|json>   Stage events on stderr (default: plain)
+  --deep                 Validate selected local inputs offline (check-config/doctor)
   --format <json|text>     check-config/doctor output (default: text on a terminal, json otherwise)
   --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
@@ -214,6 +216,8 @@ export async function main(argv: string[]): Promise<number> {
       "deps-strategy": { type: "string" },
       "shared-deps": { type: "boolean" },
       run: { type: "boolean" },
+      "requirements-report": { type: "string" },
+      deep: { type: "boolean" },
       "runtime-path": { type: "string" },
       "verify-key": { type: "string" },
       "private-signatures": { type: "boolean" },
@@ -307,7 +311,7 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));
-      const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
+      const options = { path, deep: values.deep, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
       process.stdout.write(diagnosticsOutput(await (command === "doctor" ? doctor(options) : checkConfig(options)), format)); return 0;
     }
     if (command === "why" || command === "closure-info") {
@@ -360,7 +364,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
-      const result = await checkBase({ base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
+      const result = await checkBase({ requirementsReport: values["requirements-report"], base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
       process.stdout.write(JSON.stringify(result) + "\n");
       return 0;
     }

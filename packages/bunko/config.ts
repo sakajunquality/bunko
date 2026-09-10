@@ -56,6 +56,7 @@ export interface BuildOptions {
   local?: boolean;
   kind?: string;
   dryRun?: boolean;
+  deep?: boolean;
   cacheDir?: string;
   localCache?: boolean;
   cacheRepo?: string;
