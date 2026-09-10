@@ -130,7 +130,7 @@ Removing an instance from the closure is only safe when nothing loads it at runt
 
 ## Validation and remaining work
 
-Generic fixtures cover catalog frozen installs, pre-execution macro rejection, copy-only assets, imported sibling configuration, data loaders, script-free allowances, unresolved imports, and label inheritance. The CI matrix includes Bun 1.3.11, 1.3.12, and 1.3.13 on Linux and macOS. The distributed CLI smoke test runs outside the checkout without external npm dependencies.
+Generic fixtures cover catalog frozen installs, pre-execution macro rejection, copy-only assets, imported sibling configuration, data loaders, script-free allowances, unresolved imports, and label inheritance. The CI matrix includes Bun 1.3.13, 1.4.0, and 1.4.2 on Linux and macOS. The distributed CLI smoke test runs outside the checkout without external npm dependencies.
 
 [PR #27](https://github.com/sakajunquality/bunko/pull/27) reports Temporal workflow completion and Snowflake minicore loading on amd64/arm64 at a source checkpoint. Those author-reported checks do not certify the exact released RC or complete application behavior.
 

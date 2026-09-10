@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { assetNames, checksum } from "../scripts/distribution.ts";
 import { npmPackageFiles, prepareNpmPackage } from "../scripts/npm-package.ts";
 
-async function fixture(root: string) {
+async function fixture(root: string, version = "0.1.0-rc.5") {
   const source = join(root, "release"); await mkdir(source);
-  await writeFile(join(source, "bunko.js"), '#!/usr/bin/env bun\nconsole.log("0.1.0-rc.5");\n');
+  await writeFile(join(source, "bunko.js"), `#!/usr/bin/env bun\nconsole.log(${JSON.stringify(version)});\n`);
   for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md", "PROVENANCE.jsonl"]) await writeFile(join(source, name), "fixture");
   await writeFile(join(source, "SHA256SUMS"), (await Promise.all(assetNames.map(async (name) => `${checksum(await readFile(join(source, name)))}  ${name}`))).join("\n") + "\n");
   return source;
@@ -41,4 +41,16 @@ test("npm packaging rejects corrupt bytes before execution, mismatched versions 
     await rm(join(source, "bunko.js")); await symlink(join(source, "LICENSE"), join(source, "bunko.js"));
     await expect(prepareNpmPackage(source, output, "0.1.0-rc.5")).rejects.toThrow("Invalid release file");
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("npm requirements follow the release compatibility boundary", async () => {
+  for (const [version, range] of [["0.1.0-rc.5", ">=1.3.11 <1.5"], ["0.1.4", ">=1.3.11 <1.5"], ["0.2.0-rc.1", ">=1.3.13 <1.5"], ["0.2.0", ">=1.3.13 <1.5"]] as const) {
+    const root = await mkdtemp(join(tmpdir(), "bunko-npm-range-"));
+    try {
+      const source = await fixture(root, version), output = join(root, "package");
+      await prepareNpmPackage(source, output, version);
+      expect((await Bun.file(join(output, "package.json")).json()).engines.bun).toBe(range);
+      expect(await readFile(join(output, "README.md"), "utf8")).toContain(`Requires Bun ${range}`);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
 });

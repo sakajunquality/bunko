@@ -1,5 +1,7 @@
 # Shared configuration and runtime options
 
+The CLI process itself must run on a supported Bun version, including for diagnostics and `version`. `--bun-path` selects the build toolchain; it does not replace the Bun interpreter running the CLI.
+
 These settings are available in rc.4 and later. The immutable rc.3 release does not include them.
 
 ## Workspace defaults
@@ -16,7 +18,7 @@ A workspace root can declare `bunko.defaults` for shared application settings:
       "user": "65532:65532",
       "runtime": { "args": ["--smol"] },
       "env": { "NODE_ENV": "production" },
-      "toolchain": { "version": "1.3.11" }
+      "toolchain": { "version": "1.3.13" }
     }
   }
 }
@@ -75,7 +77,7 @@ Bundle and compile builds report `BUNKO_MODULE_LOCATION` warnings for loaded `im
 
 Bunko selects an already installed Bun binary using the existing PATH or `--bun-path` behavior. `bunko.toolchain.version` can require an exact supported Bun version; `bunko.toolchain.revision` can additionally require the exact revision string printed by that binary's `bun --revision` command. No version declaration downloads or provisions a toolchain.
 
-An exact `packageManager: "bun@1.3.11"` also constrains the selection. rc.4 and later accept stable Bun >=1.3.11 <1.5 declarations, including Bun 1.4; compile/injection support additionally requires an exact verified runtime pin. Bun packageManager ranges, aliases and integrity suffixes are not supported. Other package-manager names do not select Bun. Workspace-root and member Bun packageManager pins must agree with the effective Bunko version requirement. Both root and member `engines.bun` ranges must accept the selected version.
+An exact `packageManager: "bun@1.3.13"` also constrains the selection. Bunko 0.2.0 and later accept stable Bun >=1.3.13 <1.5 declarations, including Bun 1.4; compile/injection support additionally requires an exact verified runtime pin. Bun packageManager ranges, aliases and integrity suffixes are not supported. Other package-manager names do not select Bun. Workspace-root and member Bun packageManager pins must agree with the effective Bunko version requirement. Both root and member `engines.bun` ranges must accept the selected version.
 
 `check-config` reports the declarations and their sources without requiring Bun execution. `doctor` and builds compare them with the selected local binary before dependency installation or base-registry access. A mismatch fails with a message naming the selected binary path and version, the declared version, revision or range, and the declaration source (`package.json#packageManager`, `bunko.toolchain.version`, `bunko.toolchain.revision` or `<member>/package.json#engines.bun`), so the user can decide between installing/selecting the required local binary and changing the declaration. Runtime compatibility with a custom base remains a separate check; declarations do not certify that base's embedded Bun version.
 

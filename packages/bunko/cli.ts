@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { supportedBunVersion } from "./bun-version.ts";
 import { prepareBase } from "./prepare-base.ts";
 import { selectRegistryMirrors } from "../oci/mirrors.ts";
 import { parseDefines } from "./defines.ts";
@@ -192,6 +193,7 @@ export function booleanArguments(argv: string[], options: Record<string, { type:
 export async function main(argv: string[]): Promise<number> {
   let jsonProgress = false;
   try {
+    if (!supportedBunVersion(Bun.version)) throw new Error(`Bunko requires Bun >=1.3.13 <1.5 (received ${Bun.version}). Upgrade Bun, or use bunko 0.1.4 for Bun 1.3.11/1.3.12.`);
     const options = {
       "image-label": { type: "string", multiple: true },
       "image-annotation": { type: "string", multiple: true },

@@ -26,7 +26,7 @@ try {
   await command(["docker", "buildx", "inspect", id, "--bootstrap"]);
   const bases = [];
   for (const tag of ["slim", "distroless"]) {
-    const reference = `oven/bun:1.3.11-${tag}`;
+    const reference = `oven/bun:1.3.13-${tag}`;
     bases.push(`oven/bun@${(await new RegistrySource(reference).root()).descriptor.digest}`);
   }
   await mkdir(join(source, "packages/app/src"), { recursive: true });

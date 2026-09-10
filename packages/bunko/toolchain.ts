@@ -22,12 +22,12 @@ function inside(root: string, path: string): boolean {
 
 export async function selectToolchain(path?: string): Promise<Toolchain> {
   const executable = path ? resolve(path) : Bun.which("bun");
-  if (!executable) throw new Error("Bun is required; install Bun 1.3.11 or set --bun-path");
+  if (!executable) throw new Error("Bun is required; install Bun 1.3.13 or set --bun-path");
   const child = Bun.spawn([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Cannot run Bun: ${stderr.trim()}`);
   const match = /^(1\.\d+\.\d+)\+([a-f0-9]+)$/.exec(stdout.trim());
-  if (!match || !supportedBunVersion(match[1])) throw new Error(`Supported toolchain: Bun >=1.3.11 <1.5 (received ${stdout.trim()})`);
+  if (!match || !supportedBunVersion(match[1])) throw new Error(`Supported toolchain: Bun >=1.3.13 <1.5 (received ${stdout.trim()})`);
   return { path: executable, version: match[1]!, revision: match[2]! };
 }
 
@@ -100,7 +100,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
       }
     }
   }
-  // Bun's metafile omits sourcemap files in 1.3.11. Enumerate the emitted tree.
+  // Bun's metafile still omits sourcemap files in 1.3.13. Enumerate the emitted tree.
   for await (const path of new Bun.Glob("**/*.{js,mjs,cjs,css}.map").scan({ cwd: outdir })) {
     const full = join(outdir, path);
     const map = object(JSON.parse(await readFile(full, "utf8")), "Sourcemap");

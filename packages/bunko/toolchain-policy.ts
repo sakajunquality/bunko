@@ -11,7 +11,7 @@ export function toolchainRequirements(manifests: Record<string, unknown>[], valu
   if (Object.keys(config).some((key) => !["version", "revision"].includes(key))) throw new Error("toolchain accepts version and revision only");
   const versions: { version: string; source: string }[] = [], ranges = new Map<string, string>();
   if (config.version !== undefined) {
-    if (!supportedBunVersion(config.version)) throw new Error("toolchain.version must be an exact supported Bun version (>=1.3.11 <1.5)");
+    if (!supportedBunVersion(config.version)) throw new Error("toolchain.version must be an exact supported Bun version (>=1.3.13 <1.5)");
     versions.push({ version: config.version, source: "bunko.toolchain.version" });
   }
   if (config.revision !== undefined && (typeof config.revision !== "string" || !/^[a-f0-9]{7,40}$/.test(config.revision))) throw new Error("toolchain.revision must be the exact revision printed by bun --revision");

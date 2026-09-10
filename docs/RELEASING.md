@@ -1,6 +1,8 @@
 # Release distribution and setup Action
 
-The current published release is **0.1.4**. The setup Action installs the release named by its own `uses:` ref, so a version tag installs the CLI of the same version without a follow-up default bump. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. It supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
+The development branch targets 0.2.0 (unreleased), requiring Bun >=1.3.13 <1.5. The published 0.1.4 distribution retains its original >=1.3.11 <1.5 support. Until 0.2.0 is published, use the v0.1.4 Action tag or explicitly set `version: v0.1.4` when using a development Action ref.
+
+The current published release is **0.1.4**. The setup Action installs the release named by its own `uses:` ref, so a version tag installs the CLI of the same version without a follow-up default bump. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. The published 0.1.4 CLI supports Linux/macOS runners and Bun >=1.3.11 <1.5, validated with 1.3.11, 1.3.12, 1.3.13, 1.4.0 and 1.4.2. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 For maintainers, follow the [release checklist](RELEASE_CHECKLIST.md) for commit/tag guards, publication order, consumer verification and failure recovery.
 

@@ -22,7 +22,7 @@ const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function temp() { const root = await mkdtemp(join(tmpdir(), "bunko-runtime-test-")); roots.push(root); return root; }
 const platform = { os: "linux", architecture: "arm64" } as const;
-const toolchain = { path: "bun", version: "1.3.11", revision: "af24e281e" };
+const toolchain = { path: "bun", version: "1.3.13", revision: "bf2e2cecf" };
 
 test("runtime injection rejects unsupported modes, libc, versions and destinations before work", async () => {
   const root = await temp();
@@ -30,15 +30,15 @@ test("runtime injection rejects unsupported modes, libc, versions and destinatio
     await project(root, { bunko: config }); await expect(loadProject({ path: root })).rejects.toThrow();
   }
   expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
-  expect(() => runtimeAsset({ ...toolchain, version: "1.5.0" }, platform)).toThrow("supports official Bun");
+  for (const version of ["1.3.11", "1.3.12", "1.5.0"]) expect(() => runtimeAsset({ ...toolchain, version }, platform)).toThrow("supports official Bun");
   expect(() => validateCacheOptions({localCache:false,runtimeCache:"cache"})).toThrow("requires local caching");
 });
 
 test.skipIf(!Bun.which("gpgv"))("official clear-signed checksums verify offline and reject tampering", async () => {
-  const signed = await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc", import.meta.url));
+  const signed = await readFile(new URL("./fixtures/runtime/bun-1.3.13-checksums.asc", import.meta.url));
   const checksums = await verifiedChecksums(signed);
-  expect(() => pinnedArchiveChecksum("1.3.12","bun-linux-aarch64",checksums)).toThrow("pinned release version");
-  expect(archiveChecksum(checksums, "bun-linux-aarch64")).toBe("sha256:d13944da12a53ecc74bf6a720bd1d04c4555c038dfe422365356a7be47691fdf");
+  expect(() => pinnedArchiveChecksum("1.4.0","bun-linux-aarch64",checksums)).toThrow("pinned release version");
+  expect(archiveChecksum(checksums, "bun-linux-aarch64")).toBe("sha256:70bae41b3908b0a120e1e58c5c8af30e74afae3b8d11b0d3fdd8e787ddfb4b22");
   await expect(verifiedChecksums(Buffer.from(signed.toString().replace("bun-linux-aarch64.zip", "bun-linux-unknown.zip")))).rejects.toThrow("signature verification");
   await expect(verifiedChecksums(Buffer.from(checksums))).rejects.toThrow();
   expect(() => archiveChecksum(checksums + "\n" + checksums, "bun-linux-aarch64")).toThrow("duplicate");
@@ -132,9 +132,9 @@ test("runtime layer records survive local and registry cache serialization", asy
 
 
 test.skipIf(!Bun.which("gpgv"))("corrupt cached archives cannot bypass signed checksums or replace cache contents", async () => {
-  const root = await temp(), dir = join(root,"1.3.11-bun-linux-aarch64");
+  const root = await temp(), dir = join(root,"1.3.13-bun-linux-aarch64");
   await mkdir(dir);
-  await writeFile(join(dir,"SHASUMS256.txt.asc"),await readFile(new URL("./fixtures/runtime/bun-1.3.11-checksums.asc",import.meta.url)));
+  await writeFile(join(dir,"SHASUMS256.txt.asc"),await readFile(new URL("./fixtures/runtime/bun-1.3.13-checksums.asc",import.meta.url)));
   const archive=join(dir,"bun-linux-aarch64.zip"); await writeFile(archive,"corrupt cached bytes");
   const requests:string[]=[], logs:string[]=[];
   await expect(downloadRuntime(toolchain,platform,{cache:root,log:(line)=>logs.push(line),fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
@@ -145,8 +145,8 @@ test.skipIf(!Bun.which("gpgv"))("corrupt cached archives cannot bypass signed ch
 
 
 test("revision matching skips partial strings and signature errors fail closed", () => {
-  const revision="af24e281ebacd6ac77c0f14b4206599cf4ae1c9f";
-  expect(releaseRevision(Buffer.from(`\0af24e281e-partial\0${revision}\0`),toolchain)).toBe(revision);
+  const revision="bf2e2cecf27e800962b1e7f03d66278f9d5d2e79";
+  expect(releaseRevision(Buffer.from(`\0bf2e2cecf-partial\0${revision}\0`),toolchain)).toBe(revision);
   expect(()=>releaseRevision(Buffer.from(`\0${revision}\0`),{...toolchain,revision:"bad123456"})).toThrow("toolchain revision");
   const valid="[GNUPG:] VALIDSIG F3DCC08A8572C0749B3E18888EAB4D40A7B22B59 2026-01-01 1 0 4 0 22 10 01 F3DCC08A8572C0749B3E18888EAB4D40A7B22B59\n";
   assertSignatureStatus(valid,0);
@@ -155,7 +155,7 @@ test("revision matching skips partial strings and signature errors fail closed",
 
 test("SBOM separates release archive and executable hashes; provenance includes signature inputs", () => {
   const archiveDigest=sha256("archive"),executableDigest=sha256("executable"),checksumDocumentDigest=sha256("signed checksums");
-  const runtime={source:"github-release",version:"1.3.11",expectedRevision:"af24e281e",releaseRevision:"af24e281ebacd6ac77c0f14b4206599cf4ae1c9f",revisionVerified:false,archiveDigest,executableDigest,checksumDocumentDigest,path:"/usr/local/bin/bun",url:"https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-linux-aarch64.zip",policy:"bun-release-gpg-pinned-v1",signer:"F3DCC08A8572C0749B3E18888EAB4D40A7B22B59"} as InjectedRuntime;
+  const runtime={source:"github-release",version:"1.3.13",expectedRevision:"bf2e2cecf",releaseRevision:"bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",revisionVerified:false,archiveDigest,executableDigest,checksumDocumentDigest,path:"/usr/local/bin/bun",url:"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-aarch64.zip",policy:"bun-release-gpg-pinned-v1",signer:"F3DCC08A8572C0749B3E18888EAB4D40A7B22B59"} as InjectedRuntime;
   const image={runtime,platform,manifest:{digest:sha256("image")},baseDigest:sha256("base"),inventory:[],native:[]} as unknown as PlatformResult;
   const document=spdx("fixture",image,0,{version:runtime.version,revision:runtime.expectedRevision,embedded:false});
   const pkg=document.packages.find(p=>p.SPDXID==="SPDXRef-Bun-Runtime") as {checksums:{checksumValue:string}[]};
