@@ -46,6 +46,7 @@ test("external asset mappings filter relative descendants and retain explicit re
   await writeFile(join(context, "data/.DS_Store"), "changed metadata");
   const repeated = await stageAssetMappings(assetMappings([mapping]), { assets: context }, join(directory, "repeated"));
   expect(repeated.materials[0]!.digest).toBe(readonly.materials[0]!.digest);
+  await expect(stageAssetMappings(assetMappings([{ ...mapping, from: "data/.DS_Store" }]), { assets: context }, join(directory, "explicit-metadata"))).rejects.toThrow("Excluded asset input");
   const writable = await stageAssetMappings(assetMappings([{ ...mapping, mode: "0644" }]), { assets: context }, join(directory, "writable"));
   expect(readonly.materials[0]!.digest).not.toBe(writable.materials[0]!.digest);
   const store = new BlobStore(join(directory, "store")), layer = (await packLayer(store, readonly.entries, "assets", 0))!;
