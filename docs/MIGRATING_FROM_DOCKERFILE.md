@@ -7,12 +7,12 @@ Bunko has no Dockerfile and no `RUN`. Image content comes from three sources: th
 | Dockerfile | Bunko | Notes |
 | --- | --- | --- |
 | `FROM oven/bun:1.3` | `bunko.base`, `--base`, `BUNKO_DEFAULT_BASE` | Default is `oven/bun:<selected Bun version>-distroless`. Pin by digest (`oven/bun@sha256:...`) for reproducible builds; `--reproducible` requires it. Precedence: CLI > environment > package.json > default. Native addons need an explicit base containing their shared libraries. |
-| `FROM golang AS tool` / `RUN go install ...` | none; see `COPY --from` | Bunko does not execute build stages. Produce the binary in a separate CI step and map it in. |
+| `FROM golang AS tool` / `RUN go install ...` | none; see `COPY --from` | Bunko does not execute build stages. Copy the binary from an image that already publishes it, fetch a released binary by checksum, or produce it in a separate CI step. |
 | `RUN apt-get install ...` | none | Choose a base that already contains the libraries. A base without Bun can receive a [signed runtime injection](RUNTIME_INJECTION.md). |
 | `COPY package.json bun.lock` + `RUN bun install --production` (deps stage) | automatic | Bundle mode inlines dependencies; only `bunko.external` packages are installed for the image with `--production --os=linux --cpu=... --ignore-scripts --linker=isolated`. `deps.strategy: "production"` (default) keeps the whole production tree; `"closure"` keeps only instances reachable from the externals. A text `bun.lock` is required. |
 | `COPY src ./src` + `COPY tsconfig.json` | `bunko.entrypoint` | Bundle mode (default) emits one bundled server file; `mode: "source"` preserves the sanitized source tree and runs the entrypoint with `--no-install` ([SOURCE_MODE.md](SOURCE_MODE.md)). Entrypoint precedence is `bunko.entrypoint > bin > module > main > src/index.ts > index.ts`. |
 | `COPY db ./db` (data files) | `bunko.assets` | Project-relative files, directories or globs placed under the workdir. `assetExcludes` and `assetMode` narrow and set modes. |
-| `COPY --from=tool /go/bin/tool /usr/local/bin/` | `bunko.assetMappings` + `--asset-context NAME=DIR` | Declares the logical context in package.json; the CI step binds it to a directory it downloaded and verified. `to` is an exact absolute path; `/usr`, `/etc` and other system roots are protected, so use a path such as `/app/bin/tool`. Set `"mode": "0755"` explicitly for executables. |
+| `COPY --from=tool /go/bin/tool /usr/local/bin/` | `bunko.assetMappings` with `image`, `url` or `context` | `{ "image": "...", "from": "/go/bin/tool", "to": "/app/bin/tool" }` copies straight out of another image, resolved per target platform; `{ "url": "...", "sha256": "..." }` fetches one released file over HTTPS and verifies it; `context` still binds a directory a CI step prepared, via `--asset-context NAME=DIR`. `to` is an exact absolute path; `/usr`, `/etc` and other system roots are protected, so use a path such as `/app/bin/tool`. Set `"mode": "0755"` explicitly for executables. |
 | `ENV NODE_ENV=production` / `ENV PORT=8080` | `bunko.env` | `NODE_ENV=production` is set by default. Order: base Env, then `NODE_ENV`, then application overrides. |
 | `EXPOSE 8080` | `bunko.ports` | Array of integers. |
 | `USER bun` | `bunko.user`, `--image-user` | In CLI 0.1.1, precedence is explicit setting, nonroot base User, then `65532:65532`; inherited UID 0 (including zero-padded spellings) and `root` are replaced. CLI 0.1.0 preserves an explicit base root user, so set `"user": "65532:65532"` explicitly when using that version. Set `"user": "0:0"` explicitly only when root is required. |
@@ -34,7 +34,7 @@ Bunko has no Dockerfile and no `RUN`. Image content comes from three sources: th
 | `cache-from/cache-to: type=gha` | `--cache-dir DIR` (layers) and `--install-cache DIR` (package downloads) persisted with `actions/cache`, or `--cache-repo` / `--cache-from` registry caches | `cache-dir`, `install-cache`, `cache-repo`, `cache-from` |
 | `load: true` | `--local` (single platform, needs Docker) | not in the Action |
 | `outputs: type=oci` | `--oci-layout DIR`, `--tarball FILE` | `export-layout` |
-| `build-contexts: name=path` | `--asset-context NAME=DIR` | `asset-contexts` |
+| `build-contexts: name=path` | `--asset-context NAME=DIR`, or an `image`/`url` asset mapping needing no CI step | `asset-contexts` |
 | `docker/setup-buildx-action` | not needed | build, publish and export do not use a Docker daemon |
 | digest output | stdout `repo@sha256:...`, `--image-refs FILE`, `--report FILE` | `digest`, `reference`, `images`, `image-refs`, `report` outputs |
 
@@ -49,10 +49,38 @@ Registry authentication still uses `docker login` credential configuration or pr
 - **No Docker daemon.** Building, publishing and exporting layouts need no daemon; only `--local` and `--kind` do. Registry logins are read from Docker's credential configuration.
 - **Frozen inputs.** The lock must already match `package.json`; installs never rewrite either file. Checkout `node_modules` are never copied.
 
+## Binaries from other toolchains
+
+A statically linked Go binary such as [spannerdef](https://github.com/nao1215/spannerdef), needed by a migration job in the same image, is declared in `package.json` and needs no CI step:
+
+```json
+{
+  "bunko": {
+    "assetMappings": [
+      { "image": "ghcr.io/OWNER/spannerdef@sha256:<digest>", "from": "/usr/local/bin/spannerdef", "to": "/app/bin/spannerdef", "mode": "0755" }
+    ]
+  }
+}
+```
+
+When the tool is published as a release file rather than an image, fetch it by checksum instead:
+
+```json
+{
+  "bunko": {
+    "assetMappings": [
+      { "url": "https://github.com/OWNER/spannerdef/releases/download/v0.6.1/spannerdef-linux-amd64", "sha256": "<64 hex characters>", "to": "/app/bin/spannerdef", "mode": "0755" }
+    ]
+  }
+}
+```
+
+`image` mappings resolve per target platform, so a multi-platform tool image serves both `linux/amd64` and `linux/arm64` from one entry; a `url` mapping names one exact file, so select the architecture you build for or use an image source. `--reproducible` requires `image@sha256:...`. Both are described in [image and URL asset sources](APPLICATION_COMPATIBILITY.md#image-and-url-asset-sources).
+
 ## Not yet supported
 
-- Assets fetched by URL with a checksum. Binaries from other toolchains still need a CI step that downloads and verifies them before `--asset-context` binds the directory.
 - `RUN` or any build-time command execution inside the image.
+- Authenticated URL downloads. `url` mappings send no credentials; use an `image` mapping, which reuses registry credentials, or an asset context for a private file.
 
 ## Before and after
 
@@ -109,7 +137,7 @@ Workflow step:
     "external": ["@google-cloud/spanner", "@opentelemetry/api"],
     "deps": { "strategy": "closure", "allowIgnoredScripts": ["protobufjs"] },
     "assets": ["db"],
-    "assetMappings": [{ "context": "tool", "from": "tool", "to": "/app/bin/tool", "mode": "0755" }],
+    "assetMappings": [{ "image": "example.com/tool@sha256:<digest>", "from": "/go/bin/tool", "to": "/app/bin/tool", "mode": "0755" }],
     "env": { "NODE_ENV": "production", "PORT": "8080" },
     "ports": [8080],
     "user": "65532:65532"
@@ -124,14 +152,6 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
   with:
     version: v0.1.2
     bun-version: 1.4.2
-- name: Download tool
-  env:
-    TOOL_SHA256: <sha256>
-  run: |
-    mkdir -p "$RUNNER_TEMP/assets/tool"
-    curl -fsSL -o "$RUNNER_TEMP/assets/tool/tool" https://example.com/tool/v1.2.3/tool-linux-amd64
-    echo "$TOOL_SHA256  $RUNNER_TEMP/assets/tool/tool" | sha256sum -c -
-    chmod 0755 "$RUNNER_TEMP/assets/tool/tool"
 - uses: actions/cache@<commit>
   with:
     path: ${{ runner.temp }}/bunko
@@ -146,7 +166,6 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
     tags: |
       ${{ github.sha }}
       latest
-    asset-contexts: tool=${{ runner.temp }}/assets/tool
     cache-dir: ${{ runner.temp }}/bunko/cache
     install-cache: ${{ runner.temp }}/bunko/install
 ```

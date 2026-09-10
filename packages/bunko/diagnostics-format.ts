@@ -1,3 +1,4 @@
+import { contextMapping, imageMapping } from "./asset-contexts.ts";
 import type { DiagnosticTarget, checkConfig, doctor } from "./diagnostics.ts";
 import type { Platform } from "../oci/types.ts";
 
@@ -28,8 +29,9 @@ const rows: Row[] = [
     list(target.assets), target.assetExcludes.length ? `excludes ${target.assetExcludes.join(", ")}` : undefined,
     target.assetMode === undefined ? undefined : `mode ${octal(target.assetMode)}`]) },
   { label: "Asset mappings", keys: ["assetMappings", "assetInputs"], value: (target) => target.assetMappings.length ? [
-    ...target.assetMappings.map((mapping) => `${mapping.context}:${mapping.from} → ${mapping.to}${mapping.mode ? ` (${mapping.mode})` : ""}${mapping.exclude?.length ? ` excludes ${mapping.exclude.join(", ")}` : ""}`),
-    `${target.assetInputs.entries} selected entr${target.assetInputs.entries === 1 ? "y" : "ies"} in ${target.assetInputs.contexts.join(", ")}`].join("\n") : undefined },
+    ...target.assetMappings.map((mapping) => `${contextMapping(mapping) ? `${mapping.context}:${mapping.from}` : imageMapping(mapping) ? `${mapping.image}:${mapping.from}${mapping.platform ? ` [${mapping.platform}]` : ""}` : `${mapping.url} [sha256:${mapping.sha256}]`} → ${mapping.to}${mapping.mode ? ` (${mapping.mode})` : ""}${contextMapping(mapping) && mapping.exclude?.length ? ` excludes ${mapping.exclude.join(", ")}` : ""}`),
+    `${target.assetInputs.entries} selected entr${target.assetInputs.entries === 1 ? "y" : "ies"} in ${target.assetInputs.contexts.join(", ") || "local contexts"}`,
+    ...target.assetInputs.external ? [`${target.assetInputs.external} external source(s); content not checked offline`] : []].join("\n") : undefined },
   { label: "Environment", keys: ["environmentKeys"], value: (target) => list(target.environmentKeys) },
   { label: "Defines", keys: ["defineKeys"], value: (target) => list(target.defineKeys) },
   { label: "User", keys: ["user"], value: (target) => target.user },

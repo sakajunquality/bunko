@@ -15,7 +15,7 @@ export interface DiagnosticTarget {
   entrypoints?: Record<string, string>;
   defaultEntrypoint?: string;
   assetMappings: AssetMapping[];
-  assetInputs: { entries: number; contexts: string[] };
+  assetInputs: { entries: number; contexts: string[]; external: number };
   name: string;
   path: string;
   entrypoint: string;

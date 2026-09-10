@@ -1,4 +1,6 @@
 import { assetMode } from "./asset-policy.ts";
+import { platform } from "./platforms.ts";
+export { platform };
 import type { FileMode } from "../oci/tar.ts";
 import { validateRuntimeArgs } from "./runtime-args.ts";
 import { inheritedWorkspaceDefaults, workspaceDefaults } from "./workspace-defaults.ts";
@@ -63,6 +65,7 @@ export interface BuildOptions {
   registry?: RegistryOptions;
   installCache?: string;
   runtimeCache?: string;
+  assetCache?: string;
   runtimeInject?: string;
   base?: string;
   baseLayout?: string;
@@ -151,11 +154,6 @@ export function absolutePath(value: string, name: string): string {
   return value;
 }
 
-export function platform(value: string): Platform {
-  if (value === "linux/amd64") return { os: "linux", architecture: "amd64" };
-  if (value === "linux/arm64" || value === "linux/arm64/v8") return { os: "linux", architecture: "arm64", variant: "v8" };
-  throw new Error(`Supported platforms: linux/amd64 or linux/arm64 (received ${value})`);
-}
 
 export function epoch(value = process.env.SOURCE_DATE_EPOCH): number {
   if (value === undefined) return 0;

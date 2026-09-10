@@ -4,6 +4,7 @@ import { extract } from "tar-stream";
 import { createReadStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 import { join, posix } from "node:path";
 import { decodeLayer } from "../oci/decode.ts";
 import { packLayer, type TarEntry } from "../oci/tar.ts";
@@ -11,7 +12,10 @@ import type { BlobStore } from "../oci/blob-store.ts";
 import type { BaseImage } from "../oci/types.ts";
 import type { InjectedRuntime } from "./runtime-download.ts";
 
-export interface BaseNode { type: string; link?: string; mode: number; size: number }
+export interface BaseNode { type: string; link?: string; mode: number; size: number; layer?: number }
+/** Receives every non-whiteout entry of one layer; the stream may be consumed, and is drained otherwise.
+ * Directories a layer only implies carry no stream and are reported once, when they enter the tree. */
+export type LayerCapture = (index: number, path: string, node: BaseNode, stream?: Readable) => Promise<void>;
 export type BaseFilesystem = Map<string, BaseNode>;
 function pathName(value: string): string {
   if (Buffer.byteLength(value) > 8192) throw new Error("Base filesystem path exceeds inspection limits");
@@ -25,6 +29,13 @@ function ancestors(path: string) { const parts = path.split("/"); return parts.m
 
 /** Inspect metadata without extracting or following paths on the build host. */
 export async function baseFilesystem(store: BlobStore, base: BaseImage, temporary: string): Promise<BaseFilesystem> {
+  return applyLayers(store, base, temporary);
+}
+
+/** Apply every layer in order, resolving whiteouts, and optionally capture selected entry bodies.
+ * Captured nodes record their winning layer index so callers can materialize the merged result. */
+export async function applyLayers(store: BlobStore, base: BaseImage, temporary: string, capture?: LayerCapture, entryLimit = 200_000): Promise<BaseFilesystem> {
+  if (!Number.isSafeInteger(entryLimit) || entryLimit < 1 || entryLimit > 200_000) throw new Error("Invalid base filesystem entry limit");
   const tree: BaseFilesystem = new Map(); let count = 0;
   const directory = await mkdtemp(join(temporary, "base-inspect-"));
   try {
@@ -36,16 +47,21 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
         const tar = extract();
         tar.on("entry", (header, stream, next) => {
           stream.on("error", (error) => tar.destroy(error));
-          try {
-            if (++count > 200_000) throw new Error("Runtime base has too many entries");
+          const body = stream as unknown as Readable;
+          (async () => {
+            if (++count > entryLimit) throw new Error("Runtime base has too many entries");
             const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);
             if (path) {
               if (leaf === ".wh..wh..opq") opaque.add(parent === "." ? "" : parent);
               else if (leaf.startsWith(".wh.")) removed.add(parent === "." ? leaf.slice(4) : `${parent}/${leaf.slice(4)}`);
-              else overlay.set(path, { type: header.type ?? "file", link: header.linkname, mode: header.mode ?? 0, size: header.size ?? 0 });
+              else {
+                const node: BaseNode = { type: header.type ?? "file", link: header.linkname, mode: header.mode ?? 0, size: header.size ?? 0, ...(capture ? { layer: index } : {}) };
+                overlay.set(path, node);
+                await capture?.(index, path, node, body);
+              }
             }
-            stream.on("end", next); stream.resume();
-          } catch (error) { stream.destroy(error as Error); tar.destroy(error as Error); }
+            if (!body.readableEnded) for await (const chunk of body) void chunk;
+          })().then(() => next(), (error) => { body.destroy(error as Error); tar.destroy(error as Error); });
         });
         await pipeline(createReadStream(file), tar);
         for (const path of tree.keys()) {
@@ -53,6 +69,17 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
           if (opaque.has("") || chain.some((p) => removed.has(p)) || chain.slice(0, -1).some((p) => opaque.has(p) || overlay.has(p) && overlay.get(p)!.type !== "directory")) tree.delete(path);
         }
         for (const [path, entry] of overlay) tree.set(path, entry);
+        // Layers may omit headers for directories they populate. Fill those in against the effective tree,
+        // after whiteouts, so a directory a whiteout removed and this layer repopulates exists again. A
+        // surviving non-directory is never replaced: a lower symlink parent must stay visible so consumers
+        // reject it instead of resolving through it. Only an explicit header or whiteout can displace it.
+        for (const path of overlay.keys()) for (const parent of ancestors(path).slice(0, -1)) {
+          if (tree.has(parent)) continue;
+          if (++count > entryLimit) throw new Error("Runtime base has too many entries");
+          const node: BaseNode = { type: "directory", mode: 0o755, size: 0, ...(capture ? { layer: index } : {}) };
+          tree.set(parent, node);
+          await capture?.(index, parent, node);
+        }
       } finally { await rm(file, { force: true }); }
     }
     return tree;

@@ -124,6 +124,7 @@ Options:
   --no-local-cache         Disable persistent local layer and download caches
   --no-registry-cache      Disable registry cache reads/writes
   --install-cache <dir>    Bun package download cache (default: ~/.cache/bunko/install/v1)
+  --asset-cache <dir>      Verified URL/image asset cache (default: ~/.cache/bunko/assets/v1)
   --insecure-registry <host:port>  Allow HTTP for this registry; repeatable
   --dry-run                Build/estimate with registry reads only; no export/load/push
   --reproducible            Require a digest-pinned base or local base layout
@@ -260,7 +261,7 @@ export async function main(argv: string[]): Promise<number> {
       "cache-from": { type: "string", multiple: true },
       "cache-write": { type: "boolean", default: true },
       "keep-bytes": { type: "string" },
-      "install-cache": { type: "string" },
+      "install-cache": { type: "string" }, "asset-cache": { type: "string" },
       "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
       top: { type: "string" },
       json: { type: "boolean" },
@@ -403,7 +404,7 @@ export async function main(argv: string[]): Promise<number> {
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
       localCache: values.cache && values["local-cache"], registryCache: values.cache && (values.offline && !supplied("registry-cache") ? false : values["registry-cache"]),
-      installCache: values["install-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
+      installCache: values["install-cache"], assetCache: values["asset-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,
       baseLayout: values["base-layout"], platform: values.platform,
       bunPath: values["bun-path"], report: values.report,
