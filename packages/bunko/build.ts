@@ -242,15 +242,16 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const git = context.git;
     const tags = [...new Set(options.tags ?? ["latest", ...(revisionTag(git) ? [revisionTag(git)!] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
-    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push && !options.cacheTo?.length ? destination : undefined);
+    const cacheReadRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
+    const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (options.cacheTo?.length ? undefined : cacheReadRepo);
     if (options.cacheExportError === "fail" && !cacheRepo && !options.cacheTo?.length) throw new Error("Strict cache export requires a cache write destination; use --cache-to or --cache-repo when --push=false");
     const locations = async (direction: "from" | "to") => Promise.all(cacheLocations(direction === "from" ? options.cacheFrom : options.cacheTo, direction)
       .map(async (location) => location.type === "local" ? { ...location, path: await canonicalOutput(location.path) } : location));
     const cache = new LayerCache(store, {
       persistence: context.cachePersistence, exportError: options.cacheExportError, directory: cacheDirectory,
       repository: options.cacheWrite === false ? undefined : cacheRepo,
-      sources: await locations("from"), destinations: await locations("to"),
-      readRepositories: cacheRepo ? [cacheRepo] : [], registry, log,
+      sources: await locations("from"), destinations: options.cacheWrite === false ? [] : await locations("to"),
+      readRepositories: cacheReadRepo ? [cacheReadRepo] : [], registry, log,
     });
     log(`Resolving base ${options.baseLayout ?? baseRef}\n`);
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
@@ -646,6 +647,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
   for (const path of explicitCachePaths) {
+    if (dirname(path) === path) throw new Error("A filesystem root cannot be used as an explicit cache location");
     if (cacheDirectory && cacheDirectory !== path && (path.startsWith(`${cacheDirectory}/`) || cacheDirectory.startsWith(`${path}/`))) throw new Error("Explicit cache paths must not contain or be inside the managed cache");
     for (const other of [output, report, archive, imageRefs, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, signingFile, installCache, assetCache, await runtimeCachePath(options.runtimeCache), ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), ...runtimeCAInputs, ...(installCertificate?.files ?? [])]) {
       if (other && (path === other || path.startsWith(`${other}/`) || other.startsWith(`${path}/`))) throw new Error("Explicit cache paths overlap another input, output or cache");

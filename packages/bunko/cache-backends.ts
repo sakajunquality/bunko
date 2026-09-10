@@ -1,4 +1,4 @@
-import { CacheDriver, CacheConflictError, type CacheExportEvent, type CacheRecord } from "./cache.ts";
+import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, type CacheExportEvent, type CacheRecord } from "./cache.ts";
 import type { CacheLocation } from "./cache-backend-options.ts";
 import type { BlobStore } from "../oci/blob-store.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
@@ -10,7 +10,7 @@ export interface CacheBackend {
   readonly type: "registry" | "local";
   readonly destination: string;
   read(...args: Parameters<CacheDriver["get"]>): Promise<{ record?: CacheRecord; unavailable: boolean }>;
-  write(record: CacheRecord): Promise<CacheExportEvent>;
+  write(record: CacheRecord): Promise<{ event: CacheExportEvent; error?: unknown }>;
 }
 
 export function cacheBackend(location: CacheLocation, store: BlobStore, registry: RegistryOptions | undefined, log: (message: string) => void): CacheBackend {
@@ -25,18 +25,27 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
       return { record, unavailable: reader.events.at(-1)?.reason === "invalid-or-unavailable" };
     },
     async write(record) {
+      if (canonicalJSON(record).length > cacheMetadataLimit) {
+        const event: CacheExportEvent = { backend: location.type, destination, key: record.key, kind: record.kind, status: "failed", reason: "invalid", bytes: 0, durationMs: 0 };
+        recordMetrics(event); return { event, error: new Error("Cache metadata exceeds size limit") };
+      }
       if (location.type === "registry") {
         const previous = verified.get(record.key);
         if (previous && Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
           const event: CacheExportEvent = { backend: "registry", destination, key: record.key, kind: record.kind, status: "already-present", bytes: 0, durationMs: 0 };
-          recordMetrics(event); return event;
+          recordMetrics(event); return { event };
         }
-        const writer = new CacheDriver(store, { repository: location.repo, registry, log });
-        await writer.remember(record); await writer.publish();
-        return writer.exports[0]!;
+        const writer = new CacheDriver(store, { repository: location.repo, exportError: "fail", registry, log });
+        await writer.remember(record);
+        let failure: unknown;
+        try { await writer.publish(); } catch (error) { failure = error instanceof CacheExportError ? error.cause : error; }
+        const event = writer.exports[0];
+        if (!event) throw new Error("Cache exporter produced no result");
+        return { event, error: failure };
       }
       const started = performance.now();
       const event: CacheExportEvent = { backend: "local", destination, key: record.key, kind: record.kind, status: "written", bytes: 0, durationMs: 0 };
+      let failure: unknown;
       try {
         const writer = new CacheDriver(store, { directory: location.path, strictLocal: true, lookupMetrics: false, log });
         const previous = await writer.get(record.key, record.kind, false, { destination: record.destination, platform: record.platform });
@@ -44,16 +53,18 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
           if (!Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) throw new CacheConflictError("Different output for the same local cache key");
           event.status = "already-present";
         } else {
+          // Recheck under the write lock without carrying an earlier invalid-read bypass.
           await new CacheDriver(store, { directory: location.path, strictLocal: true, lookupMetrics: false, log }).remember(record);
           event.bytes = record.layer.descriptor.size + canonicalJSON(record).length;
         }
       } catch (error) {
+        failure = error;
         event.status = "failed"; event.reason = error instanceof CacheConflictError ? "conflict" : "unavailable";
         log(`Could not export ${record.kind} local cache (${event.reason})\n`);
       }
       event.durationMs = performance.now() - started;
       recordMetrics(event);
-      return event;
+      return { event, error: failure };
     },
   };
 }

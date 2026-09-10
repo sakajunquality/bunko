@@ -16,7 +16,7 @@ test("typed cache locations normalize repositories and reject ambiguous configur
   for (const value of ["type=gha", "type=s3,bucket=cache", "type=local,dest=x", "type=registry,repo=x,repo=y", "type=registry,repo=x:tag", "type=registry,repo=x,mode=max", "type=local,src=", " type=local,src=x"]) expect(() => cacheLocation(value, "from")).toThrow();
   expect(cacheLocations(["team/cache", "docker.io/team/cache"], "from")).toHaveLength(1);
   expect(() => cacheLocations(Array(9).fill("team/cache"), "to")).toThrow();
-  expect(() => validateCacheOptions({ cacheTo: ["type=local,dest=cache"], cacheWrite: false })).toThrow();
+  expect(() => validateCacheOptions({ cacheTo: ["type=local,dest=cache"], cacheWrite: false })).not.toThrow();
   expect(() => validateCacheOptions({ cacheTo: ["type=local,dest=cache"], localCache: false })).toThrow();
 });
 
@@ -56,7 +56,7 @@ test("invalid local imports fall through and never create missing read directori
 
 test("local cache paths cannot overlap source roots, layouts or reports", async () => {
   const { root, source, base } = await fixture();
-  for (const path of [source, root, join(root, "image"), join(root, "report.json"), base]) {
+  for (const path of ["/", source, root, join(root, "image"), join(root, "report.json"), base]) {
     await expect(build({ path: source, baseLayout: base, push: false, output: join(root, "image"), report: join(root, "report.json"), cacheTo: [`type=local,dest=${path}`], gitMetadata: false })).rejects.toThrow();
   }
 });
@@ -86,4 +86,37 @@ test("explicit destinations replace implicit image cache writes and all destinat
     cacheTo: [`type=local,dest=${denied}`, `type=local,dest=${good}`], cacheExportError: "fail" })).rejects.toThrow("Cache export failed");
   const written = JSON.parse(await readFile(report, "utf8"));
   expect(written.targets[0].cacheExports.some((event: any) => event.destination === good && event.status === "written")).toBe(true);
+});
+
+test("managed local hits are not rewritten and disabled exports preserve configured locations", async () => {
+  const { root, source, base } = await fixture(), managed = join(root, "managed"), untouched = join(root, "untouched");
+  const options = { path: source, baseLayout: base, push: false, gitMetadata: false, cacheDir: managed };
+  const first = await build({ ...options, output: join(root, "first") });
+  const hit = first.cache.find((entry) => entry.kind === "app")!, metadata = join(managed, "keys", "app", `${hit.key.slice(7)}.json`);
+  const { utimes } = await import("node:fs/promises");
+  await utimes(metadata, new Date(100000), new Date(100000));
+  const before = await stat(metadata);
+  const second = await build({ ...options, output: join(root, "second"), cacheTo: [`type=local,dest=${untouched}`], cacheWrite: false });
+  expect(second.cache.some((entry) => entry.kind === "app" && entry.status === "local")).toBe(true);
+  expect(second.cacheExports).toEqual([]);
+  expect((await stat(metadata)).mtimeMs).toBe(before.mtimeMs);
+  await expect(stat(untouched)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("typed exports retain implicit image-repository reads and strict failure causes", async () => {
+  const { root, source, base } = await fixture(), mock = new MockRegistry();
+  const registry = { credentials: async () => undefined, fetcher: mock.fetch };
+  const options = { path: source, baseLayout: base, push: true, repo: "registry.test/images", localCache: false, gitMetadata: false, registry };
+  await build(options);
+  const second = await build({ ...options, cacheTo: ["type=registry,repo=registry.test/exported"] });
+  expect(second.cache.some((entry) => entry.status === "registry" && entry.source?.startsWith("registry.test/images/"))).toBe(true);
+  mock.cacheWritable = false;
+  try {
+    await build({ ...options, cacheTo: ["type=registry,repo=registry.test/denied"], cacheExportError: "fail" });
+    throw new Error("Expected export failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("Cache export failed");
+    expect((error as Error).cause).toBeInstanceOf(Error);
+  }
 });

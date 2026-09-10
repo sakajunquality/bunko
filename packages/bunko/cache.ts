@@ -277,7 +277,7 @@ export class CacheDriver {
         let previous: CacheRecord | undefined;
         try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
         catch { /* Missing or malformed entries are replaced by verified outputs. */ }
-        if (previous && !Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
+        if (previous && (this.options.strictLocal ? !Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record))) : previous.layer.descriptor.digest !== record.layer.descriptor.digest)) {
           let valid = false;
           try { valid = await hashFile(this.local!.path(previous.layer.descriptor.digest)) === previous.layer.descriptor.digest; } catch { /* Incomplete cache is a miss. */ }
           if (valid) throw new CacheConflictError("Different output for the same cache key; refusing to overwrite a concurrent or nondeterministic build");
@@ -365,6 +365,7 @@ export class LayerCache {
   private readonly local: CacheDriver;
   private readonly readers: CacheBackend[];
   private readonly writers: CacheBackend[];
+  private readonly imported = new Set<Digest>();
   private readonly records = new Map<Digest, CacheRecord>();
   constructor(readonly store: BlobStore, private readonly options: {
     directory?: string; repository?: string; readRepositories?: string[];
@@ -390,7 +391,7 @@ export class LayerCache {
     let event = this.local.events.at(-1)!;
     if (!record && !bypass) for (const backend of this.readers) {
       const hit = await backend.read(...args);
-      if (hit.record) { record = hit.record; event = { key, kind, status: backend.type, source: backend.destination }; break; }
+      if (hit.record) { this.imported.add(key); record = hit.record; event = { key, kind, status: backend.type, source: backend.destination }; break; }
       if (hit.unavailable) event = { key, kind, status: "miss", reason: "invalid-or-unavailable" };
     }
     if (record) this.records.set(key, record);
@@ -404,16 +405,20 @@ export class LayerCache {
   rememberPlan(...args: Parameters<CacheDriver["rememberPlan"]>) { return this.local.rememberPlan(...args); }
   async remember(record: CacheRecord): Promise<void> {
     if (canonicalJSON(record).length > cacheMetadataLimit) { this.options.log("Cache metadata exceeds size limit; skipping cache persistence and publication\n"); return; }
-    this.records.set(record.key, record); await this.local.remember(record);
+    this.records.set(record.key, record); await this.local.remember(record); this.imported.delete(record.key);
   }
-  async persistHits(): Promise<void> { for (const record of this.records.values()) await this.local.remember(record); }
+  async persistHits(): Promise<void> {
+    for (const key of this.imported) await this.local.remember(this.records.get(key)!);
+    this.imported.clear();
+  }
   async publish(): Promise<void> {
-    let failed = false;
+    let failed = false, firstFailure: unknown;
     for (const backend of this.writers) for (const record of this.records.values()) {
-      const event = await backend.write(record);
+      const { event, error } = await backend.write(record);
+      if (event.status === "failed") firstFailure ??= error;
       this.exports.push(event);
       failed ||= event.status === "failed";
     }
-    if (failed && this.options.exportError === "fail") throw new CacheExportError();
+    if (failed && this.options.exportError === "fail") throw new CacheExportError(firstFailure);
   }
 }

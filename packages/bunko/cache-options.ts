@@ -10,7 +10,6 @@ export function validateCacheOptions(options: Partial<BuildOptions>): void {
   const sources = cacheLocations(options.cacheFrom, "from"), destinations = cacheLocations(options.cacheTo, "to");
   if (options.registryCache === false && [...sources, ...destinations].some((item) => item.type === "registry")) throw new Error("--cache-from/--cache-to requires registry caching");
   if (options.localCache === false && [...sources, ...destinations].some((item) => item.type === "local")) throw new Error("Local cache locations require local caching");
-  if (options.cacheWrite === false && destinations.length) throw new Error("--cache-to requires cache writes");
   const destination = options.cacheRepo ?? (options.registryCache === false ? undefined : process.env.BUNKO_CACHE_REPO);
   if (destination) repository(destination);
 }
