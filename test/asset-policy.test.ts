@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { packLayer } from "../packages/oci/tar.ts";
 import { assetMappings, stageAssetMappings } from "../packages/bunko/asset-contexts.ts";
+import { assetEntries } from "../packages/bunko/files.ts";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function root() { const directory = await temporary(); roots.push(directory); return directory; }
@@ -61,4 +62,14 @@ test("source exclusions reject extended tsconfig files discovered after asset se
   await writeFile(join(source, "tsconfig.json"), JSON.stringify({ extends: "./config/base.json" }));
   await writeFile(join(source, "config/base.json"), JSON.stringify({ compilerOptions: { jsx: "react-jsx" } }));
   await expect(build({ path: source, mode: "source", baseLayout: await baseLayout(join(directory, "base")), push: false, localCache: false, output: join(directory, "image") })).rejects.toThrow("required source input: config/base.json");
+});
+
+test("an asset entry no image can carry names the kind of entry and the pattern that selected it", async () => {
+  const directory = await root();
+  await mkdir(join(directory, "db"));
+  await writeFile(join(directory, "db/schema.sql"), "-- schema\n");
+  await symlink("schema.sql", join(directory, "db/link.sql"));
+  // A build rejects the symlink while snapshotting; assetEntries is the last line of defence,
+  // so its message has to say what it found and which rule reached it.
+  await expect(assetEntries(directory, ["db"], "app")).rejects.toThrow("Unsupported output file type: db/link.sql (symlink) selected by asset pattern db");
 });
