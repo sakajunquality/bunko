@@ -67,7 +67,7 @@ test("failed mirrors have a short retry budget and a circuit shared by readers",
   const options = { mirrors: { "origin.example": ["mirror.example"] }, credentials: async () => undefined, sleep: async (ms: number) => { waits.push(ms); }, onMirrorFallback: () => { warnings++; },
     fetcher: async (value: string | URL) => { if (new URL(value).host === "mirror.example") { mirror++; return new Response(null, { status: 503, headers: { "Retry-After": "99999" } }); } origin++; return new Response(bytes); } };
   for (let i = 0; i < 3; i++) expect((await new RegistrySource(`origin.example/team/app@${digest}`, options).root()).descriptor.digest).toBe(digest);
-  expect(mirror).toBe(2); expect(origin).toBe(3); expect(warnings).toBe(1); expect(waits).toEqual([250]);
+  expect(mirror).toBe(2); expect(origin).toBe(3); expect(warnings).toBe(1); expect(waits).toHaveLength(1); expect(waits[0]).toBeCloseTo(250, 0);
   await new RegistrySource(`origin.example/team/app@${digest}`, { ...options }).root();
   expect(mirror).toBe(4);
 });

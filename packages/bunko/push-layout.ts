@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { descriptor, object } from "../oci/digest.ts";
-import { PublicationError, Publisher, type Publication, type TagConflict } from "../oci/publish.ts";
+import { accumulate, PublicationError, Publisher, type Publication, type TagConflict } from "../oci/publish.ts";
 import { LayoutSource } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import { publishArtifacts } from "../oci/artifacts.ts";
@@ -61,7 +61,7 @@ export async function pushLayout(directory: string, repository: string, tags: st
     const publicationTags = retention ? [`bunko-artifact-sha256-${roots[0]!.digest.slice(7)}`] : tags;
     publication = await publisher.publish(store, roots[0]!, publicationTags, undefined, false, retention ? "skip" : tagConflict);
     if (retention && publication.skippedTags?.length) throw new PublicationError("Content-addressed artifact retention tag points at another digest", publication);
-    await publishArtifacts(publisher, store, attachments, (transfers) => publication!.transfers.push(...transfers));
+    await publishArtifacts(publisher, store, attachments, (attachment, elapsedMs) => accumulate(publication!, attachment, elapsedMs));
     if (report) await writeReport(report, { schemaVersion: 1, command: "push-layout", status: "success", publication }, written);
     return publication;
   } catch (error) {
