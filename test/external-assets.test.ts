@@ -3,8 +3,6 @@ import { MockRegistry } from "./mock-registry.ts";
 import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createServer, type Socket } from "node:net";
-import { request as httpRequest, type IncomingMessage } from "node:http";
 import { gzipSync } from "node:zlib";
 import { pack } from "tar-stream";
 import { assetMappings, stageAssetMappings } from "../packages/bunko/asset-contexts.ts";
@@ -17,11 +15,7 @@ import { media, type Platform } from "../packages/oci/types.ts";
 import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
 
 const roots: string[] = [];
-const servers: { stop(force?: boolean): void }[] = [];
-afterEach(async () => {
-  for (const server of servers.splice(0)) server.stop(true);
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
-});
+afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
 interface LayerFixture { gzip: Uint8Array; diffId: `sha256:${string}`; descriptor: { mediaType: string; digest: `sha256:${string}`; size: number } }
 /** Build a raw gzip layer, including whiteouts, which the normal packer deliberately refuses to emit. */
@@ -227,59 +221,37 @@ test("multi-platform builds pack one asset layer per platform", async () => {
   for (const platform of ["linux/amd64", "linux/arm64"]) expect(statement).toContain(platform);
 });
 
-/** Requests go through node:http: Bun caches proxy environment variables process-wide, and other suites set them.
- * Both ends are pinned to the literal IPv4 loopback address and the actual bound port, never "localhost",
- * so no resolver order or dual-stack default can point the client at an address the server is not on.
- * The body is pulled one chunk at a time and honours the abort signal, so what the downloader actually
- * consumes is observable and does not depend on a server runtime's backpressure behaviour. */
-const loopback = "127.0.0.1";
-function boundPort(value: unknown, name: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw new Error(`Fixture ${name} did not bind a port (received ${JSON.stringify(value)})`);
-  return value;
-}
-function bridge(port: number, onChunk?: () => void) {
-  return (url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
-    const target = new URL(url), path = `${target.pathname}${target.search}`;
-    let aborted = false, incoming: IncomingMessage | undefined;
-    const request = httpRequest({ host: loopback, port, family: 4, path }, (response) => {
-      incoming = response;
-      const iterator = response[Symbol.asyncIterator]();
-      const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          if (aborted) throw new Error("The operation was aborted");
-          const next = await iterator.next().catch((error: unknown) => { if (aborted) throw new Error("The operation was aborted"); throw error; });
-          if (next.done) { controller.close(); return; }
-          onChunk?.();
-          controller.enqueue(new Uint8Array(Buffer.from(next.value as Uint8Array)));
-        },
-        cancel() { response.destroy(); request.destroy(); },
-      });
-      resolve(new Response(body, { status: response.statusCode ?? 500, headers: Object.entries(response.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string") }));
+/** An in-memory fetch. The downloader only ever sees fetch-shaped calls, so this drives exactly the same
+ * code paths as a socket transport while staying deterministic on every Bun release and runner: no
+ * listener, port, resolver or address family is involved. Bodies are pulled one chunk at a time and
+ * honour the abort signal, so what the downloader actually reads is observable, and a body that never
+ * completes is expressed directly instead of through a server runtime's streaming semantics. */
+interface AssetRoute { status?: number; location?: string; body?: string; oversized?: number; stall?: boolean }
+function assetFetcher(route: (url: URL, count: number) => AssetRoute | undefined) {
+  let requests = 0, pulls = 0;
+  const filler = new Uint8Array(64 * 1024);
+  const fetcher = async (input: string, init?: RequestInit): Promise<Response> => {
+    const url = new URL(input), selected = route(url, ++requests);
+    if (!selected) throw new Error(`Fixture has no route for ${input}`);
+    const signal = init?.signal ?? undefined;
+    if (signal?.aborted) throw new Error("The operation was aborted");
+    const payload = selected.body === undefined ? undefined : new TextEncoder().encode(selected.body);
+    let sent = false, remaining = selected.oversized ?? 0;
+    const next = () => { if (payload && !sent) { sent = true; return payload; } if (remaining > 0) { remaining--; return filler; } return undefined; };
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (signal?.aborted) { controller.error(new Error("The operation was aborted")); return; }
+        const value = next();
+        if (value) { pulls++; controller.enqueue(value); return; }
+        if (!selected.stall) { controller.close(); return; }
+        if (!signal) throw new Error("Fixture stall requires an abort signal");
+        // Never settles on its own: only the downloader's own deadline ends this body.
+        return new Promise<void>((_, reject) => signal.addEventListener("abort", () => reject(new Error("The operation was aborted")), { once: true }));
+      },
     });
-    init?.signal?.addEventListener("abort", () => { aborted = true; incoming?.destroy(); request.destroy(); });
-    // Name the exact target when a connection fails, so a CI-only failure is diagnosable from the log.
-    request.on("error", (error) => reject(aborted ? new Error("The operation was aborted")
-      : new Error(`Fixture request to http://${loopback}:${port}${path} failed (${(error as NodeJS.ErrnoException).code ?? "unknown"}): ${error.message}`)));
-    request.end();
-  });
-}
-
-function assetServer(handler: (request: Request, count: number) => Response) {
-  let count = 0, pulls = 0;
-  const server = Bun.serve({ port: 0, hostname: loopback, fetch: (request) => handler(request, ++count) });
-  servers.push({ stop: () => server.stop(true) });
-  return { fetcher: bridge(boundPort(server.port, "asset server"), () => { pulls++; }), requests: () => count, pulls: () => pulls };
-}
-
-/** A raw socket server: it sends headers and a partial body, then stops. Response bodies that never end
- * are expressed differently by different Bun releases, so the stall is written at the protocol level. */
-async function stallingServer() {
-  const sockets: Socket[] = [];
-  const server = createServer((socket) => { sockets.push(socket); socket.write("HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n12345678"); });
-  servers.push({ stop: () => { for (const socket of sockets) socket.destroy(); server.close(); } });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.once("listening", resolve); server.listen(0, loopback); });
-  const address = server.address();
-  return { fetcher: bridge(boundPort(typeof address === "object" ? address?.port : undefined, "stall server")) };
+    return new Response(body, { status: selected.status ?? 200, headers: selected.location ? { location: selected.location } : {} });
+  };
+  return { fetcher, requests: () => requests, pulls: () => pulls };
 }
 
 const body = "static go binary\n";
@@ -287,7 +259,7 @@ const digest = new Bun.CryptoHasher("sha256").update(body).digest("hex");
 
 test("url assets stream, verify and cache a single file", async () => {
   const root = await temporary(); roots.push(root);
-  const server = assetServer(() => new Response(body));
+  const server = assetFetcher(() => ({ body }));
   const external = { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher };
   const mapping = { url: "https://assets.test/spannerdef", sha256: digest, to: "/tools/spannerdef", mode: "0755" };
   const staged = await stageAssetMappings([mapping], {}, join(root, "first"), [], external);
@@ -306,25 +278,25 @@ test("url assets stream, verify and cache a single file", async () => {
 
 test("url assets fail closed on checksum, size, redirect and transport violations", async () => {
   const root = await temporary(); roots.push(root);
-  const wrong = assetServer(() => new Response("tampered payload"));
+  const wrong = assetFetcher(() => ({ body: "tampered payload" }));
   const external = { platform: amd64, cache: join(root, "asset-cache"), fetcher: wrong.fetcher };
   const mapping = { url: "https://assets.test/spannerdef", sha256: digest, to: "/tools/spannerdef" };
   const failure = stageAssetMappings([mapping], {}, join(root, "mismatch"), [], external);
   await expect(failure).rejects.toThrow(`expected sha256:${digest}`);
   await expect(stageAssetMappings([mapping], {}, join(root, "mismatch2"), [], external)).rejects.toThrow("received sha256:");
-  const large = assetServer(() => new Response(body));
+  const large = assetFetcher(() => ({ body }));
   await expect(stageAssetMappings([mapping], {}, join(root, "large"), [], { ...external, fetcher: large.fetcher, limit: 4 })).rejects.toThrow("exceeds the 4 byte limit");
-  const looping = assetServer((request, count) => Response.redirect(`https://assets.test/hop-${count}`, 302));
+  const looping = assetFetcher((url, count) => ({ status: 302, location: `https://assets.test/hop-${count}` }));
   await expect(stageAssetMappings([mapping], {}, join(root, "loop"), [], { ...external, fetcher: looping.fetcher })).rejects.toThrow("exceeded 4 redirects");
-  const offsite = assetServer(() => Response.redirect("https://elsewhere.test/spannerdef", 302));
+  const offsite = assetFetcher(() => ({ status: 302, location: "https://elsewhere.test/spannerdef" }));
   await expect(stageAssetMappings([mapping], {}, join(root, "offsite"), [], { ...external, fetcher: offsite.fetcher })).rejects.toThrow("redirected off its original host");
-  const missing = assetServer(() => new Response(null, { status: 404 }));
+  const missing = assetFetcher(() => ({ status: 404 }));
   await expect(stageAssetMappings([mapping], {}, join(root, "missing"), [], { ...external, fetcher: missing.fetcher })).rejects.toThrow("Asset download failed (404)");
 });
 
-test("url assets follow a bounded chain of same-site redirects", async () => {
+test.each([301, 302, 307, 308])("a %i redirect to the same host is followed once", async (status) => {
   const root = await temporary(); roots.push(root);
-  const server = assetServer((request) => request.url.endsWith("/final") ? new Response(body) : Response.redirect("https://assets.test/final", 302));
+  const server = assetFetcher((url) => url.pathname.endsWith("/final") ? { body } : { status, location: "https://assets.test/final" });
   const staged = await stageAssetMappings([{ url: "https://assets.test/download", sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher });
   const entry = staged.entries[0]!;
   if (entry.type !== "file" || !("source" in entry)) throw new Error("Expected a staged file");
@@ -499,7 +471,7 @@ test("image assets are frozen into build staging and a poisoned cache is detecte
 
 test("url assets are frozen into build staging and a poisoned cache is detected", async () => {
   const root = await temporary(); roots.push(root);
-  const cache = join(root, "asset-cache"), server = assetServer(() => new Response(body));
+  const cache = join(root, "asset-cache"), server = assetFetcher(() => ({ body }));
   const external = { platform: amd64, cache, fetcher: server.fetcher };
   const mapping = { url: "https://assets.test/spannerdef", sha256: digest, to: "/tools/spannerdef" };
   const first = await stageAssetMappings([mapping], {}, join(root, "first"), [], external);
@@ -520,27 +492,22 @@ test("url assets are frozen into build staging and a poisoned cache is detected"
 test("url downloads bound transport consumption and abort a stalled body", async () => {
   const root = await temporary(); roots.push(root);
   const mapping = { url: "https://assets.test/spannerdef", sha256: digest, to: "/tools/spannerdef" };
-  const chunk = new Uint8Array(64 * 1024);
-  let remaining = 64;
-  const large = assetServer(() => new Response(new ReadableStream<Uint8Array>({ pull(controller) { if (remaining-- > 0) controller.enqueue(chunk); else controller.close(); } })));
+  // A 4 MiB body against a 4 KiB cap: the downloader must stop reading, not drain it.
+  const large = assetFetcher(() => ({ oversized: 64 }));
   await expect(stageAssetMappings([mapping], {}, join(root, "large"), [], { platform: amd64, cache: join(root, "large-cache"), fetcher: large.fetcher, limit: 4096 })).rejects.toThrow("exceeds the 4096 byte limit");
-  // The downloader stops reading as soon as the cap is crossed rather than draining the 4 MiB body.
-  // Chunk sizes are a transport detail, so the assertion is on reads, not bytes.
   expect(large.pulls()).toBeLessThanOrEqual(2);
-  const stalled = await stallingServer();
+  const stalled = assetFetcher(() => ({ body: "12345678", stall: true }));
   const started = Date.now();
   await expect(stageAssetMappings([mapping], {}, join(root, "stalled"), [], { platform: amd64, cache: join(root, "stalled-cache"), fetcher: stalled.fetcher, timeoutMs: 250 })).rejects.toThrow(/abort/i);
   expect(Date.now() - started).toBeLessThan(5_000);
   expect(await Bun.file(join(root, "stalled-cache", "downloads", digest, "asset")).exists()).toBe(false);
 });
 
-test("a refused fixture connection names the exact target", async () => {
+test("an unexpected request names the exact URL the downloader asked for", async () => {
   const root = await temporary(); roots.push(root);
-  const server = assetServer(() => new Response(body));
-  for (const item of servers.splice(0)) item.stop();
-  const failure = stageAssetMappings([{ url: "https://assets.test/spannerdef", sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher });
-  await expect(failure).rejects.toThrow(`http://127.0.0.1:`);
-  await expect(failure).rejects.toThrow("/spannerdef failed (");
+  const server = assetFetcher((url) => url.pathname === "/expected" ? { body } : undefined);
+  await expect(stageAssetMappings([{ url: "https://assets.test/unexpected", sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher }))
+    .rejects.toThrow("Fixture has no route for https://assets.test/unexpected");
 });
 
 test.each([
@@ -550,7 +517,7 @@ test.each([
   ["https://evilassets.test/final", "redirected off its original host"],
 ])("redirect targets are rejected: %s", async (location, message) => {
   const root = await temporary(); roots.push(root);
-  const server = assetServer((request) => request.url.endsWith("/final") ? new Response(body) : new Response(null, { status: 302, headers: { location } }));
+  const server = assetFetcher((url) => url.pathname.endsWith("/final") ? { body } : { status: 302, location });
   await expect(stageAssetMappings([{ url: "https://assets.test/download", sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher })).rejects.toThrow(message);
 });
 
@@ -559,7 +526,7 @@ test.each([
   ["https://github.com/OWNER/tool/releases/download/v1/tool", "https://objects.githubusercontent.com/final"],
 ])("redirect targets are accepted: %s", async (url, location) => {
   const root = await temporary(); roots.push(root);
-  const server = assetServer((request) => request.url.endsWith("/final") ? new Response(body) : new Response(null, { status: 302, headers: { location } }));
+  const server = assetFetcher((target) => target.pathname.endsWith("/final") ? { body } : { status: 302, location });
   const staged = await stageAssetMappings([{ url, sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher });
   const entry = staged.entries[0]!;
   if (entry.type !== "file" || !("source" in entry)) throw new Error("Expected a staged file");
