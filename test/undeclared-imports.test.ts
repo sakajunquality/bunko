@@ -3,10 +3,11 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, buildTargets } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { bareSpecifierPackage, candidateRuntimeFile, cookedLiteral, declaredNames, guardedImports, importSpecifiers, manifestEntryPoints, reachableUndeclaredImports, scanGuards, scannableRuntimeFile, testLocation, undeclaredImportPolicy, undeclaredImportSizeLimit, undeclaredImports } from "../packages/bunko/undeclared-imports.ts";
+import { acknowledgedImportSummaryLimit, bareSpecifierPackage, candidateRuntimeFile, cookedLiteral, declaredNames, guardedImports, importSpecifiers, manifestEntryPoints, reachableUndeclaredImports, scanGuards, scannableRuntimeFile, testLocation, undeclaredImportLimit, undeclaredImportPolicy, undeclaredImportSizeLimit, undeclaredImports } from "../packages/bunko/undeclared-imports.ts";
 import { baseLayout, project, temporary } from "./helpers.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { workspaceFixture } from "./workspace-fixture.ts";
+import { canonicalJSON } from "../packages/oci/digest.ts";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
@@ -460,3 +461,149 @@ test("reading a package manifest does not prevent optional classification", asyn
   const input = memory({ "index.js": 'require("./package.json"); try { require("x"); } catch {}', "package.json": JSON.stringify(pkg) });
   expect(await reachableUndeclaredImports(pkg, input.files, input.read)).toEqual([{ name: "x", file: "index.js", optional: true }]);
 });
+
+test("deps.acknowledgedImports normalises valid entries and rejects malformed ones", async () => {
+  const root = await temporary(); directories.push(root);
+  const at = async (name: string, acknowledgedImports: unknown) => loadProject({ path: await project(join(root, name), { bunko: { deps: { acknowledgedImports } } }) });
+  expect((await loadProject({ path: await project(join(root, "absent")) })).acknowledgedImports).toEqual([]);
+  // Entries are sorted by package, name and version, and unset optional fields are dropped rather than stored as undefined.
+  expect((await at("valid", [
+    { package: "grpc-gcp", name: "protobufjs" },
+    { package: "@babel/core", name: "@babel/preset-typescript", version: "7.27.7" },
+    { package: "@babel/core", name: "@babel/preset-typescript", reason: "optional TS preset probed at runtime" },
+  ])).acknowledgedImports).toEqual([
+    { package: "@babel/core", name: "@babel/preset-typescript", reason: "optional TS preset probed at runtime" },
+    { package: "@babel/core", name: "@babel/preset-typescript", version: "7.27.7" },
+    { package: "grpc-gcp", name: "protobufjs" },
+  ]);
+  await expect(at("not-array", { package: "a", name: "b" })).rejects.toThrow("deps.acknowledgedImports must be an array of {package, name} entries");
+  await expect(at("not-object", ["@babel/core"])).rejects.toThrow("deps.acknowledgedImports[0] must be an object");
+  await expect(at("subpath", [{ package: "@babel/core/lib", name: "x" }])).rejects.toThrow("deps.acknowledgedImports[0].package must be an exact package name");
+  await expect(at("missing-package", [{ name: "x" }])).rejects.toThrow("deps.acknowledgedImports[0].package must be an exact package name");
+  await expect(at("missing-name", [{ package: "@babel/core" }])).rejects.toThrow("deps.acknowledgedImports[0].name must be an exact package name");
+  await expect(at("name-subpath", [{ package: "@babel/core", name: "@babel/preset-typescript/package.json" }])).rejects.toThrow("deps.acknowledgedImports[0].name must be an exact package name");
+  // A pinned entry names one resolved version, so every range form is a configuration error rather than a silent near-match.
+  for (const version of ["^1.0.0", "~1.0.0", ">=1.0.0", "*", "1.0", "latest", "^1.0.0 || 2", ""]) {
+    await expect(at(`range-${version || "empty"}`, [{ package: "a", name: "b" }, { package: "a", name: "b", version }])).rejects.toThrow("deps.acknowledgedImports[1].version must be an exact version string");
+  }
+  expect((await at("versions", ["1.0.0", "1.0.0-beta.1", "1.0.0+build.5"].map((version) => ({ package: "a", name: "b", version })))).acknowledgedImports)
+    .toEqual([{ package: "a", name: "b", version: "1.0.0" }, { package: "a", name: "b", version: "1.0.0+build.5" }, { package: "a", name: "b", version: "1.0.0-beta.1" }]);
+  await expect(at("reason", [{ package: "a", name: "b", reason: 7 }])).rejects.toThrow("deps.acknowledgedImports[0].reason must be a string");
+  await expect(at("unknown-key", [{ package: "a", name: "b", why: "typo" }])).rejects.toThrow("Unsupported deps.acknowledgedImports[0] setting: why");
+  await expect(at("duplicate", [{ package: "a", name: "b", reason: "first" }, { package: "a", name: "b" }])).rejects.toThrow("deps.acknowledgedImports has a duplicate entry for a -> b");
+  await expect(at("duplicate-pinned", [{ package: "a", name: "b", version: "1.0.0" }, { package: "a", name: "b", version: "1.0.0" }])).rejects.toThrow("deps.acknowledgedImports has a duplicate entry for a@1.0.0 -> b");
+});
+
+/** Writes the target's bunko.deps block and returns the shared closure build options. */
+async function acknowledgementFixture(root: string, index: string) {
+  const f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), index);
+  const manifest = JSON.parse(await Bun.file(join(f.source, "package.json")).text());
+  const deps = (extra: Record<string, unknown>) => writeFile(join(f.source, "package.json"), JSON.stringify({ ...manifest, bunko: { ...manifest.bunko, deps: { strategy: "closure", ...extra } } }));
+  return { f, deps, options: { path: f.source, baseLayout: base, push: false, localCache: false, gitMetadata: false, installCache: f.cache, depsStrategy: "closure" as const } };
+}
+
+test("an acknowledged undeclared import stops being reported and stops failing the error policy", async () => {
+  const root = await temporary(); directories.push(root);
+  const { deps, options } = await acknowledgementFixture(root, 'module.exports="fixture-msg works";require("@babel/preset-typescript");\n');
+  await deps({ undeclaredImports: "error" });
+  await expect(build({ ...options, output: join(root, "error") })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT: 1 undeclared runtime import(s)");
+  await deps({ undeclaredImports: "error", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript", reason: "optional TS preset probed at runtime" }] });
+  let logs = "";
+  await build({ ...options, output: join(root, "acknowledged"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(logs).not.toContain("BUNKO_UNUSED_ACKNOWLEDGEMENT");
+  expect(logs.split("\n")).toContain("Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> @babel/preset-typescript");
+});
+
+test("a pinned acknowledgement matches only the importer version it names", async () => {
+  const root = await temporary(); directories.push(root);
+  const { deps, options } = await acknowledgementFixture(root, 'module.exports="fixture-msg works";require("@babel/preset-typescript");\n');
+  await deps({ undeclaredImports: "error", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript", version: "9.9.9" }] });
+  let logs = "";
+  await expect(build({ ...options, output: join(root, "mismatch"), log: (text) => { logs += text; } })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT: 1 undeclared runtime import(s)");
+  expect(logs).toContain('BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "@babel/preset-typescript"');
+  expect(logs).toContain("BUNKO_UNUSED_ACKNOWLEDGEMENT deps.acknowledgedImports: fixture-msg@9.9.9 -> @babel/preset-typescript matched no finding");
+  await deps({ undeclaredImports: "error", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript", version: "1.0.0" }] });
+  logs = "";
+  await build({ ...options, output: join(root, "pinned"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(logs).toContain("Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> @babel/preset-typescript");
+});
+
+test("an optional finding is acknowledged the same way under strict", async () => {
+  const root = await temporary(); directories.push(root);
+  const { deps, options } = await acknowledgementFixture(root, 'module.exports="fixture-msg works";try{require("@babel/preset-typescript")}catch{}\n');
+  await deps({ undeclaredImports: "strict" });
+  await expect(build({ ...options, output: join(root, "strict") })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT: 1 undeclared runtime import(s)");
+  await deps({ undeclaredImports: "strict", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript" }] });
+  let logs = "";
+  await build({ ...options, output: join(root, "acknowledged"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_OPTIONAL_IMPORT");
+  expect(logs).toContain("Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> @babel/preset-typescript");
+});
+
+test("an acknowledgement that matches no finding is reported as stale without failing, and is skipped when the scan is off", async () => {
+  const root = await temporary(); directories.push(root);
+  const { deps, options } = await acknowledgementFixture(root, 'module.exports="fixture-msg works";\n');
+  await deps({ undeclaredImports: "error", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript", reason: "fixed upstream" }] });
+  let logs = "";
+  await build({ ...options, output: join(root, "stale"), log: (text) => { logs += text; } });
+  expect(logs.split("\n")).toContain("BUNKO_UNUSED_ACKNOWLEDGEMENT deps.acknowledgedImports: fixture-msg -> @babel/preset-typescript matched no finding");
+  expect(logs).not.toContain("Acknowledged");
+  await deps({ undeclaredImports: "off", acknowledgedImports: [{ package: "fixture-msg", name: "@babel/preset-typescript" }] });
+  logs = "";
+  await build({ ...options, output: join(root, "off"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNUSED_ACKNOWLEDGEMENT");
+});
+
+test("targets sharing a closure contribute the union of their acknowledgements, summarised once per closure", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports="one";require("x");');
+  await writeFile(join(f.source, "package.json"), canonicalJSON({ ...f.manifests[""], bunko: { sharedDeps: true } }));
+  // Only the worker acknowledges the finding, while the api is the target whose error policy governs the shared closure.
+  await writeFile(join(f.source, "services/api/package.json"), canonicalJSON({ ...f.manifests["services/api"], bunko: { ...f.manifests["services/api"]!.bunko as object, deps: { undeclaredImports: "error" } } }));
+  await writeFile(join(f.source, "services/worker/package.json"), canonicalJSON({ ...f.manifests["services/worker"], bunko: { ...f.manifests["services/worker"]!.bunko as object, deps: { acknowledgedImports: [{ package: "fixture-msg", name: "x", reason: "probed at runtime" }] } } }));
+  const options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, cacheDir: join(root, "cache"), installCache: f.cache };
+  const acknowledged = (logs: string) => logs.split("\n").filter((line) => line.startsWith("Acknowledged "));
+  let cold = "";
+  expect(await buildTargets({ ...options, output: join(root, "cold"), log: (text) => { cold += text; } })).toHaveLength(2);
+  expect(cold).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(acknowledged(cold)).toEqual(["Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> x"]);
+  // The replayed plan carries the same findings, so the union filters them exactly once again.
+  let warm = "";
+  await buildTargets({ ...options, output: join(root, "warm"), log: (text) => { warm += text; } });
+  expect(warm).toContain("Reusing dependency closure");
+  expect(warm).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(acknowledged(warm)).toEqual(["Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> x"]);
+}, 30_000);
+
+test("a broad and a pinned entry covering one finding are both used and summarised once", async () => {
+  const root = await temporary(); directories.push(root);
+  const { deps, options } = await acknowledgementFixture(root, 'module.exports="fixture-msg works";require("x");\n');
+  await deps({ undeclaredImports: "error", acknowledgedImports: [{ package: "fixture-msg", name: "x" }, { package: "fixture-msg", name: "x", version: "1.0.0" }] });
+  let logs = "";
+  await build({ ...options, output: join(root, "overlapping"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  // A broad entry must not make the pinned one it overlaps look stale: both matched the same finding.
+  expect(logs).not.toContain("BUNKO_UNUSED_ACKNOWLEDGEMENT");
+  expect(logs.split("\n").filter((line) => line.startsWith("Acknowledged "))).toEqual(["Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> x"]);
+});
+
+test("acknowledgement is applied before the 100-line budget, so the remaining findings are all logged and counted", async () => {
+  const root = await temporary(); directories.push(root);
+  const names = Array.from({ length: 101 }, (_, index) => `dep-${String(index).padStart(3, "0")}`);
+  const index = `module.exports="fixture-msg works";${names.map((name) => `require(${JSON.stringify(name)});`).join("")}try{require("optional-x")}catch{}\n`;
+  const { deps, options } = await acknowledgementFixture(root, index);
+  await deps({ undeclaredImports: "strict", acknowledgedImports: names.slice(0, undeclaredImportLimit).map((name) => ({ package: "fixture-msg", name })) });
+  let logs = "";
+  await expect(build({ ...options, output: join(root, "budget"), log: (text) => { logs += text; } })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT: 2 undeclared runtime import(s)");
+  expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT")))
+    .toEqual([`BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "dep-100" without declaring it (index.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application's dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.`]);
+  expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_OPTIONAL_IMPORT")))
+    .toEqual(['BUNKO_OPTIONAL_IMPORT fixture-msg@1.0.0 imports "optional-x" only inside try/catch (index.js); treated as optional']);
+  expect(logs).not.toContain("additional warnings omitted");
+  expect(logs.split("\n").filter((line) => line.startsWith("Acknowledged ")))
+    .toEqual([`Acknowledged 100 undeclared import(s): ${names.slice(0, acknowledgedImportSummaryLimit).map((name) => `fixture-msg@1.0.0 -> ${name}`).join(", ")} and 95 more`]);
+}, 30_000);

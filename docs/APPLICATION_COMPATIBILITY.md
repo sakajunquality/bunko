@@ -55,7 +55,8 @@ Only the two listed install settings are forwarded to the controlled frozen inst
     "external": ["ready-made-addon"],
     "deps": {
       "allowIgnoredScripts": ["protobufjs", "ready-made-addon"],
-      "undeclaredImports": "warn"
+      "undeclaredImports": "warn",
+      "acknowledgedImports": []
     },
     "build": {
       "allowUnresolved": [""]
@@ -88,6 +89,24 @@ Names a package guards itself are separated from these findings. A missing name 
 ```text
 BUNKO_OPTIONAL_IMPORT debug@4.4.3 imports "supports-color" only inside try/catch (src/node.js); treated as optional
 ```
+
+Acknowledge a finding you have reviewed instead of relaxing the policy for the whole build. `deps.acknowledgedImports` names the importing package and the imported name, optionally pinned to one importer version, with a free-text `reason` kept for review — the recommended way to keep `deps.undeclaredImports: "error"` as a CI policy while `@babel/core@7.27.7`, reached through `@google-cloud/spanner`, keeps missing the optional-import rule:
+
+```json
+{
+  "bunko": {
+    "deps": {
+      "strategy": "closure",
+      "undeclaredImports": "error",
+      "acknowledgedImports": [
+        { "package": "@babel/core", "name": "@babel/preset-typescript", "reason": "optional TS preset probed at runtime" }
+      ]
+    }
+  }
+}
+```
+
+The finding is then neither logged nor counted; the closure reports `Acknowledged 1 undeclared import(s): @babel/core@7.27.7 -> @babel/preset-typescript` instead. An entry that matches no finding — because the package was fixed or the version moved past a pinned entry — logs `BUNKO_UNUSED_ACKNOWLEDGEMENT deps.acknowledgedImports: @babel/core -> @babel/preset-typescript matched no finding` and never fails the build, so the list is visibly rotting rather than quietly hiding a new finding. Acknowledgement suppresses reporting, not the runtime behavior it describes: verify that the probe really degrades before adding an entry. It affects no cache or plan key, so the list can be edited without rebuilding the dependency layer.
 
 `"off"` skips the scan. The classification is textual rather than an execution model: a `require()` in a function that only a `try` block calls is reported, and one a `try` block merely defers to a callback is treated as optional even though the deferred call is unprotected, so optional means no unguarded use was found rather than a guarantee that the package cannot crash. Computed specifiers, unparseable files, files above 4 MiB and files no entry point reaches (shipped tests, benchmarks and unused sources) are not inspected, so a clean scan is not proof that every runtime import resolves: an import that exists only in a file skipped for size is never discovered, although reaching such a file does stop the package's other names from being called optional. A package with no resolvable entry point at all is scanned whole, except `test`, `tests`, `__tests__`, `spec`, `bench`, `benchmark`, `browser-test` and `system-test` directories and `test`, `*.test`, `*.spec` and `*.bench` files.
 

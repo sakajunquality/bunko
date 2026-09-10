@@ -46,7 +46,7 @@ import { assertLockToolchain, buildDependencyFilters, bundleOutsideBuildScope, d
 import { discover, workspaceAt } from "./workspace.ts";
 import { assertSharedClosure, byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
-import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
+import { acknowledgedImportSummary, acknowledgedImports, applyAcknowledgements, optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, unusedAcknowledgementMessage, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
@@ -160,14 +160,22 @@ export async function writeFailureReport(path: string, value: unknown, original:
 /** Reports undeclared-import findings once per closure and platform, and applies the strictest selected policy. */
 function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndeclared: UndeclaredImport[], projects: Project[], notice: string, announced: Set<string>, iteration: number, log: (message: string) => void): void {
   const policy = undeclaredImportPolicy(projects);
+  // `off` scans nothing, so there is neither a finding to filter nor an acknowledgement that can be called stale.
+  if (policy === "off") return;
+  // Acknowledged findings are removed here, on the findings the closure carries: the projection and every key are unaware of them.
+  const report = applyAcknowledgements(undeclared, optionalUndeclared, acknowledgedImports(projects));
   // Peer contexts repeat one package version as several instances; identical findings are reported once.
-  const messages = [...new Set(undeclared.map(undeclaredImportMessage))];
-  const optional = [...new Set(optionalUndeclared.map(optionalImportMessage))];
+  const messages = [...new Set(report.undeclared.map(undeclaredImportMessage))];
+  const optional = [...new Set(report.optionalUndeclared.map(optionalImportMessage))];
   const lines = policy === "strict" ? [...messages, ...optional] : messages;
-  if (lines.length && policy !== "off" && iteration === 1 && !announced.has(notice)) {
+  // Only findings this policy would have reported are summarised as acknowledged; optional ones stay silent under warn and error as before.
+  const acknowledged = policy === "strict" ? [...report.acknowledged, ...report.acknowledgedOptional] : report.acknowledged;
+  if (iteration === 1 && !announced.has(notice) && (lines.length || acknowledged.length || report.unused.length)) {
     announced.add(notice);
     for (const message of lines.slice(0, undeclaredImportLimit)) log(`${message}\n`);
     if (lines.length > undeclaredImportLimit) log(`BUNKO_UNDECLARED_IMPORT: ${lines.length - undeclaredImportLimit} additional warnings omitted\n`);
+    if (acknowledged.length) log(`${acknowledgedImportSummary(acknowledged)}\n`);
+    for (const entry of report.unused) log(`${unusedAcknowledgementMessage(entry)}\n`);
   }
   const failures = policy === "strict" ? lines.length : policy === "error" ? messages.length : 0;
   if (failures) throw new Error(`BUNKO_UNDECLARED_IMPORT: ${failures} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);

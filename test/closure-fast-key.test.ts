@@ -48,6 +48,16 @@ test("an unchanged closure skips the Linux install and projection while reproduc
   expect(first.images[0]!.closure!.packages.length).toBeGreaterThan(0);
   expect(second.images[0]!.closure).toEqual(first.images[0]!.closure);
   expect(second.images[0]!.native).toEqual(first.images[0]!.native);
+  // Acknowledgements filter the replayed findings without touching the plan key, so the install stays skipped and the plan still hits.
+  const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
+  await writeFile(join(f.source, "package.json"), canonicalJSON({ ...manifest, bunko: { ...manifest.bunko, deps: { acknowledgedImports: [{ package: "fixture-msg", name: "undeclared-helper", reason: "known probe" }] } } }));
+  const acknowledged = recorder();
+  await build({ ...options, ...acknowledged.options, output: join(root, "acknowledged") });
+  expect(acknowledged.state.phases()).not.toContain("install");
+  expect(acknowledged.state.log).toContain("Reusing dependency closure (amd64)");
+  expect(acknowledged.state.log).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(acknowledged.state.log).toContain("Acknowledged 1 undeclared import(s): fixture-msg@1.0.0 -> undeclared-helper");
+  await writeFile(join(f.source, "package.json"), canonicalJSON(manifest));
   // Retention owns the index: usage counts it and pruning the record it names reclaims it.
   const usage = await pruneLocal(cacheDir, false, 0, Number.MAX_SAFE_INTEGER);
   expect(usage.managedBytes).toBeGreaterThan(0); expect(usage.keys).toHaveLength(0);
@@ -94,6 +104,22 @@ test("the closure plan key covers the lock, manifests, externals, script policy,
   };
   for (const [name, value] of Object.entries(changed)) expect([name, value === original]).toEqual([name, false]);
   expect(new Set(Object.values(changed)).size).toBe(Object.keys(changed).length);
+});
+
+/**
+ * A regression guard, not a proof of the feature: it also passes on main by construction, because `closurePlanInputs` never reads the field. The
+ * behavioural evidence that acknowledgements survive a plan hit is the replay assertion in the first test of this file.
+ */
+test("acknowledged imports are a reporting-time filter and never enter the closure plan key", async () => {
+  const root = await fixture(), f = await dependencyFixture(root);
+  const project = await loadProject({ path: f.source, depsStrategy: "closure" });
+  const plan = await dependencyPlan(project, f.source), toolchain = await selectToolchain();
+  const amd64 = { os: "linux" as const, architecture: "amd64" as const }, base = "sha256:" + "0".repeat(64);
+  const key = (...args: Parameters<typeof closurePlanInputs>) => cacheKey(closurePlanInputs(...args));
+  const acknowledgedImports = [{ package: "fixture-msg", name: "undeclared-helper", reason: "known probe" }, { package: "grpc-gcp", name: "protobufjs", version: "1.0.1" }];
+  expect(key(plan, toolchain, amd64, base, [{ ...project, acknowledgedImports }])).toBe(key(plan, toolchain, amd64, base, [project]));
+  // The policy itself still keys, so acknowledgements are the only reporting input a plan ignores.
+  expect(key(plan, toolchain, amd64, base, [{ ...project, acknowledgedImports, undeclaredImports: "error" as const }])).not.toBe(key(plan, toolchain, amd64, base, [project]));
 });
 
 /** A member that depends on both services: the shape that puts a build target into `workspaceSources`. */
