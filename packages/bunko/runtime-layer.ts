@@ -25,7 +25,7 @@ export function layerPath(value: string): string {
   const name = value.replace(/^(\/+|\.\/)+/, "").replace(/\/$/, "");
   if (!name || name === ".") return "";
   if (Buffer.byteLength(name) > 4096 || name.split("/").length > 128) throw new Error("Base filesystem path exceeds inspection limits");
-  if (/[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error(`Unsupported path in runtime base filesystem: ${JSON.stringify(value.slice(0, 200))}`);
+  if (/[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error(`Unsupported path in runtime base filesystem: ${JSON.stringify(value.slice(0, 200)).replace(/\x7f/g, "\\u007f")}`);
   return name;
 }
 const pathName = layerPath;
