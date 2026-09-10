@@ -100,6 +100,14 @@ test("closure plan bytes are credited with the record they name and orphans befo
   const applied = await pruneLocal(directory, true, 0, usage.managedBytes);
   expect(applied.deleted).toEqual([planPath(orphanKey)]);
   expect(orphanBytes).toBeGreaterThan(0);
+  // Obsolete indexes are unusable even while their content-addressed layer survives.
+  for (const obsolete of [{ layout: "closure-plan-v1" }, { packFormat: "obsolete" }]) {
+    await writeFile(planPath(planKey), canonicalJSON({ ...plan, ...obsolete }));
+    const expired = await pruneLocal(directory, true, Number.MAX_SAFE_INTEGER);
+    expect(expired.deleted).toEqual([planPath(planKey)]);
+    expect(expired.blobs).toEqual([]);
+    expect(await Bun.file(join(directory, "keys/deps", `${first.key.slice(7)}.json`)).exists()).toBe(true);
+  }
 });
 
 test("build wiring reads shared cache while cache-write=false prevents remote cache mutations", async () => {
