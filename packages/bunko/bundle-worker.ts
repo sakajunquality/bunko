@@ -1,3 +1,4 @@
+import { sourceAnalysis } from "./source-analysis.ts";
 import { moduleLocations, diagnosticLimit, locationPackage, locationPackages, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -51,9 +52,10 @@ export async function guardedBuild(options: WorkerOptions) {
         const contents = await readFile(path);
         if (["js", "jsx", "ts", "tsx"].includes(loader)) {
           const code = contents.toString("utf8");
+          const analysis = sourceAnalysis(code, path);
           if (!warned.has(path)) {
             warned.add(path);
-            const warnings = moduleLocations(code, local.split(sep).join("/"));
+            const warnings = moduleLocations(code, local.split(sep).join("/"), analysis);
             const owner = warnings.length ? locationPackage(local.split(sep).join("/")) : undefined;
             if (owner) flagged.add(owner);
             locations.total += warnings.length;
@@ -61,7 +63,7 @@ export async function guardedBuild(options: WorkerOptions) {
             locations.warnings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line || a.column - b.column);
             locations.warnings.length = Math.min(locations.warnings.length, diagnosticLimit);
           }
-          const imports = rejectMacroSyntax(code, path);
+          const imports = rejectMacroSyntax(code, path, analysis);
           dataImports.set(path, new Map(imports.map((item) => [item.specifier, item.loader])));
           validation.parsed++; validation.bytes += contents.length;
           for (const item of imports) {
@@ -74,7 +76,7 @@ export async function guardedBuild(options: WorkerOptions) {
             dataLoaders.set(target, item.loader);
           }
           if (!local.split("/").includes("node_modules")) {
-            rejectApplicationImports(code, path);
+            rejectApplicationImports(code, path, analysis);
             await validateInputTsconfig(context, path, seenConfigs);
           }
         }

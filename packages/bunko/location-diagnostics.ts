@@ -11,10 +11,10 @@ const globals = new Set(["__dirname", "__filename"]);
 export const diagnosticLimit = 100;
 
 /** Advisory syntax analysis only; neither imports nor application code are executed. */
-export function moduleLocations(code: string, file: string): LocationWarning[] {
+export function moduleLocations(code: string, file: string, analysis?: () => ts.SourceFile): LocationWarning[] {
   // Escaped identifiers also need parsing, even when their spelling hides a location API.
   if (!/import\s*\.|__dirname|__filename|\\/.test(code)) return [];
-  const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+  const source = analysis?.() ?? ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
   interface Scope { parent?: Scope; function: boolean; names: Set<string> }
   const scopes = new Map<ts.Node, Scope>(), bindings = new Set<ts.Node>();
   const root: Scope = { function: true, names: new Set() };
