@@ -54,7 +54,7 @@ BUNKO_OPTIONAL_IMPORT debug@4.4.3 imports "supports-color" only inside try/catch
 
 and counted as failures. Use `strict` when the application must not depend on a probe degrading silently; use `error` to make genuine undeclared imports a CI failure without being blocked by probes such as the `try { require("supports-color") } catch {}` that `debug` ships. The key is a dependency-policy map entry, so a workspace root can set it in `bunko.defaults.deps` and members can override it. Targets sharing one closure under `sharedDeps` are governed by the strictest of their policies. The production strategy is unaffected: hoisted production installs resolve undeclared names the same way local development does.
 
-Current development after 0.3.2 adds `deps.acknowledgedImports`, which lists findings that are already understood, so a dependency nobody is going to fix does not force the whole build back to `warn`:
+Version 0.4.0 adds `deps.acknowledgedImports`, which lists findings that are already understood, so a dependency nobody is going to fix does not force the whole build back to `warn`:
 
 ```json
 {

@@ -341,4 +341,4 @@ Deep checks do not accept build output, cache, signing or registry credential pa
 
 Strict `--cache-export-error=fail` requires an explicit `--cache-to`, `--cache-repo` or `BUNKO_CACHE_REPO` destination, including during a plain push. Existing strict jobs that relied on implicit image-repository writes must add a destination.
 
-Current development also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.
+Version 0.4.0 also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.

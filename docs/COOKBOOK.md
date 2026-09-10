@@ -1,6 +1,6 @@
 # Cookbook: build and deploy an application
 
-Start with the task below, then follow its reference link for the complete contract. Snippets belong inside your application's `package.json`; preserve its other fields. Commands assume Bun is installed and `bunko` is on PATH. Replace registry, image and checksum placeholders with your own values. `--deep`, base capability reports and explicit-only registry cache writes describe current development after 0.3.2; published 0.3.2 does not include those changes yet.
+Start with the task below, then follow its reference link for the complete contract. Snippets belong inside your application's `package.json`; preserve its other fields. Commands assume Bun is installed and `bunko` is on PATH. Replace registry, image and checksum placeholders with your own values. `--deep`, base capability reports, explicit-only registry cache writes, import acknowledgements and rejection of explicit credential/internal assets in bundle mode require 0.4.0 or later.
 
 - [Ship gitignored frontend output](#ship-gitignored-frontend-output)
 - [Add fonts and verify the renderer](#add-fonts-and-verify-the-renderer)
@@ -100,7 +100,7 @@ Set `IMAGE_REPO` to the full repository, for example `ghcr.io/OWNER/app`, `asia-
 bunko build . --repo "$IMAGE_REPO" --bare --tag "$GIT_SHA"
 ```
 
-Current development reads legacy image-repository cache records but writes remote cache only when explicitly configured. For a shared build cache, use both directions:
+Version 0.4.0 reads legacy image-repository cache records but writes remote cache only when explicitly configured. For a shared build cache, use both directions:
 
 ```sh
 bunko build . --repo "$IMAGE_REPO" --bare --tag "$GIT_SHA" \
@@ -166,8 +166,8 @@ This validates current local inputs without a bundler, dependency installation, 
 | Inherited root user behavior changed in 0.1.1 | Default builds replace inherited root with a nonroot user; explicit `bunko.user` remains policy. Review volume permissions and executable/file modes. |
 | Bun minimum became 1.3.13 in 0.2.0 | Use Bun >=1.3.13 <1.5 for current releases; immutable 0.1.4 remains available for 1.3.11/1.3.12. |
 | Explicit source assets override gitignore since 0.3.1 | Declare generated output directly after generating it; other exclusions still apply. |
-| Current development after 0.3.2 makes registry cache writes explicit | Configure `--cache-repo` or `--cache-to` if you want remote cache exports; reads and managed local caching remain available. |
+| Version 0.4.0 makes registry cache writes explicit | Configure `--cache-repo` or `--cache-to` if you want remote cache exports; reads and managed local caching remain available. |
 
 See [release evidence](validation/) for the exact tested versions and provider limits. Recipes do not certify arbitrary third-party bases or application frameworks.
 
-Current development also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.
+Version 0.4.0 also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.

@@ -1,6 +1,6 @@
 # Base image capabilities
 
-Current development after 0.3.2 adds a static filesystem capability report to `check-base` and `images[].baseCapabilities` in build reports. It resolves the selected manifest per platform and inspects verified layer metadata, including whiteouts and image-local symlinks. It never follows image links onto the host filesystem. Static `check-base` downloads and decodes all selected base layers, even without `--run`; use a local base layout to avoid repeated registry reads.
+Version 0.4.0 adds a static filesystem capability report to `check-base` and `images[].baseCapabilities` in build reports. It resolves the selected manifest per platform and inspects verified layer metadata, including whiteouts and image-local symlinks. It never follows image links onto the host filesystem. Static `check-base` downloads and decodes all selected base layers, even without `--run`; use a local base layout to avoid repeated registry reads.
 
 ```sh
 bunko check-base --base oven/bun:1.4.2-slim --platform linux/amd64,linux/arm64
