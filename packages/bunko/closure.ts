@@ -37,8 +37,8 @@ export function closureDuplicates(packages: ClosurePackage[]): ClosureDuplicate[
 
 /** Binary units, one decimal above a kibibyte. */
 export function byteSize(bytes: number): string {
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${bytes} B`;
 }
 

@@ -304,12 +304,12 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
-        // A closure target always reports its closure, including the empty one a target without externals packages.
-        let closureSizes: PlatformResult["closure"] = project.depsStrategy === "closure" ? { bytes: 0, files: 0, packages: [], duplicates: [] } : undefined;
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
         let aliases: Awaited<ReturnType<typeof dependencyClosure>>["entries"] = [];
         let dependencyArtifactDigest: Digest | undefined;
         const dependencyArtifact = (options.externalDepsByTarget?.[project.directory] ?? options.externalDeps)?.[`${platform.os}/${platform.architecture}`];
+        // Imported artifacts have no closure accounting; projected empty closures do.
+        let closureSizes: PlatformResult["closure"] = project.depsStrategy === "closure" && !dependencyArtifact ? { bytes: 0, files: 0, packages: [], duplicates: [] } : undefined;
         if (dependencyArtifact) {
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
