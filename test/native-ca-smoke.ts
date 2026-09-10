@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { baseLayout } from "./helpers.ts";
 import { command } from "./command.ts";
@@ -35,7 +35,9 @@ func main() {
     if (exit) throw new Error(`Go probe compilation failed: ${error}`);
     const tarball = join(directory, `${architecture}.tar`);
     // A minimal base has no trust store; the packaged CA must supply the trust.
-    await build({ path: source, mode: "source", platform, baseLayout: await baseLayout(join(directory, `base-${architecture}`), { os: "linux", architecture }), tarball, push: false, localCache: false, gitMetadata: false });
+    const base = await baseLayout(join(directory, `base-${architecture}`), { os: "linux", architecture });
+    if (process.env.BUNKO_CLI) await command([process.execPath, resolve(process.env.BUNKO_CLI), "build", source, "--mode", "source", "--platform", platform, "--base-layout", base, "--tarball", tarball, "--push=false", "--no-local-cache", "--git-metadata=false"]);
+    else await build({ path: source, mode: "source", platform, baseLayout: base, tarball, push: false, localCache: false, gitMetadata: false });
     const loaded = await command(["docker", "load", "--input", tarball]), image = /Loaded image: (.+)/.exec(loaded)?.[1];
     if (!image) throw new Error("Docker did not load the native CA fixture");
     try {
