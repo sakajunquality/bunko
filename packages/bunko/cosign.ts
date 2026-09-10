@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn, mkdtemp } from "../runtime/invocation.ts";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,7 +32,7 @@ export async function cosignCommand(executable: string, args: string[], timeoutM
       env.DOCKER_CONFIG = directory;
     }
     let child;
-    try { child = Bun.spawn([executable, ...args], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" }); }
+    try { child = spawn([executable, ...args], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" }); }
     catch { throw new Error("Unable to start cosign; use cosign on PATH or --cosign-path"); }
     let timedOut = false;
     const readers = [child.stdout.getReader(), child.stderr.getReader()];

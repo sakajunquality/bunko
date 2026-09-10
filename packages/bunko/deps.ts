@@ -1,3 +1,4 @@
+import { spawn } from "../runtime/invocation.ts";
 import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
 import { installerCredentials, installerOutputTail } from "./install-diagnostics.ts";
@@ -295,7 +296,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
       network.NODE_EXTRA_CA_CERTS = certificateFile;
       args.push(`--cafile=${certificateFile}`);
     }
-    const child = Bun.spawn(args, { cwd: root, env: {
+    const child = spawn(args, { cwd: root, env: {
       HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
       BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
       ...network,

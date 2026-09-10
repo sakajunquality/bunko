@@ -1,5 +1,6 @@
+import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { referenceOutput } from "./references.ts";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDocuments, type ResolveOptions } from "./resolve.ts";
@@ -43,7 +44,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     for (const [flag, value] of [["--context", options.kubeContext], ["--namespace", options.namespace], ["--field-manager", options.fieldManager]]) if (value !== undefined) args.push(flag!, value);
     if (options.serverSide) args.push("--server-side");
     if (options.kubeDryRun) args.push(`--dry-run=${options.kubeDryRun}`);
-    const child = Bun.spawn(args, { env: process.env, stdin: new Blob([resolved.output]), stdout: "pipe", stderr: "pipe" });
+    const child = spawn(args, { env: process.env, stdin: new Blob([resolved.output]), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     if (report) {
       try { await writeReport(report, { schemaVersion: 5, command: "apply", status: exit === 0 ? "success" : "failed", phase, exit, resolution }, written); }

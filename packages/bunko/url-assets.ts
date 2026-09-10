@@ -1,3 +1,4 @@
+import { invocationSignal } from "../runtime/invocation.ts";
 import { writeAssetBytes } from "./asset-write.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -30,7 +31,7 @@ async function download(url: string, destination: string, sha256: string, limit:
     let current = assetURL(url);
     for (let redirects = 0; ; redirects++) {
       // Credentials are never attached; private sources belong in an asset context.
-      const response = await fetcher(current.href, { redirect: "manual", signal: controller.signal, headers: { Accept: "application/octet-stream" } });
+      const response = await fetcher(current.href, { redirect: "manual", signal: invocationSignal(controller.signal), headers: { Accept: "application/octet-stream" } });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         // Never await a discarded body: a stalled peer must not be able to hold the build here.

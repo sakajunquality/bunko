@@ -49,6 +49,16 @@ export interface DiagnosticTarget {
 export async function checkConfig(options: BuildOptions) {
   const contexts = normalizeAssetContexts(options.assetContexts);
   const { discovered: discovery, projects: selected } = await configurationPlan(options);
+  if (options.deep) {
+    const assetExclusions: string[] = [], explicitAssets = new Set<string>();
+    // Use the same union policy as build's shared snapshot, including mixed modes.
+    const required = await requiredInputs(discovery.directory, selected, [], assetExclusions, explicitAssets);
+    for (const project of selected) for (const entry of Object.values(project.entrypoints ?? { default: project.entrypoint })) {
+      const info = await lstat(join(project.directory, entry)).catch(() => undefined);
+      if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Entrypoint must be a regular file: ${entry}`);
+    }
+    await snapshot(discovery.directory, "", [], undefined, selected.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, selected.some((project) => project.mode === "source"), explicitAssets, true);
+  }
   const projects: DiagnosticTarget[] = [];
   for (const [index, project] of selected.entries()) {
     const target = discovery.targets[index]!;
@@ -59,16 +69,6 @@ export async function checkConfig(options: BuildOptions) {
     // the build's own walker below, which is the only place the exclusions are known.
     const plan = await dependencyPlan(project, discovery.directory, false, undefined, false);
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts, options.deep);
-    if (options.deep) {
-      const assetExclusions: string[] = [], explicitAssets = new Set<string>();
-      const required = await requiredInputs(discovery.directory, [project], [], assetExclusions, explicitAssets);
-      for (const entry of Object.values(project.entrypoints ?? { default: project.entrypoint })) {
-        const file = join(project.directory, entry);
-        const info = await lstat(file).catch(() => undefined);
-        if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Entrypoint must be a regular file: ${entry}`);
-      }
-      await snapshot(discovery.directory, "", [], undefined, project.dataPath ? [join(project.targetPath, "bunkodata")] : [], required, assetExclusions, project.mode === "source", explicitAssets, true);
-    }
     const locked = lockedPackageNames(plan.lock), unmatchedAllowances = (project.allowIgnoredScripts ?? []).filter((name) => !locked.has(name));
     projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,

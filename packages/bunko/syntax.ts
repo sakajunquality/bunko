@@ -248,16 +248,16 @@ MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 
 ------------- End of ThirdPartyNotices -------------------------------------------
 */
-import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, isImportDeclaration, isStringLiteralLike, isIdentifier, isPropertyAccessExpression, isObjectLiteralExpression, isPropertyAssignment, ScriptTarget, SyntaxKind, type Node } from "typescript";
+import { createSourceFile, forEachChild, isCallExpression, isExportDeclaration, isImportDeclaration, isStringLiteralLike, isIdentifier, isPropertyAccessExpression, isObjectLiteralExpression, isPropertyAssignment, ScriptTarget, SyntaxKind, type Node, type SourceFile } from "typescript";
 
 /** Parse syntax only: never resolve imports, transform code, or execute macros. */
-export function rejectMacroSyntax(code: string, name: string): { specifier: string; loader: "json" | "text" | "file" | "toml" }[] {
+export function rejectMacroSyntax(code: string, name: string, analysis?: () => SourceFile): { specifier: string; loader: "json" | "text" | "file" | "toml" }[] {
   const ordinary = new Set<string>();
   const data: { specifier: string; loader: "json" | "text" | "file" | "toml" }[] = [];
   // Without either keyword or escapes, no import/export syntax is possible.
   // Escapes require parsing because identifiers and module strings can use them.
   if (!/import|export|require|\\/.test(code)) return data;
-  const source = createSourceFile(name, code, ScriptTarget.Latest);
+  const source = analysis?.() ?? createSourceFile(name, code, ScriptTarget.Latest);
   const pending: Node[] = [source];
   while (pending.length) {
     const node = pending.pop()!;
@@ -300,9 +300,9 @@ export function rejectMacroSyntax(code: string, name: string): { specifier: stri
 
 
 /** Reject computed application loads structurally, without inspecting comments. */
-export function rejectApplicationImports(code: string, name: string): void {
+export function rejectApplicationImports(code: string, name: string, analysis?: () => SourceFile): void {
   if (!/import|require|\\/.test(code)) return;
-  const pending: Node[] = [createSourceFile(name, code, ScriptTarget.Latest)];
+  const pending: Node[] = [analysis?.() ?? createSourceFile(name, code, ScriptTarget.Latest)];
   while (pending.length) {
     const node = pending.pop()!;
     if (isCallExpression(node) && (node.expression.kind === SyntaxKind.ImportKeyword || isIdentifier(node.expression) && node.expression.text === "require" || isPropertyAccessExpression(node.expression) && isIdentifier(node.expression.expression) && node.expression.expression.text === "require" && node.expression.name.text === "resolve")) {

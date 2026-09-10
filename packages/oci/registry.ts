@@ -1,3 +1,5 @@
+import { registryAuthHelp } from "./auth-help.ts";
+import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { registryHost } from "./registry-host.ts";
 import { dockerCredentials, type CredentialProvider } from "./credentials.ts";
 import { object } from "./digest.ts";
@@ -124,7 +126,7 @@ export class RegistryError extends Error {
   /** The refusal's own Retry-After survives the throw: an upload recovery must wait as long as
    * a rate-limited registry asked for, not for its own exponential guess. */
   constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = [], readonly immutableTag = false, readonly retryAfter?: string) {
-    super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}`);
+    super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}${[401, 403].includes(status) && !immutableTag ? ` ${registryAuthHelp(registry)}` : ""}`);
   }
   static async response(response: Response, method: string, registry: string): Promise<RegistryError> {
     const after = response.headers.get("Retry-After");
@@ -156,7 +158,8 @@ export class RegistryClient {
     this.fetcher = (url, init) => {
       const origin = new URL(url).origin;
       const tls = options.tls?.[origin];
-      return transport(url, { ...init, ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
+      throwIfCancelled();
+      return transport(url, { ...init, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
     };
     this.credentials = options.credentials ?? dockerCredentials();
   }
@@ -171,7 +174,7 @@ export class RegistryClient {
   private async authenticate(challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
     const credential = await this.credentials(this.registry, refresh);
     if (/^Basic\s/i.test(challenge)) {
-      if (credential?.username === undefined || credential.password === undefined) throw new Error(`Registry credentials required: ${this.registry}; configure Docker login or a credential helper`);
+      if (credential?.username === undefined || credential.password === undefined) throw new Error(`Registry credentials required: ${this.registry}; ${registryAuthHelp(this.registry)}`);
       return { authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`, expires: Date.now() + 5 * 60_000 };
     }
     if (!/^Bearer\s/i.test(challenge)) throw new Error(`Unsupported registry authentication: ${this.registry}`);
@@ -227,6 +230,7 @@ export class RegistryClient {
   }
 
   async request(path: string | URL, init: RequestInit = {}, scopes: string[] = [], allowed: number[] = []): Promise<Response> {
+    init = { ...init, signal: invocationSignal(init.signal) };
     const initial = this.safeURL(path);
     const method = init.method ?? "GET";
     const key = [...new Set(scopes)].sort().join(" ");
@@ -301,7 +305,7 @@ export class RegistryClient {
     const throttled = Number.isFinite(requested);
     const delay = throttled ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
     const bounded = Math.min(delay, this.options.maxRetryDelayMs ?? 30_000);
-    if (!throttled) { await (this.options.sleep ?? Bun.sleep)(bounded); return; }
+    if (!throttled) { await (this.options.sleep ?? pause)(bounded); return; }
     await this.cool(bounded);
   }
 
@@ -313,7 +317,7 @@ export class RegistryClient {
     while (this.cooldownUntil > now()) {
       if (!this.cooling) {
         const deadline = this.cooldownUntil;
-        this.cooling = Promise.resolve((this.options.sleep ?? Bun.sleep)(deadline - now()))
+        this.cooling = Promise.resolve((this.options.sleep ?? pause)(deadline - now()))
           .finally(() => { this.cooling = undefined; this.cooldownTime = Math.max(this.cooldownTime, deadline); });
       }
       await this.cooling;

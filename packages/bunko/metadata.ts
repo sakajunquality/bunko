@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp } from "../runtime/invocation.ts";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";

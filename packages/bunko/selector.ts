@@ -1,4 +1,4 @@
-import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Document, type Node, type Scalar } from "yaml";
+import { isAlias, isMap, isNode, isScalar, isSeq, parseAllDocuments, visit, type Document, type Node, type Scalar } from "yaml";
 
 function valueValid(value: string): boolean { return value.length <= 63 && (!value || /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(value)); }
 function keyValid(key: string): boolean {
@@ -61,19 +61,8 @@ function mappingValue(node: unknown, key: string, document: Document, seen = new
   }
 }
 
-/** Selection may normalize YAML formatting; unfiltered resolution stays lossless. */
-export function selectDocuments(name: string, source: string, match: (labels: Record<string, string>) => boolean): string | undefined {
-  const documents = parseAllDocuments(source, { prettyErrors: true, intAsBigInt: true, merge: true, logLevel: "silent",
-    customTags: (tags) => tags.map((tag) => typeof tag !== "string" && tag.collection === undefined && tag.tag === "tag:yaml.org,2002:float" ? {
-      ...tag, identify: (value: unknown) => value instanceof FloatLiteral,
-      resolve: (value: string) => new FloatLiteral(value), stringify: (node: Scalar) => String(node.value),
-    } : tag),
-  });
-  const selected = [];
-  for (const document of documents) {
-    if (document.errors.length || document.warnings.length) throw new Error(`${name}: ${[...document.errors, ...document.warnings][0]!.message}`);
-    if (!document.contents || isScalar(document.contents) && document.contents.value === null) continue;
-    const metadata = mappingValue(document.contents, "metadata", document);
+function objectMatches(name: string, node: unknown, document: Document, match: (labels: Record<string, string>) => boolean): boolean {
+    const metadata = mappingValue(node, "metadata", document);
     let labelsNode = mappingValue(metadata, "labels", document) as Node | undefined;
     const labelAliases = new Set<Node>();
     while (isAlias(labelsNode)) {
@@ -83,10 +72,77 @@ export function selectDocuments(name: string, source: string, match: (labels: Re
     if (labelsNode && !(isScalar(labelsNode) && labelsNode.value === null) && !isMap(labelsNode)) throw new Error(`${name}: metadata.labels must be a string map`);
     const labels = labelsNode?.toJS(document, { maxAliasCount: 100 }) ?? {};
     if (!labels || typeof labels !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(labels)) || !Object.values(labels).every((value) => typeof value === "string")) throw new Error(`${name}: metadata.labels must be a string map`);
-    if (match(labels)) selected.push(document);
+    return match(labels);
+}
+
+/** JSON tokens retain their original spelling, including integers outside Number's range. */
+function selectedJSON(node: unknown, source: string): string {
+  if (isMap(node)) return `{${node.items.map((pair) => `${selectedJSON(pair.key, source)}:${selectedJSON(pair.value, source)}`).join(",")}}`;
+  if (isSeq(node)) return `[${node.items.map((item) => selectedJSON(item, source)).join(",")}]`;
+  if (isScalar(node) && node.range) return source.slice(node.range[0], node.range[1]);
+  throw new Error("Invalid selected JSON node");
+}
+
+/** Preserve references to anchors removed with a List item, without unbounded alias expansion. */
+function preserveRemovedAnchors(document: Document, aliases: Map<number, Node | undefined>, sourceLength: number): void {
+  const retained = new Set<Node>();
+  visit(document, { Node(_key, node) { retained.add(node); } });
+  let expansions = 0, nodes = 0, bytes = 0;
+  function expand(target: Node | undefined, ancestors = new Set<Node>()): Node {
+    if (!target || ancestors.has(target)) throw new Error("Cyclic or unresolved List alias");
+    if (++expansions > 100) throw new Error("List alias expansion exceeds safe limits");
+    const next = new Set(ancestors).add(target), copy = target.clone();
+    if (!isNode(copy)) throw new Error("Invalid List alias target");
+    visit(copy, {
+      Node(_key, node) {
+        if (++nodes > 100_000) throw new Error("List alias expansion exceeds safe limits");
+        if (isScalar(node)) bytes += String(node.value).length;
+        if (bytes > Math.max(sourceLength * 2, 1_048_576)) throw new Error("List alias expansion exceeds safe limits");
+        if (isScalar(node) || isMap(node) || isSeq(node)) node.anchor = undefined;
+      },
+      Alias(_key, node) { return expand(aliases.get(node.range![0]), next); },
+    });
+    return copy;
+  }
+  visit(document, { Alias(_key, node) {
+    const target = aliases.get(node.range![0]);
+    if (!target || !retained.has(target)) return expand(target);
+  } });
+}
+
+/** Selection may normalize YAML formatting; unfiltered resolution stays lossless. */
+export function selectDocuments(name: string, source: string, match: (labels: Record<string, string>) => boolean): string | undefined {
+  const documents = parseAllDocuments(source, { prettyErrors: true, intAsBigInt: true, merge: true, logLevel: "silent",
+    customTags: (tags) => tags.map((tag) => typeof tag !== "string" && tag.collection === undefined && tag.tag === "tag:yaml.org,2002:float" ? {
+      ...tag, identify: (value: unknown) => value instanceof FloatLiteral,
+      resolve: (value: string) => new FloatLiteral(value), stringify: (node: Scalar) => String(node.value),
+    } : tag),
+  });
+  const selected = [];
+  const aliases = new Map<number, Node | undefined>();
+  for (const document of documents) visit(document, { Alias(_key, node) { aliases.set(node.range![0], node.resolve(document)); } });
+  let filteredList = false;
+  for (const document of documents) {
+    if (document.errors.length || document.warnings.length) throw new Error(`${name}: ${[...document.errors, ...document.warnings][0]!.message}`);
+    if (!document.contents || isScalar(document.contents) && document.contents.value === null) continue;
+    const kind = mappingValue(document.contents, "kind", document);
+    if (isScalar(kind) && kind.value === "List") {
+      const items = mappingValue(document.contents, "items", document);
+      if (!isSeq(items)) throw new Error(`${name}: List.items must be a sequence`);
+      const retained = items.items.filter((item) => {
+        const itemKind = mappingValue(item, "kind", document);
+        if (!isScalar(itemKind) || typeof itemKind.value !== "string" || !itemKind.value) throw new Error(`${name}: List items must be Kubernetes objects with a kind`);
+        return objectMatches(name, item, document, match);
+      });
+      filteredList ||= retained.length !== items.items.length;
+      items.items = retained;
+      if (retained.length) { preserveRemovedAnchors(document, aliases, source.length); selected.push(document); }
+    } else if (objectMatches(name, document.contents, document, match)) selected.push(document);
   }
   if (!selected.length) return;
-  try { JSON.parse(source); return source; } catch { /* YAML can contain several selected documents. */ }
+  let json = false;
+  try { JSON.parse(source); json = true; } catch { /* YAML can contain several selected documents. */ }
+  if (json) return filteredList ? selectedJSON(selected[0]!.contents, source) + "\n" : source;
   return selected.map((document) => {
     document.directives.docStart = true;
     document.directives.docEnd = true;

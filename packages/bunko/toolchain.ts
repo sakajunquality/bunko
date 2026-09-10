@@ -1,3 +1,4 @@
+import { spawn } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
 import { releaseRevision, type downloadRuntime } from "./runtime-download.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
@@ -40,7 +41,7 @@ export function unresolvedBundleImport(error: unknown): boolean {
 export async function selectToolchain(path?: string): Promise<Toolchain> {
   const executable = path ? resolve(path) : Bun.which("bun");
   if (!executable) throw new Error("Bun is required; install Bun 1.3.13 or set --bun-path");
-  const child = Bun.spawn([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
+  const child = spawn([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Cannot run Bun: ${stderr.trim()}`);
   const match = /^(1\.\d+\.\d+)\+([a-f0-9]+)$/.exec(stdout.trim());
@@ -63,7 +64,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   await rm(join(root, OUTPUT_DIRECTORY, "errors.json"), { force: true });
-  const child = Bun.spawn(args, {
+  const child = spawn(args, {
     cwd: root,
     env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", NODE_ENV: "production", TZ: "UTC", LANG: "C", LC_ALL: "C" },
     stdout: "pipe", stderr: "pipe",
@@ -167,7 +168,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
     try {
-      const compiled = Bun.spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
+      const compiled = spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
         { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
       const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
       if (code) throw new Error(`Bun compile failed (exit ${code})`);
