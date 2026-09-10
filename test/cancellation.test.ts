@@ -30,8 +30,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) test(`CLI ${signal} aborts 
   } });
   try {
     const host = `127.0.0.1:${server.port}`;
-    child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--base", `${host}/base:latest`, "--insecure-registry", host, "--push=false", "--oci-layout", join(root, "output"), "--no-cache", "--no-git-metadata"], { env: { ...process.env, TMPDIR: scratch }, stdout: "pipe", stderr: "pipe" });
-    const stdout = new Response(child.stdout).text(), stderr = new Response(child.stderr).text();
+    const running = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "build", source, "--base", `${host}/base:latest`, "--insecure-registry", host, "--push=false", "--oci-layout", join(root, "output"), "--no-cache", "--no-git-metadata"], { env: { ...process.env, TMPDIR: scratch }, stdout: "pipe", stderr: "pipe" });
+    child = running;
+    const stdout = new Response(running.stdout).text(), stderr = new Response(running.stderr).text();
     await waitFor(async () => downloading, child);
     expect((await readdir(scratch)).some((name) => name.startsWith("bunko-"))).toBe(true);
     child.kill(signal);
@@ -73,6 +74,48 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
     expect(await readdir(scratch)).toEqual([]);
   } finally {
     if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
+
+test("cancelled dependency installation removes the staged npmrc but preserves the source", async () => {
+  const root = await temporary(), scratch = join(root, "scratch"), ready = join(root, "ready");
+  await mkdir(scratch);
+  const fake = join(root, "installer");
+  await Bun.write(fake, `#!${process.execPath}\nprocess.on('SIGTERM', () => {}); await Bun.write(${JSON.stringify(ready)}, JSON.stringify({pid: process.pid, cwd: process.cwd(), auth: await Bun.file('.npmrc').exists()})); setInterval(() => {}, 1000);\n`);
+  const { chmod } = await import("node:fs/promises"); await chmod(fake, 0o755);
+  const script = `
+    import {runInvocation, mkdtemp} from './packages/runtime/invocation.ts';
+    import {workspaceFixture} from './test/workspace-fixture.ts';
+    import {loadProject} from './packages/bunko/config.ts';
+    import {discover} from './packages/bunko/workspace.ts';
+    import {dependencyPlan, installDependencies} from './packages/bunko/deps.ts';
+    import {cp} from 'node:fs/promises';
+    process.exitCode = await runInvocation(async () => {
+      const {source} = await workspaceFixture(${JSON.stringify(root)});
+      await Bun.write(source + '/.npmrc', '//registry.invalid/:_authToken=dummy-fixture-only');
+      const found = await discover({path: source});
+      const project = await loadProject({path: source + '/services/api'}, found.workspace);
+      const plan = await dependencyPlan(project, source, false);
+      const staged = await mkdtemp(${JSON.stringify(join(scratch, "install-"))});
+      await cp(source, staged, {recursive:true});
+      await installDependencies(staged, plan, {path: ${JSON.stringify(fake)}, version: Bun.version, revision: Bun.revision});
+      return 0;
+    });
+  `;
+  const child = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
+  try {
+    await waitFor(() => Bun.file(ready).exists(), child);
+    const state = await Bun.file(ready).json(); expect(state.auth).toBe(true);
+    child.kill("SIGTERM");
+    expect(await child.exited).toBe(143);
+    expect(await new Response(child.stderr).text()).not.toContain("dummy-fixture-only");
+    expect(await readdir(scratch)).toEqual([]);
+    expect(await Bun.file(join(root, "workspace/.npmrc")).exists()).toBe(true);
+    expect(() => process.kill(state.pid, 0)).toThrow();
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
+    if (await Bun.file(ready).exists()) { try { process.kill((await Bun.file(ready).json()).pid, "SIGKILL"); } catch { /* Owned fixture process already exited. */ } }
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
