@@ -95,31 +95,28 @@ describe("Docker-compatible authentication", () => {
     await client.request("/v2/");
   });
 
-  test("a Retry-After pause is shared and extended by the longest wait", async () => {
-    const waits: number[] = [], gates: (() => void)[] = [];
-    const sleep = (ms: number) => new Promise<void>((resolve) => { waits.push(ms); gates.push(resolve); });
-    let issued = 0, settled = 0;
-    const client = new RegistryClient("registry.example", { credentials: anonymous, sleep, fetcher: async () => {
-      const status = ++issued <= 2 ? 429 : 200;
-      return status === 429 ? new Response(null, { status, headers: { "Retry-After": issued === 1 ? "1" : "30" } }) : new Response("data");
-    } });
-    const first = client.request("/v2/app/blobs/first").then(() => { settled++; });
-    await Bun.sleep(5);
-    const second = client.request("/v2/app/blobs/second").then(() => { settled++; });
-    await Bun.sleep(5);
-    expect(waits).toEqual([1000]);
-    // The second worker joins the running pause instead of starting its own.
-    expect(issued).toBe(2);
-    gates[0]!();
-    await Bun.sleep(5);
-    // Its longer Retry-After extends the pause for both, so neither retries after one second.
-    expect(waits).toEqual([1000, 29000]);
-    expect(issued).toBe(2);
-    expect(settled).toBe(0);
-    gates[1]!();
-    await Promise.all([first, second]);
-    expect(issued).toBe(4);
-    expect(settled).toBe(2);
+  test("new requests join an active Retry-After pause", async () => {
+    let release!: () => void, issued = 0;
+    const client = new RegistryClient("registry.example", { credentials: anonymous,
+      sleep: () => new Promise<void>((resolve) => { release = resolve; }),
+      fetcher: async () => { issued++; return new Response("ok"); } });
+    const pause = client.backoff(0, "1");
+    const request = client.request("/v2/");
+    await Bun.sleep(10);
+    expect(issued).toBe(0);
+    release();
+    await Promise.all([pause, request]);
+    expect(issued).toBe(1);
+  });
+
+  test("later Retry-After responses extend the deadline from their arrival", async () => {
+    const client = new RegistryClient("registry.example", { credentials: anonymous });
+    const first = client.backoff(0, "1");
+    await Bun.sleep(700);
+    const started = performance.now();
+    await client.backoff(0, "1");
+    expect(performance.now() - started).toBeGreaterThanOrEqual(950);
+    await first;
   });
 
   test("bounded retries honor Retry-After and never send credentials to redirected storage", async () => {
@@ -131,7 +128,8 @@ describe("Docker-compatible authentication", () => {
       return new Response(null, { status: 307, headers: { Location: "https://storage.example/blob?signature=sensitive" } });
     } });
     expect(await (await client.request("/v2/app/blobs/digest")).text()).toBe("data");
-    expect(delays).toEqual([2000, 2000]);
+    expect(delays).toHaveLength(2);
+    for (const delay of delays) expect(delay).toBeCloseTo(2000, 0);
   });
 });
 
@@ -392,7 +390,7 @@ describe("Distribution publication", () => {
     const result = await publisher.publish(store, manifest, ["latest"]);
     expect(result.blobs.uploaded).toBe(6);
     expect(delays.length).toBeGreaterThan(0);
-    expect(delays.every((ms) => ms === 2000)).toBe(true);
+    expect(delays.every((ms) => ms > 1990 && ms <= 2001)).toBe(true);
   });
 
   test("dry-run only reads, and partial tag publication is reported without rollback", async () => {

@@ -115,7 +115,8 @@ export class RegistryClient {
   private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   private readonly pendingTokens = new Map<string, Promise<{ authorization: string; expires: number }>>();
-  private cooldownMs = 0;
+  private cooldownUntil = 0;
+  private cooldownTime = 0;
   private cooling?: Promise<unknown>;
   constructor(readonly registry: string, private readonly options: RegistryOptions = {}) {
     registryHost(registry);
@@ -186,7 +187,7 @@ export class RegistryClient {
   /** Parallel publication work meets the same 401 in every worker. Share one exchange per
    * scope and challenge so a burst costs one token request, not one per blob. */
   private async token(key: string, challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
-    const id = `${refresh ? "refresh" : "initial"} ${key} ${challenge}`;
+    const id = `${refresh ? "refresh" : "initial"}\0${key}\0${challenge}`;
     let pending = this.pendingTokens.get(id);
     if (!pending) {
       pending = this.authenticate(challenge, scopes, refresh);
@@ -214,6 +215,7 @@ export class RegistryClient {
       let response: Response | undefined;
       try {
         for (let redirects = 0; redirects <= 5; redirects++) {
+          await this.cool(0);
           init.signal?.throwIfAborted();
           const headers = new Headers(init.headers);
           headers.delete("Authorization");
@@ -276,19 +278,21 @@ export class RegistryClient {
     await this.cool(bounded);
   }
 
-  /** The shared pause only ever grows. A longer Retry-After arriving while workers sleep
-   * extends the deadline for all of them: each rechecks what is left on waking and sleeps
-   * again, so the worker that asked for one second does not resume during a thirty-second
-   * limit. What is left is counted in requested milliseconds rather than read from the wall
-   * clock, so an injected sleep cannot leave a waiter spinning on an unmoving clock. */
+  /** Each refusal extends a monotonic deadline. Advancing the logical clock by a
+   * completed sleep also supports injected sleeps that resolve without real time passing. */
   private async cool(delayMs: number): Promise<void> {
-    this.cooldownMs = Math.max(this.cooldownMs, delayMs);
-    while (this.cooldownMs > 0) {
-      const wait = this.cooldownMs;
-      await (this.cooling ??= Promise.resolve((this.options.sleep ?? Bun.sleep)(wait))
-        .finally(() => { this.cooling = undefined; this.cooldownMs = Math.max(0, this.cooldownMs - wait); }));
+    const now = () => Math.max(performance.now(), this.cooldownTime);
+    if (delayMs > 0) this.cooldownUntil = Math.max(this.cooldownUntil, now() + delayMs);
+    while (this.cooldownUntil > now()) {
+      if (!this.cooling) {
+        const deadline = this.cooldownUntil;
+        this.cooling = Promise.resolve((this.options.sleep ?? Bun.sleep)(deadline - now()))
+          .finally(() => { this.cooling = undefined; this.cooldownTime = Math.max(this.cooldownTime, deadline); });
+      }
+      await this.cooling;
     }
   }
+
 }
 
 

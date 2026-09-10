@@ -47,7 +47,10 @@ test("registry cache artifacts publish in parallel and report in record order", 
   const registry = { credentials: async () => undefined, fetcher: mock.fetch, publishConcurrency: 3 };
   const cache = new LayerCache(store, { repository: "registry.test/cache", registry, log: () => {} });
   const kinds = ["deps", "assets", "app", "runtime"] as const;
-  for (const kind of kinds) await cache.remember({ ...await record(store, `payload ${kind}`), kind, key: cacheKey(`inputs ${kind}`) });
+  for (const kind of kinds) {
+    const item = await record(store, `payload ${kind}`);
+    await cache.remember({ ...item, kind, layer: { ...item.layer, kind }, key: cacheKey(`inputs ${kind}`) });
+  }
   await cache.publish();
   expect(cache.exports.map((entry) => entry.kind)).toEqual([...kinds]);
   expect(cache.exports.every((entry) => entry.status === "written")).toBe(true);

@@ -364,7 +364,7 @@ export class CacheDriver {
     for (const outcome of results) {
       if (!outcome) continue;
       const event = outcome.event;
-      if (event.status === "failed") { failed = true; firstFailure ??= outcome.error; }
+      if (event.status === "failed") { if (!failed) firstFailure = outcome.error; failed = true; }
       this.exports.push(event);
       const labels = { "bunko.cache.backend": event.backend, "bunko.cache.kind": event.kind, "bunko.cache.result": event.status, "bunko.cache.reason": event.reason ?? "none" };
       metric("bunko.cache.export.count", "{export}", 1, labels);
@@ -443,7 +443,7 @@ export class LayerCache {
     let failed = false, firstFailure: unknown;
     for (const outcome of results) {
       if (!outcome) continue;
-      if (outcome.event.status === "failed") { failed = true; firstFailure ??= outcome.error; }
+      if (outcome.event.status === "failed") { if (!failed) firstFailure = outcome.error; failed = true; }
       this.exports.push(outcome.event);
     }
     // A backend that could not even produce an outcome keeps its original error, after the
