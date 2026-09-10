@@ -136,3 +136,42 @@ test("mapped asset roots do not change the parent metadata emitted by the applic
   expect(entries.some((entry) => entry.name === "srv" || entry.name === "srv/app")).toBe(false);
   expect(entries.some((entry) => entry.name === "srv/app/service")).toBe(true);
 });
+
+test("selectors filter Kubernetes List items instead of the wrapper labels", () => {
+  const source = `apiVersion: v1
+kind: List
+metadata:
+  labels: {app: wrapper}
+items:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata: {name: keep, labels: {app: selected}}
+    data: {large: 900719925474099312345, precise: 1.234567890123456789}
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata: {name: drop, labels: {app: other}}
+`;
+  const result = selectDocuments("list.yaml", source, labelSelector("app=selected"))!;
+  expect(result).toContain("name: keep");
+  expect(result).not.toContain("name: drop");
+  expect(result).toContain("900719925474099312345");
+  expect(result).toContain("1.234567890123456789");
+  expect(selectDocuments("list.yaml", source, labelSelector("app=wrapper"))).toBeUndefined();
+  expect(selectDocuments("list.yaml", "kind: List\nitems: []\n", labelSelector("!app"))).toBeUndefined();
+});
+
+test("JSON List selection keeps exact numeric tokens and valid JSON", () => {
+  const source = '{"kind":"List","items":[{"kind":"ConfigMap","metadata":{"labels":{"app":"yes"}},"data":{"n":900719925474099312345,"f":1.234567890123456789}},{"kind":"ConfigMap","metadata":{"labels":{"app":"no"}}}]}';
+  const result = selectDocuments("list.json", source, labelSelector("app=yes"))!;
+  expect(JSON.parse(result).items.length).toBe(1);
+  expect(result).toContain('"n":900719925474099312345');
+  expect(result).toContain('"f":1.234567890123456789');
+});
+
+test("List selection validates items and resolves retained metadata aliases", () => {
+  for (const source of ['kind: List\nitems: {}', 'kind: List\nitems: [null]', 'kind: List\nitems: [{kind: 2}]', 'kind: List\nitems: [{kind: Pod, metadata: {labels: {app: 2}}}]']) {
+    expect(() => selectDocuments("bad.yaml", source, labelSelector("app=yes"))).toThrow();
+  }
+  const result = selectDocuments("alias.yaml", 'kind: List\nlabels: &labels {app: yes}\nitems:\n  - kind: Pod\n    metadata: {labels: *labels}\n', labelSelector("app=yes"))!;
+  expect(parseAllDocuments(result)[0]!.toJS().items.length).toBe(1);
+});
