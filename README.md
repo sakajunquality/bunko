@@ -112,7 +112,7 @@ Layer order is `base → deps (if needed) → assets (if present) → app`. The 
 
 ## Cache and local execution
 
-The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache read failures are diagnostic and recoverable. Export failures warn by default; `--cache-export-error=fail` makes them fatal while preserving publication evidence. Image publication failures are errors.
+The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Without explicit export destinations, Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache read failures are diagnostic and recoverable. Export failures warn by default; `--cache-export-error=fail` makes them fatal while preserving publication evidence. Image publication failures are errors.
 
 ```sh
 # Export a single-platform Docker archive.

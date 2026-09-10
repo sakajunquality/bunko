@@ -33,7 +33,7 @@ bunko version
 | `--base REF` / `--base-layout DIR` | Registry reference or local OCI layout; mutually exclusive. |
 | `--platform LIST` | Comma-separated platforms; default linux/amd64. |
 | `--bun-path FILE` | Bun executable for bundling and installation. |
-| `--cache-dir DIR` / `--cache-repo REPO` | Managed local and legacy Registry layer-cache destinations. |
+| `--cache-dir DIR` / `--cache-repo REPO` | Managed local and Registry layer-cache destinations. |
 | `--cache-from LOCATION` / `--cache-to LOCATION` | Ordered typed registry/local imports and independent exports; repeatable. |
 | `--cache-export-error warn\|fail` | Cache export failure policy; default warn. |
 | `--no-cache` | Disable persistent reuse of both layer caches. |
