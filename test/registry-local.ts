@@ -33,6 +33,7 @@ if (import.meta.main) {
     if (rejected.status !== 401) throw new Error("Registry accepted invalid credentials");
     await writeFile(join(config, "config.json"), JSON.stringify({ auths: { [host]: { auth: Buffer.from(`bunko:${password}`).toString("base64") } } }), { mode: 0o600 });
     process.env.DOCKER_CONFIG = config; delete process.env.BUNKO_DOCKER_CONFIG;
+    // CLI runs exercise the harness fallback that previously omitted --cache-repo; source runs cover a separate cache repository.
     await registryConformance({ vendor: "distribution", repo: `${host}/bunko/app`, cacheRepo: process.env.BUNKO_TEST_CLI ? undefined : `${host}/bunko/cache`,
       requireCache: true, runtimePlatforms: (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64").split(","),
       report: process.env.BUNKO_SMOKE_REPORT ?? join(directory, "report.json"), installCache: process.env.BUNKO_SMOKE_NPM_CACHE,
