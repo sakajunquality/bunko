@@ -28,6 +28,7 @@
     "test:workspace-smoke": "bun test/workspace-smoke.ts",
     "check": "bun run typecheck && bun run test",
     "test:compile-smoke": "bun test/compile-smoke.ts",
+    "test:native-ca": "bun test/native-ca-smoke.ts",
     "test:runtime-ca-compile": "bun test/runtime-ca-compile-smoke.ts",
     "test:operations-smoke": "bun test/operations-smoke.ts",
     "test:apply-smoke": "bun test/apply-smoke.ts",

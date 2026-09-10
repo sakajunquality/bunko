@@ -2,7 +2,7 @@ import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
 import { assertCosign } from "./cosign.ts";
 import { gitLabels, revisionTag } from "./source-metadata.ts";
 import { buildParameters } from "./build-parameters.ts";
-import { runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
+import { runtimeCAEnvironment, runtimeCA, assertBaseDataPaths, assertBaseWorkdir, type RuntimeCA } from "./runtime-ca.ts";
 import { assetPolicy } from "./asset-policy.ts";
 import { assertToolchain } from "./toolchain-policy.ts";
 import { sourceApplication } from "./source-application.ts";
@@ -334,11 +334,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         const base = bases[index]!;
         const ca = context.runtimeCertificate;
-        if (ca) {
-          const configured = project.env.NODE_EXTRA_CA_CERTS;
-          const inherited = base.config.config?.Env?.find((value) => value.startsWith("NODE_EXTRA_CA_CERTS="))?.slice("NODE_EXTRA_CA_CERTS=".length);
-          if (configured !== undefined && configured !== ca.metadata.path || inherited && inherited !== ca.metadata.path) throw new Error("runtime.caCertificates conflicts with an existing NODE_EXTRA_CA_CERTS path");
-        }
+        const caEnvironment = runtimeCAEnvironment(project, ca?.metadata, base.config.config?.Env);
         const tree = await filesystem(base);
         if (assets.length) assertBaseDataPaths(tree, assets);
         const inputRuntime = runtimes[index];
@@ -475,7 +471,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
-          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...(ca ? { NODE_EXTRA_CA_CERTS: ca.metadata.path } : {}) }, ports: project.ports,
+          inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...caEnvironment }, ports: project.ports,
           labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
@@ -683,11 +679,11 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const source = join(temporary, "source");
     options.log?.(`Snapshotting ${discovered.workspace ? "workspace" : projects[0]!.name}\n`);
     const syntax = new SyntaxCache();
-    const assetExclusions: string[] = [];
-    const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions);
+    const assetExclusions: string[] = [], explicitAssets = new Set<string>();
+    const required = await requiredInputs(discovered.directory, projects, exclusions.filter((path) => path !== report), assetExclusions, explicitAssets);
     try { await assertReportNotInput(report, required.map((path) => join(discovered.directory, path))); }
     catch (error) { reportSafe = false; throw error; }
-    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source")));
+    const sourceDigest = await phase(options.progress, "snapshot", async () => snapshot(discovered.directory, source, exclusions, syntax, projects.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, projects.some((project) => project.mode === "source"), explicitAssets));
     for (const pkg of discovered.workspace?.packages ?? discovered.targets) {
       if (await readFile(join(source, pkg.path, "package.json"), "utf8") !== pkg.text) throw new Error("package.json changed while creating the snapshot; retry the build");
     }

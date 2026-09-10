@@ -31,6 +31,8 @@ export interface DiagnosticTarget {
   runtimeInjection?: "release";
   assets: string[];
   runtimeCertificateCount: number;
+  runtimeSystemCaTrust: boolean;
+  explicitAssetsOverrideGitignore: boolean;
   assetExcludes: string[];
   assetMode?: FileMode;
   toolchainRequirements: ToolchainRequirements;
@@ -54,7 +56,7 @@ export async function checkConfig(options: BuildOptions) {
     projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,
       workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
-      runtimeCertificateCount: project.runtimeCAs.length, assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
+      runtimeCertificateCount: project.runtimeCAs.length, runtimeSystemCaTrust: project.runtimeSystemCaTrust, explicitAssetsOverrideGitignore: project.mode === "source", assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
   }
   if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
