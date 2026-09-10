@@ -10,7 +10,7 @@ import { BlobStore } from "../oci/blob-store.ts";
 import { decodeLayer } from "../oci/decode.ts";
 import { assertDigest, canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
 import { Publisher, PublicationError, repositoryName } from "../oci/publish.ts";
-import { RegistryError, type RegistryOptions } from "../oci/registry.ts";
+import { RegistryError, RegistryConnectionError, type RegistryOptions } from "../oci/registry.ts";
 import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { hashFile } from "./files.ts";
@@ -41,6 +41,7 @@ function exportFailure(error: unknown): NonNullable<CacheExportEvent["reason"]> 
   const seen = new Set<unknown>();
   while (error instanceof Error && !seen.has(error) && seen.size < 8) {
     seen.add(error);
+    if (error instanceof RegistryConnectionError) return "unavailable";
     if (error instanceof RegistryError) {
       if (error.status === 404) return "invalid";
       if ([401, 403].includes(error.status)) return "denied";
