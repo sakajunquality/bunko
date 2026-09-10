@@ -1,4 +1,5 @@
-import { link, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp } from "../runtime/invocation.ts";
+import { link, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { assertFileAvailable } from "../oci/archive.ts";
 import { canonicalOutput } from "../oci/layout.ts";

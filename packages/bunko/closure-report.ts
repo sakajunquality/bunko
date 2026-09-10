@@ -1,5 +1,6 @@
+import { mkdtemp } from "../runtime/invocation.ts";
 import { assertSharedClosure, byteSize, dependencyClosure, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VERSION, loadProject, type BuildOptions } from "./config.ts";

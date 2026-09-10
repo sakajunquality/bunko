@@ -1,3 +1,4 @@
+import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { registryHost } from "./registry-host.ts";
 import { dockerCredentials, type CredentialProvider } from "./credentials.ts";
 import { object } from "./digest.ts";
@@ -156,7 +157,8 @@ export class RegistryClient {
     this.fetcher = (url, init) => {
       const origin = new URL(url).origin;
       const tls = options.tls?.[origin];
-      return transport(url, { ...init, ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
+      throwIfCancelled();
+      return transport(url, { ...init, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
     };
     this.credentials = options.credentials ?? dockerCredentials();
   }
@@ -227,6 +229,7 @@ export class RegistryClient {
   }
 
   async request(path: string | URL, init: RequestInit = {}, scopes: string[] = [], allowed: number[] = []): Promise<Response> {
+    init = { ...init, signal: invocationSignal(init.signal) };
     const initial = this.safeURL(path);
     const method = init.method ?? "GET";
     const key = [...new Set(scopes)].sort().join(" ");
@@ -301,7 +304,7 @@ export class RegistryClient {
     const throttled = Number.isFinite(requested);
     const delay = throttled ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
     const bounded = Math.min(delay, this.options.maxRetryDelayMs ?? 30_000);
-    if (!throttled) { await (this.options.sleep ?? Bun.sleep)(bounded); return; }
+    if (!throttled) { await (this.options.sleep ?? pause)(bounded); return; }
     await this.cool(bounded);
   }
 
@@ -313,7 +316,7 @@ export class RegistryClient {
     while (this.cooldownUntil > now()) {
       if (!this.cooling) {
         const deadline = this.cooldownUntil;
-        this.cooling = Promise.resolve((this.options.sleep ?? Bun.sleep)(deadline - now()))
+        this.cooling = Promise.resolve((this.options.sleep ?? pause)(deadline - now()))
           .finally(() => { this.cooling = undefined; this.cooldownTime = Math.max(this.cooldownTime, deadline); });
       }
       await this.cooling;

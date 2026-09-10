@@ -1,4 +1,5 @@
-import { lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp } from "../runtime/invocation.ts";
+import { lstat, mkdir, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { BlobStore } from "./blob-store.ts";
 import { canonicalJSON } from "./digest.ts";

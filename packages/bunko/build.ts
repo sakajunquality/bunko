@@ -1,3 +1,4 @@
+import { mkdtemp } from "../runtime/invocation.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
 import { imageSizeSummary } from "./image-size.ts";
 import { cacheLocations, canonicalCachePath } from "./cache-backend-options.ts";
@@ -27,7 +28,7 @@ import { targetInputs } from "./inputs.ts";
 import { metric } from "./telemetry.ts";
 import { phase } from "./progress.ts";
 import { referenceOutput, writeReferences, localImageReference } from "./references.ts";
-import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";

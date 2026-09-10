@@ -1,8 +1,9 @@
+import { mkdtemp } from "../runtime/invocation.ts";
 import { filesystemMetadata } from "./ignore.ts";
 import { writeAssetBytes } from "./asset-write.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { canonicalJSON, object, sha256 } from "../oci/digest.ts";
