@@ -73,6 +73,8 @@ An exact `packageManager: "bun@1.3.11"` also constrains the selection. rc.4 and 
 
 ## Asset exclusions and permissions
 
+Finder `.DS_Store` entries are automatically omitted at every depth in source directories, declared asset directories, `bunkodata` and external asset directories. They do not affect snapshot or asset content hashes, and no ignore pattern is needed. Other protected names retain their existing rejection rules; explicitly selecting a `.DS_Store` file as a required source input or external mapping is unsupported.
+
 `bunko.assetExcludes` contains positive glob patterns relative to the selected project. It narrows files selected by `assets` and the automatic bunkodata selection. Excluding a directory excludes its descendants. Required build files remain available to bundle/compile processing; source mode rejects exclusions that would remove an entrypoint or required package/configuration scope. Excluded asset-only data does not enter the source snapshot or asset layer.
 
 `bunko.assetMode` accepts `preserve` (default), `0444`, `0555`, `0644` or `0755`. The default preserves the executable classification and uses normalized 0644/0755 permissions, not arbitrary host permission bits. Explicit modes affect selected files; directories remain 0755. Special permission bits are unsupported. In source mode, declared assets remain at their original source positions while these exclusions and file modes apply there.
