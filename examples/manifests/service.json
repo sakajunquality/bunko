@@ -1,1 +1,1 @@
-{"apiVersion":"v1","kind":"Pod","metadata":{"name":"api"},"spec":{"containers":[{"name":"api","image":"bunko://services/api"}]}}
+{"apiVersion":"v1","kind":"Pod","metadata":{"name":"api"},"spec":{"containers":[{"name":"api","image":"bunko://services/api","securityContext":{"runAsNonRoot":true,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}
