@@ -30,6 +30,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 import { checkConfig, doctor } from "./diagnostics.ts";
+import { diagnosticsFormat, diagnosticsOutput } from "./diagnostics-format.ts";
 import { validateCommandOptions } from "./command-options.ts";
 import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
@@ -59,8 +60,8 @@ Usage:
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
-  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>]
-  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>]
+  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>]
+  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
   bunko version
 
@@ -143,6 +144,7 @@ Options:
   --registry-config <file>  Host-scoped CA/client certificate configuration
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --progress <plain|json>   Stage events on stderr (default: plain)
+  --format <json|text>     check-config/doctor output (default: text on a terminal, json otherwise)
   --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
 
@@ -220,6 +222,7 @@ export async function main(argv: string[]): Promise<number> {
       "registry-config": { type: "string" },
       "tag-conflict": { type: "string" },
       progress: { type: "string" },
+      format: { type: "string" },
       otel: { type: "boolean" },
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
@@ -280,8 +283,9 @@ export async function main(argv: string[]): Promise<number> {
     const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
+      const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));
       const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
-      process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
+      process.stdout.write(diagnosticsOutput(await (command === "doctor" ? doctor(options) : checkConfig(options)), format)); return 0;
     }
     if (command === "metadata") {
       if (positionals.length !== 2 || !values["metadata-dir"]) throw new Error("metadata requires an image@digest or layout:DIR and --metadata-dir");

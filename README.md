@@ -158,7 +158,7 @@ Unsupported: nested workspaces, file/link/git dependencies, bytecode, source sym
 
 ## Diagnostics
 
-Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md).
+Use `bunko check-config PATH` for offline configuration checks and `bunko doctor PATH` for toolchain diagnostics. Both print a readable summary in a terminal and the same report as one JSON line when stdout is redirected; use `--format json` or `--format text` to choose explicitly. Workspace builds support bounded `--jobs` and reusable application layers. See [compatibility and migration](docs/COMPATIBILITY.md), [performance](docs/PERFORMANCE.md), [operations](docs/OPERATIONS.md), and [supply-chain metadata](docs/SUPPLY_CHAIN.md).
 
 ## Portable ko workflows
 

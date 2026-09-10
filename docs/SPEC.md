@@ -44,6 +44,7 @@ bunko version
 | `--git-metadata=false` | Omit automatic Git labels and Git-derived tags. |
 | `--no-index` | Use a single manifest as the image root. |
 | `--report FILE` | JSON results; replaces an existing Bunko report (regular file) atomically, rejects directories/symlinks and paths within the exported layout. |
+| `--format json\|text` | `check-config`/`doctor` output selection; defaults to text on a terminal and JSON otherwise. |
 
 Supported environment variables: `BUNKO_REPO`, `BUNKO_CACHE_DIR`, `BUNKO_CACHE_REPO`, `BUNKO_JOBS`, `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, `BUNKO_DEFAULT_BASE`, `BUNKO_DEFAULT_PLATFORMS`, `SOURCE_DATE_EPOCH`, `XDG_CACHE_HOME`, and `KIND_CLUSTER_NAME`. Explicit CLI values take precedence. Unknown or unsupported options fail rather than being ignored.
 
@@ -227,7 +228,7 @@ Target preparation accepts bounded `--jobs` (1–32, default 1). All targets pre
 
 ## 14. Diagnostics
 
-`check-config [path]` validates manifests, workspace/target selection, named entry configuration, selected external asset bindings/filesystem entries and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. JSON reports omit configured environment/define values and list unchecked build/runtime/network concerns. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
+`check-config [path]` validates manifests, workspace/target selection, named entry configuration, selected external asset bindings/filesystem entries and the text-lock dependency contract without installing or contacting registries. `doctor [path]` additionally checks the selected Bun revision and optional executable availability. Both write JSON when stdout is not a terminal and an aligned text summary of the same report when it is; the decision reads stdout only, and `--format json|text` decides explicitly. The text summary renders one header line, a labelled block per target, and the unchecked list, and `doctor` adds the declared/selected toolchain comparison. Reports omit configured environment/define values and list unchecked build/runtime/network concerns. Errors stay on stderr as a single `bunko: MESSAGE` line in both formats, with one pre-existing exception: `--progress json` selects the JSON error line before command-option validation, so these commands report their own rejection of that unsupported option as a JSON error. Command-specific options are rejected outside their supported commands, including explicit negative booleans. See COMPATIBILITY.md for the tested Bun matrix and migration details.
 
 ## Portable ko feature additions
 

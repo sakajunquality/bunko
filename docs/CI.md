@@ -45,6 +45,10 @@ Replacing a Dockerfile and docker/build-push-action is covered instruction by in
 
 On main after promotion, setup defaults to the verified 0.1.2 release and Bun 1.4.2. The immutable `v0.1.2` Action tag defaults to CLI 0.1.1 and Bun 1.4.2; pass `version: v0.1.2` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
+## Diagnostic output
+
+`check-config` and `doctor` keep their single-line JSON whenever stdout is not a terminal. The choice depends on stdout alone: a pipe or a redirect produces JSON regardless of stderr or environment variables, so steps such as `bunko check-config . | jq -r .status` are unaffected, while a runner that allocates a pseudo-terminal for the step receives the text summary instead. Pass `--format json` wherever the output is parsed, and `--format text` for a readable summary in a local terminal or a job log.
+
 ## Invocation constants
 
 rc.4 and later accept repeatable `--define KEY=VALUE` on build, resolve, apply, check-config and doctor. CLI values override the matching `bunko.build.define` entries for this invocation; other configured entries remain in effect. In a workspace, invocation defines apply to every selected target. Each key must be an identifier or dotted key and each value must be explicit. Duplicate CLI keys and shorthand environment lookups are rejected.
