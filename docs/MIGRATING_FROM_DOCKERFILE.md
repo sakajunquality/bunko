@@ -31,7 +31,7 @@ Bunko has no Dockerfile and no `RUN`. Image content comes from three sources: th
 | `tags: registry/repo/app:sha` | `--repo registry/repo` (+ `imageName`) or `--repo registry/repo/app --bare`; `--tag sha --tag latest` (default: `latest` and the Git revision) | `repo`, `bare`, `tags` |
 | `push: true` | default; `--push=false` disables | `push` |
 | `platforms: linux/amd64,linux/arm64` | `--platform linux/amd64,linux/arm64` | `platforms` |
-| `cache-from/cache-to: type=gha` | `--cache-dir DIR` (layers) and `--install-cache DIR` (package downloads) persisted with `actions/cache`, or `--cache-repo` / `--cache-from` registry caches | `cache-dir`, `install-cache`, `cache-repo`, `cache-from` |
+| `cache-from/cache-to: type=gha` | the managed cache directory persisted with the GitHub Actions cache, or `--cache-repo` / `--cache-from` registry caches | `cache: github` (no `actions/cache` step of your own), `cache-repo`, `cache-from` |
 | `load: true` | `--local` (single platform, needs Docker) | not in the Action |
 | `outputs: type=oci` | `--oci-layout DIR`, `--tarball FILE` | `export-layout` |
 | `build-contexts: name=path` | `--asset-context NAME=DIR`, or an `image`/`url` asset mapping needing no CI step | `asset-contexts` |
@@ -152,10 +152,6 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
   with:
     version: v0.4.0
     bun-version: 1.4.2
-- uses: actions/cache@<commit>
-  with:
-    path: ${{ runner.temp }}/bunko
-    key: bunko-${{ runner.os }}-bun1.4.2-${{ hashFiles('bun.lock') }}
 - uses: sakajunquality/bunko/build@<commit>
   id: image
   with:
@@ -166,8 +162,9 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
     tags: |
       ${{ github.sha }}
       latest
-    cache-dir: ${{ runner.temp }}/bunko/cache
-    install-cache: ${{ runner.temp }}/bunko/install
+    cache: github
 ```
+
+`cache: github` replaces `cache-from/cache-to: type=gha` and the `actions/cache` step a workflow used to write by hand: the build Action restores and saves the managed cache directory itself, deriving the key from the runner, the bunko version and the lockfile and manifests under `path`. Add `cache-repo` alongside it to also share built layers across runners and repositories. See [the GitHub Actions cache](CI.md#the-github-actions-cache).
 
 The image is `REGION-docker.pkg.dev/PROJECT/REPO/backend`; `${{ steps.image.outputs.reference }}` holds its immutable digest reference and `${{ steps.image.outputs.report }}` the build report. A job that runs the mapped binary overrides the command with `/app/bin/tool`, as it would with the Dockerfile image.

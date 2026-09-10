@@ -32,9 +32,9 @@ steps:
 
 For pull requests without publication, omit `repo`, `push` and write permissions. The default is `push: 'false'`, and the Action exports a local OCI layout. Upload `${{ steps.image.outputs.layout }}` and `${{ steps.image.outputs.report }}` with your artifact retention policy. Reports may be absent for failures before build preparation; upload with an explicit missing-file policy. A re-run on the same runner path replaces an earlier report atomically; a failure before report creation leaves the earlier file, so the process exit code is authoritative: neither an existing file nor a success status proves this invocation succeeded. Build scripts do not require a Docker daemon. The authentication example uses Docker's credential configuration, not its daemon.
 
-The `images` output is a JSON array containing every selected target, its root digest and a published reference when available. `digest` and `reference` are populated only for exactly one target; they are empty for multi-target builds. `report` points to the detailed build report. `image-refs` is the successful immutable reference file for published builds. `layout` is set for local-only builds or when `export-layout: 'true'` is requested. Publishing without layout export avoids writing an exported layout; build-time base filesystem validation still reads the selected base layers. Failed builds expose no successful image outputs; the report, when written, retains the underlying failure/partial-publication state.
+The `images` output is a JSON array containing every selected target, its root digest and a published reference when available. `digest` and `reference` are populated only for exactly one target; they are empty for multi-target builds. `report` points to the detailed build report. `image-refs` is the successful immutable reference file for published builds. `layout` is set for local-only builds or when `export-layout: 'true'` is requested. `cache-hit`, `cache-key` and `cache-matched-key` describe the GitHub Actions cache when `cache: github` is set. Publishing without layout export avoids writing an exported layout; build-time base filesystem validation still reads the selected base layers. Failed builds expose no successful image outputs; the report, when written, retains the underlying failure/partial-publication state.
 
-Inputs include comma-separated `platforms`, and newline-separated `targets`, `tags`, `cache-from` and `asset-contexts`. `base`, `base-layout`, `runtime-inject`, `mode`, `cache-dir`, `cache-repo`, `cache-write`, `install-cache` and `image-user` map to their CLI counterparts, and `bare: 'true'` passes `--bare` (exactly one target). `report` selects the build report path instead of the default file in the runner temporary directory; the `report` output returns whichever path was used, and CLI 0.1.0 refuses an existing file; 0.1.1 replaces a recognizable prior Bunko report while protecting other existing files. These four inputs require an Action commit that includes them. Use package configuration for application settings and the CLI directly for options outside the Action's input surface. No input is evaluated by a shell. Setup and build are separate steps so credential helpers and `gpgv` can be installed explicitly when required.
+Inputs include comma-separated `platforms`, and newline-separated `targets`, `tags`, `cache-from` and `asset-contexts`. `base`, `base-layout`, `runtime-inject`, `mode`, `cache-dir`, `cache-repo`, `cache-write`, `install-cache` and `image-user` map to their CLI counterparts, and `bare: 'true'` passes `--bare` (exactly one target). `report` selects the build report path instead of the default file in the runner temporary directory; the `report` output returns whichever path was used, and CLI 0.1.0 refuses an existing file; 0.1.1 replaces a recognizable prior Bunko report while protecting other existing files. These four inputs require an Action commit that includes them. `cache`, `cache-key` and `cache-restore-keys` configure [the GitHub Actions cache](#the-github-actions-cache) and reach no CLI option. Use package configuration for application settings and the CLI directly for options outside the Action's input surface. No input is evaluated by a shell. Setup and build are separate steps so credential helpers and `gpgv` can be installed explicitly when required.
 
 ## Job summary
 
@@ -52,11 +52,61 @@ Set `summary: 'false'` to write nothing to `$GITHUB_STEP_SUMMARY`. The default i
 
 To export telemetry, set `otel: 'true'` and configure the supported `OTEL_*` environment variables on the build step. Keep authenticated exporter headers in secrets and use HTTPS. No telemetry is enabled just because environment variables are present. See [telemetry](TELEMETRY.md).
 
-Persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Persist `install-cache` separately for package downloads; in CLI 0.1.1 its default is `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`. Inputs are not shell-expanded, so write cache paths without `~`, for example `${{ runner.temp }}/bunko/cache`. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
+On GitHub Actions, set `cache: github` and the build Action persists the managed cache itself; see [the GitHub Actions cache](#the-github-actions-cache) below. On other providers, persist a local `cache-dir` with your CI cache service, or use explicit registry cache repositories. Persist `install-cache` separately for package downloads; in CLI 0.1.1 its default is `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`. Inputs are not shell-expanded, so write cache paths without `~`, for example `${{ runner.temp }}/bunko/cache`. Cache keys should separate operating systems and Bun versions; Bunko validates its own content keys before reuse. Do not expose write credentials to untrusted pull requests. Use provider OIDC login steps for Artifact Registry or ECR, or a Docker Hub access token via `docker login`; see [registry authentication](REGISTRIES.md). Provider helper binaries are the workflow's responsibility.
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
 When `version` is omitted, setup uses its own `uses:` ref only if the Action repository matches the configured release repository: a version-shaped ref such as `v0.4.0` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, a ref from a different repository also falls back to the checkout version. An explicit `version` always overrides automatic resolution. Branch and commit pins require the checkout version to have a published release; during release preparation, explicitly select an already published version. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+
+## The GitHub Actions cache
+
+`cache: github` makes the build Action restore the managed cache directory before the build and save it afterwards, so no workflow has to hand-write an `actions/cache` step. It replaces this:
+
+```yaml
+- uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+  with:
+    path: ~/.cache/bunko
+    key: bunko-${{ runner.os }}-bun${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock', 'apps/backend/package.json') }}
+    restore-keys: |
+      bunko-${{ runner.os }}-bun${{ env.BUN_VERSION }}-
+- uses: sakajunquality/bunko/build@<commit>
+  with:
+    path: apps/backend
+```
+
+with this:
+
+```yaml
+- uses: sakajunquality/bunko/build@<commit>
+  id: image
+  with:
+    path: apps/backend
+    cache: github
+```
+
+The default key is `bunko-<runner.os>-<runner.arch>-<installed bunko version>-<hash>`, where the hash covers `<path>/bun.lock`, `<path>/bun.lockb` and every `<path>/**/package.json` outside `node_modules`. The restore keys fall back to the same prefix without the hash, so a manifest change still starts from the previous run's cache. `cache-key` sets an exact key instead, and `cache-restore-keys` (one prefix per line) replaces the default fallback. Cache keys are limited to 512 characters and may not contain commas or whitespace. The Bun runtime version is deliberately not part of the key: Bunko validates its own content keys before reuse, so entries a Bun upgrade invalidated miss instead of being reused, and the package download cache stays shared. Put it in `cache-key` when you want separate entries per Bun version.
+
+The cached directories are the managed root, `${XDG_CACHE_HOME:-~/.cache}/bunko`, plus any `cache-dir` or `install-cache` directory outside it. The root always participates: `cache-dir` moves only the layer cache, while the Bun package download cache (`install/v1`), the image/URL asset cache and the verified runtime download cache stay under the root regardless. A `BUNKO_CACHE_DIR` in the job environment is resolved the way the CLI resolves it, so an environment-selected layer directory is persisted as well.
+
+Three outputs make the result visible, and the Action logs one `bunko cache: hit=… key=… restored-from=…` line: `cache-hit` is `true` only for an exact key match and `false` for a prefix match or a complete miss, so `== 'false'` is a usable test; `cache-key` is the key that was restored and saved; `cache-matched-key` is what actually matched, the key itself or a restore-key prefix, and is empty when nothing was restored. All three are empty for `cache: none`, which is the default and keeps the earlier behaviour, in which the workflow owns any caching. Any other value fails the step with an explicit error.
+
+The save step runs with `if: always()`, so a failed build still persists the package downloads and asset fetches it completed, and it is skipped after an exact hit because a GitHub cache entry is immutable under its key. Untrusted pull requests read the base branch cache and write only to their own scope, which is the same trust boundary as any other `actions/cache` use; treat cache contents as build input, as [cache distribution and retention](CACHE_RETENTION.md) describes.
+
+`cache: github` and the registry cache solve different halves of the problem and compose. A registry cache (`cache-repo`, `cache-from`, `cache-to`) carries built layers between runners, repositories and developer machines, and survives GitHub's cache eviction; `cache: github` carries the parts that never reach a registry — closure plan records, the Bun package download cache and the image/URL asset caches — but only for the same repository and only until GitHub evicts the entry. With both configured, a fresh runner restores the local caches from GitHub, then pulls any layer it still misses from the registry cache, and rebuilds nothing:
+
+```yaml
+- uses: sakajunquality/bunko/build@<commit>
+  with:
+    path: .
+    repo: ghcr.io/${{ github.repository_owner }}/applications
+    push: 'true'
+    cache: github
+    cache-repo: ghcr.io/${{ github.repository_owner }}/build-cache
+```
+
+[`examples/ci/github-actions.yml`](../examples/ci/github-actions.yml) is that workflow in full.
+
+Two limits are worth knowing before relying on the default key. `hashFiles` only sees files under `GITHUB_WORKSPACE`, so an application checked out elsewhere, or a `path` pointing outside the workspace, matches nothing and hashes to the literal `nofiles`: the key then never changes when dependencies change, and the entry is never refreshed. Set `cache-key` yourself in that layout. Second, the save runs on failure by design, so a first run that fails partway stores a partial cache under a key that is immutable: later runs restore that partial content as an exact hit and, because an exact hit skips the save, it stays partial until the hash changes. A build still validates every cached record before reuse, so this costs work, not correctness; change `cache-key` (a run counter or a manual bump) to force a fresh entry.
 
 ## Diagnostic output
 
