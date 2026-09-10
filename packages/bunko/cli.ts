@@ -149,6 +149,7 @@ Options:
   --registry-mirror <ORIGIN=MIRROR>  Pull digest content from a mirror; repeatable
   --tag-conflict <fail|skip>  Fail on immutable tag refusals, or report and skip them
   --registry-config <file>  Host-scoped CA/client certificate configuration
+  --publish-concurrency <count>  Parallel blobs per manifest, 1-32 (default: 6, Docker Hub 3, or BUNKO_PUBLISH_CONCURRENCY)
   --otel                   Export build traces/metrics via OTLP/HTTP JSON (opt-in)
   --top <count>            closure-info rows, largest first (default: 20)
   --json                   Machine-readable why/closure-info output
@@ -235,6 +236,7 @@ export async function main(argv: string[]): Promise<number> {
       "artifact-target": { type: "string" },
       "registry-mirror": { type: "string", multiple: true },
       "registry-config": { type: "string" },
+      "publish-concurrency": { type: "string" },
       "tag-conflict": { type: "string" },
       progress: { type: "string" },
       format: { type: "string" },
@@ -299,7 +301,9 @@ export async function main(argv: string[]): Promise<number> {
     const tagConflict = values["tag-conflict"] as "fail" | "skip" | undefined;
     if (values["module-locations"] !== undefined && !["warn", "error"].includes(values["module-locations"])) throw new Error("--module-locations must be warn or error");
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
-    const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
+    const concurrencyText = values["publish-concurrency"] ?? process.env.BUNKO_PUBLISH_CONCURRENCY;
+    if (concurrencyText !== undefined && (!/^\d+$/.test(concurrencyText) || Number(concurrencyText) < 1 || Number(concurrencyText) > 32)) throw new Error("Publication concurrency must be an integer from 1 to 32");
+    const registry = { publishConcurrency: concurrencyText === undefined ? undefined : Number(concurrencyText), onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));

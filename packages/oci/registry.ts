@@ -19,6 +19,8 @@ export interface RegistryOptions {
   /** Maximum idle time between blob body chunks; active transfers have no total deadline. */
   bodyIdleTimeoutMs?: number;
   maxRetryDelayMs?: number;
+  /** Parallel per-blob publication work within one manifest, 1–32; see publishConcurrency. */
+  publishConcurrency?: number;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -92,12 +94,15 @@ async function registryErrorCodes(response: Response): Promise<{ codes: string[]
 }
 
 export class RegistryError extends Error {
-  constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = [], readonly immutableTag = false) {
+  /** The refusal's own Retry-After survives the throw: an upload recovery must wait as long as
+   * a rate-limited registry asked for, not for its own exponential guess. */
+  constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = [], readonly immutableTag = false, readonly retryAfter?: string) {
     super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}`);
   }
   static async response(response: Response, method: string, registry: string): Promise<RegistryError> {
+    const after = response.headers.get("Retry-After");
     const diagnostics = await registryErrorCodes(response);
-    return new RegistryError(response.status, method, registry, diagnostics.codes, diagnostics.immutableTag);
+    return new RegistryError(response.status, method, registry, diagnostics.codes, diagnostics.immutableTag, after ?? undefined);
   }
 }
 
@@ -109,6 +114,10 @@ export class RegistryClient {
   private readonly insecureOrigins: Set<string>;
   private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
+  private readonly pendingTokens = new Map<string, Promise<{ authorization: string; expires: number }>>();
+  private cooldownUntil = 0;
+  private cooldownTime = 0;
+  private cooling?: Promise<unknown>;
   constructor(readonly registry: string, private readonly options: RegistryOptions = {}) {
     registryHost(registry);
     this.insecureOrigins = new Set((options.insecure ?? []).map((host) => new URL(`http://${registryHost(host)}`).origin));
@@ -175,6 +184,21 @@ export class RegistryClient {
     return { authorization: `Bearer ${value}`, expires: Date.now() + Math.max(1, seconds - Math.min(30, seconds / 2)) * 1000 };
   }
 
+  /** Parallel publication work meets the same 401 in every worker. Share one exchange per
+   * scope and challenge so a burst costs one token request, not one per blob. */
+  private async token(key: string, challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
+    const id = `${refresh ? "refresh" : "initial"}\0${key}\0${challenge}`;
+    let pending = this.pendingTokens.get(id);
+    if (!pending) {
+      pending = this.authenticate(challenge, scopes, refresh);
+      this.pendingTokens.set(id, pending);
+      // Every caller awaits the shared promise; this only keeps a rejection from being
+      // reported as unhandled before the first caller resumes.
+      void pending.catch(() => {});
+    }
+    try { return await pending; } finally { if (this.pendingTokens.get(id) === pending) this.pendingTokens.delete(id); }
+  }
+
   async request(path: string | URL, init: RequestInit = {}, scopes: string[] = [], allowed: number[] = []): Promise<Response> {
     const initial = this.safeURL(path);
     const method = init.method ?? "GET";
@@ -185,12 +209,13 @@ export class RegistryClient {
       init.signal?.throwIfAborted();
       const previous = this.tokens.get(key), challenge = this.challenges.get(key);
       if (initial.origin === this.origin && previous && previous.expires <= Date.now() && challenge) {
-        this.tokens.set(key, await this.authenticate(challenge, scopes, true));
+        this.tokens.set(key, await this.token(key, challenge, scopes, true));
       }
       let url = initial;
       let response: Response | undefined;
       try {
         for (let redirects = 0; redirects <= 5; redirects++) {
+          await this.cool(0);
           init.signal?.throwIfAborted();
           const headers = new Headers(init.headers);
           headers.delete("Authorization");
@@ -223,7 +248,7 @@ export class RegistryClient {
         const challenge = response.headers.get("WWW-Authenticate") ?? "";
         await response.body?.cancel();
         const hadToken = this.tokens.has(key);
-        this.tokens.set(key, await this.authenticate(challenge, scopes, hadToken));
+        this.tokens.set(key, await this.token(key, challenge, scopes, hadToken));
         this.challenges.set(key, challenge);
         refreshed = true;
         attempt--;
@@ -242,11 +267,32 @@ export class RegistryClient {
     }
   }
 
+  /** A rate limit applies to the whole account, not to one request, so a Retry-After pause is
+   * shared by this client's workers. Ordinary retry backoff stays per request. */
   async backoff(attempt: number, retryAfter?: string | null) {
     const requested = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : NaN;
-    const delay = Number.isFinite(requested) ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
-    await (this.options.sleep ?? Bun.sleep)(Math.min(delay, this.options.maxRetryDelayMs ?? 30_000));
+    const throttled = Number.isFinite(requested);
+    const delay = throttled ? Math.max(0, Math.min(30_000, requested)) : Math.min(5000, 250 * 2 ** attempt + Math.random() * 100);
+    const bounded = Math.min(delay, this.options.maxRetryDelayMs ?? 30_000);
+    if (!throttled) { await (this.options.sleep ?? Bun.sleep)(bounded); return; }
+    await this.cool(bounded);
   }
+
+  /** Each refusal extends a monotonic deadline. Advancing the logical clock by a
+   * completed sleep also supports injected sleeps that resolve without real time passing. */
+  private async cool(delayMs: number): Promise<void> {
+    const now = () => Math.max(performance.now(), this.cooldownTime);
+    if (delayMs > 0) this.cooldownUntil = Math.max(this.cooldownUntil, now() + delayMs);
+    while (this.cooldownUntil > now()) {
+      if (!this.cooling) {
+        const deadline = this.cooldownUntil;
+        this.cooling = Promise.resolve((this.options.sleep ?? Bun.sleep)(deadline - now()))
+          .finally(() => { this.cooling = undefined; this.cooldownTime = Math.max(this.cooldownTime, deadline); });
+      }
+      await this.cooling;
+    }
+  }
+
 }
 
 

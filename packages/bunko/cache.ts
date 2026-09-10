@@ -9,13 +9,14 @@ import { join } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { decodeLayer } from "../oci/decode.ts";
 import { assertDigest, canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
-import { Publisher, PublicationError, repositoryName } from "../oci/publish.ts";
+import { publishConcurrency, Publisher, PublicationError, repositoryName } from "../oci/publish.ts";
 import { RegistryError, RegistryConnectionError, type RegistryOptions } from "../oci/registry.ts";
 import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { hashFile } from "./files.ts";
 import { withCacheLock } from "./cache-lock.ts";
 import { mapFiles } from "./concurrency.ts";
+import { boundedMap } from "../oci/concurrency.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { InventoryEntry, NativeBinary } from "./deps.ts";
 import type { ClosurePackage } from "./closure.ts";
@@ -317,37 +318,53 @@ export class CacheDriver {
     }
   }
 
+  /** One cache artifact: an existence check, then the artifact itself. Never throws, so a
+   * parallel batch reports every record instead of stopping at the first refusal. */
+  private async exportRecord(record: CacheRecord): Promise<{ event: CacheExportEvent; error?: unknown }> {
+    const started = performance.now();
+    const event: CacheExportEvent = { backend: "registry", destination: repositoryName(this.remote!.ref), kind: record.kind, key: record.key, status: "already-present", bytes: 0, durationMs: 0 };
+    let failure: unknown;
+    try {
+      if (!this.remoteHits.has(record.key) && !await this.existing(record)) {
+        const config = await this.store.put(canonicalJSON(record), configMedia);
+        const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);
+        try {
+          // One blob at a time: the parallelism that matters here is across cache artifacts,
+          // and nesting two bounds would multiply the in-flight requests.
+          const result = await this.remote!.publish(this.store, manifest, [cacheTag(record.kind, record.key)], undefined, false, "fail", 1);
+          event.bytes = result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
+          event.status = "written";
+        } catch (error) {
+          if (error instanceof PublicationError) event.bytes = error.result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
+          // A concurrent writer or a lost response can leave a valid winner.
+          // Reconcile once, without treating a different key result as success.
+          let present = false;
+          try { present = await this.existing(record); }
+          catch (check) { if (check instanceof CacheConflictError || check instanceof InvalidRemoteCacheError) throw check; }
+          if (!present) throw error;
+          event.reconciled = true;
+        }
+      }
+    } catch (error) {
+      failure = error;
+      event.status = "failed"; event.reason = exportFailure(error);
+      this.options.log(`Could not publish ${record.kind} cache (${event.reason}); image publication is unaffected\n`);
+    }
+    event.durationMs = performance.now() - started;
+    return { event, error: failure };
+  }
+
   async publish(): Promise<void> {
     if (!this.remote) return;
+    // Cache artifacts are independent of one another, so their round trips overlap under the
+    // same bound image publication uses. Events keep record order and the first failure by
+    // that order still decides the outcome.
+    const { results } = await boundedMap([...this.records.values()], this.remote.concurrency, (record) => this.exportRecord(record));
     let failed = false, firstFailure: unknown;
-    for (const record of this.records.values()) {
-      const started = performance.now();
-      const event: CacheExportEvent = { backend: "registry", destination: repositoryName(this.remote.ref), kind: record.kind, key: record.key, status: "already-present", bytes: 0, durationMs: 0 };
-      try {
-        if (!this.remoteHits.has(record.key) && !await this.existing(record)) {
-          const config = await this.store.put(canonicalJSON(record), configMedia);
-          const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);
-          try {
-            const result = await this.remote.publish(this.store, manifest, [cacheTag(record.kind, record.key)]);
-            event.bytes = result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
-            event.status = "written";
-          } catch (error) {
-            if (error instanceof PublicationError) event.bytes = error.result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
-            // A concurrent writer or a lost response can leave a valid winner.
-            // Reconcile once, without treating a different key result as success.
-            let present = false;
-            try { present = await this.existing(record); }
-            catch (check) { if (check instanceof CacheConflictError || check instanceof InvalidRemoteCacheError) throw check; }
-            if (!present) throw error;
-            event.reconciled = true;
-          }
-        }
-      } catch (error) {
-        firstFailure ??= error;
-        failed = true; event.status = "failed"; event.reason = exportFailure(error);
-        this.options.log(`Could not publish ${record.kind} cache (${event.reason}); image publication is unaffected\n`);
-      }
-      event.durationMs = performance.now() - started;
+    for (const outcome of results) {
+      if (!outcome) continue;
+      const event = outcome.event;
+      if (event.status === "failed") { if (!failed) firstFailure = outcome.error; failed = true; }
       this.exports.push(event);
       const labels = { "bunko.cache.backend": event.backend, "bunko.cache.kind": event.kind, "bunko.cache.result": event.status, "bunko.cache.reason": event.reason ?? "none" };
       metric("bunko.cache.export.count", "{export}", 1, labels);
@@ -368,6 +385,7 @@ export class LayerCache {
   private readonly writers: CacheBackend[];
   private readonly imported = new Set<Digest>();
   private readonly records = new Map<Digest, CacheRecord>();
+  private readonly concurrency: number;
   constructor(readonly store: BlobStore, private readonly options: {
     directory?: string; repository?: string; readRepositories?: string[];
     sources?: CacheLocation[]; destinations?: CacheLocation[];
@@ -383,7 +401,12 @@ export class LayerCache {
       return backends.get(key)!;
     };
     this.readers = unique([...(options.sources ?? []), ...(options.readRepositories ?? []).map((repo): CacheLocation => ({ type: "registry", repo: repositoryName(new Publisher(repo).ref) })), ...(options.repository ? [{ type: "registry" as const, repo: repositoryName(new Publisher(options.repository).ref) }] : [])]).map(backendFor);
-    this.writers = unique([...(options.destinations ?? []), ...(options.repository ? [{ type: "registry" as const, repo: repositoryName(new Publisher(options.repository).ref) }] : [])]).map(backendFor);
+    const destinations = unique([...(options.destinations ?? []), ...(options.repository ? [{ type: "registry" as const, repo: repositoryName(new Publisher(options.repository).ref) }] : [])]);
+    this.writers = destinations.map(backendFor);
+    // The most restrictive registry destination sets the bound; local writers queue on the
+    // directory lock regardless, so they never widen it.
+    const hosts = destinations.filter((location) => location.type === "registry").map((location) => new Publisher(location.repo).ref.registry);
+    this.concurrency = Math.min(...(hosts.length ? hosts : [""]).map((host) => publishConcurrency(host, options.registry?.publishConcurrency)));
   }
   async get(...args: Parameters<CacheDriver["get"]>): Promise<CacheRecord | undefined> {
     const [key, kind, bypass] = args;
@@ -413,13 +436,19 @@ export class LayerCache {
     this.imported.clear();
   }
   async publish(): Promise<void> {
+    // Every destination/record pair is independent; run them under the publication bound and
+    // report the events in destination-then-record order, as the sequential loop did.
+    const writes = this.writers.flatMap((backend) => [...this.records.values()].map((record) => ({ backend, record })));
+    const { results, failure } = await boundedMap(writes, this.concurrency, ({ backend, record }) => backend.write(record));
     let failed = false, firstFailure: unknown;
-    for (const backend of this.writers) for (const record of this.records.values()) {
-      const { event, error } = await backend.write(record);
-      if (event.status === "failed") firstFailure ??= error;
-      this.exports.push(event);
-      failed ||= event.status === "failed";
+    for (const outcome of results) {
+      if (!outcome) continue;
+      if (outcome.event.status === "failed") { if (!failed) firstFailure = outcome.error; failed = true; }
+      this.exports.push(outcome.event);
     }
+    // A backend that could not even produce an outcome keeps its original error, after the
+    // outcomes its siblings did produce are recorded. A falsy rejection still fails here.
+    if (failure) throw failure.reason;
     if (failed && this.options.exportError === "fail") throw new CacheExportError(firstFailure);
   }
 }
