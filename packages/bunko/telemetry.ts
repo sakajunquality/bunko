@@ -196,4 +196,4 @@ export function measured<T>(name: string, task: () => Promise<T>, target?: strin
   const active = context.getStore();
   return active ? active.session.phase(name, task, target, platform) : task();
 }
-export function metric(name: string, unit: string, value: number, values: Attributes) { context.getStore()?.session.record(name, unit, value, values); }
+export function metric(name: string, unit: string, value: number, values: Attributes, histogram = false) { context.getStore()?.session.record(name, unit, value, values, histogram); }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { decodeLayer } from "../oci/decode.ts";
 import { assertDigest, canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
-import { Publisher, repositoryName } from "../oci/publish.ts";
+import { Publisher, PublicationError, repositoryName } from "../oci/publish.ts";
 import { RegistryError, type RegistryOptions } from "../oci/registry.ts";
 import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
@@ -23,6 +23,33 @@ const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
 export const packFormat = `tar-gzip-v4/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
 export class CacheConflictError extends Error {}
+class InvalidRemoteCacheError extends Error {}
+export interface CacheExportEvent {
+  backend: "registry"; destination: string; kind: CacheRecord["kind"]; key: Digest;
+  status: "written" | "already-present" | "failed";
+  reason?: "conflict" | "invalid" | "denied" | "timeout" | "unavailable";
+  bytes: number; durationMs: number; reconciled?: boolean;
+}
+export class CacheExportError extends Error {
+  constructor(cause?: unknown) { super("Cache export failed; inspect cacheExports in the build report (an image may already be published)", { cause }); }
+}
+function exportFailure(error: unknown): NonNullable<CacheExportEvent["reason"]> {
+  if (error instanceof CacheConflictError) return "conflict";
+  const invalid = error instanceof InvalidRemoteCacheError;
+  const seen = new Set<unknown>();
+  while (error instanceof Error && !seen.has(error) && seen.size < 8) {
+    seen.add(error);
+    if (error instanceof RegistryError) {
+      if (error.status === 404) return "invalid";
+      if ([401, 403].includes(error.status)) return "denied";
+      if ([408, 504].includes(error.status)) return "timeout";
+    }
+    if (error.name === "TimeoutError" || /timeout|timed out/i.test(error.message)) return "timeout";
+    if ("code" in error && /^(ECONN|ENET|EHOST|EPIPE|ETIMEDOUT)/.test(String(error.code))) return error.code === "ETIMEDOUT" ? "timeout" : "unavailable";
+    error = error.cause;
+  }
+  return invalid ? "invalid" : "unavailable";
+}
 export const cacheMetadataLimit = 8 * 1024 ** 2;
 async function readMetadata(path: string): Promise<unknown> {
   const file = Bun.file(path);
@@ -97,6 +124,7 @@ export async function assetInputs(entries: TarEntry[]): Promise<unknown> {
 
 export class LayerCache {
   readonly events: CacheEvent[] = [];
+  readonly exports: CacheExportEvent[] = [];
   private event(event: CacheEvent) {
     this.events.push(event);
     metric("bunko.cache.lookup.count", "{lookup}", 1, { "bunko.cache.kind": event.kind, "bunko.cache.result": event.status });
@@ -110,7 +138,7 @@ export class LayerCache {
   private readonly local?: BlobStore;
   private readonly remote?: Publisher;
   private readonly readers: Publisher[];
-  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; readRepositories?: string[]; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
+  constructor(readonly store: BlobStore, private readonly options: { directory?: string; repository?: string; readRepositories?: string[]; exportError?: "warn" | "fail"; registry?: RegistryOptions; persistence?: { disabled?: boolean }; log: (message: string) => void }) {
     this.persistence = options.persistence ?? {};
     if (options.directory) this.local = new BlobStore(options.directory);
     if (options.repository) this.remote = new Publisher(options.repository, options.registry);
@@ -262,26 +290,67 @@ export class LayerCache {
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
 
+  private async existing(record: CacheRecord): Promise<boolean> {
+    const source = new RegistrySource(`${repositoryName(this.remote!.ref)}:${cacheTag(record.kind, record.key)}`, this.options.registry);
+    let root: Awaited<ReturnType<RegistrySource["root"]>>;
+    try { root = await source.root(); }
+    catch (error) { if (error instanceof RegistryError && error.status === 404) return false; throw error; }
+    try {
+      const manifest = object(JSON.parse(Buffer.from(root.bytes).toString()), "Existing cache manifest");
+      if (root.descriptor.mediaType !== media.manifest || manifest.schemaVersion !== 2 || manifest.artifactType !== artifactMedia || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new Error("Invalid existing cache artifact");
+      const config = descriptor(manifest.config), layer = descriptor(manifest.layers[0]);
+      if (config.mediaType !== configMedia || config.size > cacheMetadataLimit) throw new Error("Invalid existing cache config");
+      await this.store.putStream(await source.blob(config), config.mediaType, config);
+      const previous = this.validate(JSON.parse(Buffer.from(await this.store.read(config)).toString()), record.key, record.kind, { destination: record.destination, platform: record.platform });
+      if (!Buffer.from(canonicalJSON(previous.layer.descriptor)).equals(Buffer.from(canonicalJSON(layer)))) throw new Error("Existing cache layer descriptor mismatch");
+      // Verify the winning record's payload before accepting an idempotent write.
+      await this.store.putStream(await source.blob(layer), layer.mediaType, layer);
+      await decodeLayer(this.store, layer, previous.layer.diffId, undefined, maxLayerBytes);
+      if (!Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) throw new CacheConflictError("Different output or metadata for the same Registry cache key; refusing to overwrite it");
+      return true;
+    } catch (error) {
+      if (error instanceof CacheConflictError || error instanceof RegistryError) throw error;
+      throw new InvalidRemoteCacheError("Invalid existing cache record", { cause: error });
+    }
+  }
+
   async publish(): Promise<void> {
     if (!this.remote) return;
+    let failed = false, firstFailure: unknown;
     for (const record of this.records.values()) {
-      if (this.remoteHits.has(record.key)) continue;
+      const started = performance.now();
+      const event: CacheExportEvent = { backend: "registry", destination: repositoryName(this.remote.ref), kind: record.kind, key: record.key, status: "already-present", bytes: 0, durationMs: 0 };
       try {
-        try {
-          const source = new RegistrySource(`${repositoryName(this.remote.ref)}:${cacheTag(record.kind, record.key)}`, this.options.registry);
-          const existing = object(JSON.parse(Buffer.from((await source.root()).bytes).toString()), "Existing cache manifest");
-          if (existing.artifactType !== artifactMedia) throw new Error("Cache tag is occupied by an unrelated artifact");
-          const config = descriptor(existing.config);
-          if (config.mediaType !== configMedia || config.size > cacheMetadataLimit) throw new Error("Invalid existing cache config");
-          await this.store.putStream(await source.blob(config), config.mediaType, config);
-          const previous = this.validate(JSON.parse(Buffer.from(await this.store.read(config)).toString()), record.key, record.kind, { destination: record.destination, platform: record.platform });
-          if (Buffer.compare(Buffer.from(canonicalJSON(previous.layer)), Buffer.from(canonicalJSON(record.layer)))) throw new CacheConflictError("Different output for the same Registry cache key; refusing to overwrite it");
-          continue;
-        } catch (error) { if (!(error instanceof RegistryError && error.status === 404)) throw error; }
-        const config = await this.store.put(canonicalJSON(record), configMedia);
-        const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);
-        await this.remote.publish(this.store, manifest, [cacheTag(record.kind, record.key)]);
-      } catch (error) { this.options.log(`Could not publish ${record.kind} cache; image publication is unaffected\n`); }
+        if (!this.remoteHits.has(record.key) && !await this.existing(record)) {
+          const config = await this.store.put(canonicalJSON(record), configMedia);
+          const manifest = await this.store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, artifactType: artifactMedia, config, layers: [record.layer.descriptor], annotations: { "org.bunko.cache.key": record.key, "org.bunko.cache.kind": record.kind } }), media.manifest);
+          try {
+            const result = await this.remote.publish(this.store, manifest, [cacheTag(record.kind, record.key)]);
+            event.bytes = result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
+            event.status = "written";
+          } catch (error) {
+            if (error instanceof PublicationError) event.bytes = error.result.transfers.reduce((sum, item) => sum + item.uploaded, 0);
+            // A concurrent writer or a lost response can leave a valid winner.
+            // Reconcile once, without treating a different key result as success.
+            let present = false;
+            try { present = await this.existing(record); }
+            catch (check) { if (check instanceof CacheConflictError || check instanceof InvalidRemoteCacheError) throw check; }
+            if (!present) throw error;
+            event.reconciled = true;
+          }
+        }
+      } catch (error) {
+        firstFailure ??= error;
+        failed = true; event.status = "failed"; event.reason = exportFailure(error);
+        this.options.log(`Could not publish ${record.kind} cache (${event.reason}); image publication is unaffected\n`);
+      }
+      event.durationMs = performance.now() - started;
+      this.exports.push(event);
+      const labels = { "bunko.cache.backend": event.backend, "bunko.cache.kind": event.kind, "bunko.cache.result": event.status, "bunko.cache.reason": event.reason ?? "none" };
+      metric("bunko.cache.export.count", "{export}", 1, labels);
+      metric("bunko.cache.export.bytes", "By", event.bytes, labels);
+      metric("bunko.cache.export.duration", "s", event.durationMs / 1000, labels, true);
     }
+    if (failed && this.options.exportError === "fail") throw new CacheExportError(firstFailure);
   }
 }

@@ -46,7 +46,7 @@ import { discover, workspaceAt } from "./workspace.ts";
 import { assertSharedClosure, byteSize, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
-import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type ClosurePlanRecord } from "./cache.ts";
+import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
 import { SyntaxCache } from "./syntax-cache.ts";
@@ -97,6 +97,7 @@ export interface BuildResult {
   layers: Layer[];
   images: PlatformResult[];
   cache: CacheEvent[];
+  cacheExports?: CacheExportEvent[];
   publication?: Publication;
   verifiedDeterministic: boolean;
   dryRun: boolean;
@@ -241,7 +242,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const tags = [...new Set(options.tags ?? ["latest", ...(revisionTag(git) ? [revisionTag(git)!] : [])])];
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
     const cacheRepo = options.registryCache === false ? undefined : options.cacheRepo ?? process.env.BUNKO_CACHE_REPO ?? (push ? destination : undefined);
-    const cache = new LayerCache(store, { persistence: context.cachePersistence, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, readRepositories: options.registryCache === false ? [] : [...options.cacheFrom ?? [], ...cacheRepo ? [cacheRepo] : []], registry, log });
+    if (options.cacheExportError === "fail" && !cacheRepo) throw new Error("Strict cache export requires a cache write destination; use --cache-repo when --push=false");
+    const cache = new LayerCache(store, { persistence: context.cachePersistence, exportError: options.cacheExportError, directory: cacheDirectory, repository: options.cacheWrite === false ? undefined : cacheRepo, readRepositories: options.registryCache === false ? [] : [...options.cacheFrom ?? [], ...cacheRepo ? [cacheRepo] : []], registry, log });
     log(`Resolving base ${options.baseLayout ?? baseRef}\n`);
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
@@ -494,7 +496,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
       sourceDigest, runtimeCA: context.runtimeCertificate?.metadata, ...(assetMaterials.length ? { assetMaterials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
-      layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
+      layers: first.layers, images, cache: cache.events, cacheExports: cache.exports, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
     if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp, { version: toolchain.version, revision: toolchain.revision, embedded: project.mode === "compile" })));
@@ -541,9 +543,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           finally {
             for (const transfer of result.publication?.transfers ?? []) metric("bunko.image.transfer.bytes", "By", transfer.action === "uploaded" ? transfer.uploaded : transfer.size, { "bunko.transfer.action": transfer.action });
           }
-          if (!options.dryRun) await cache.publish();
         }
         if (!push && !options.dryRun && result.supplyChain) result.supplyChain.status = "complete";
+        if (!options.dryRun && !options.offline) await cache.publish();
         if (report && !context.multiple && !options.imageRefs) await writeReport(report, result, context.reports);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);

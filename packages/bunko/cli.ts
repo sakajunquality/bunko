@@ -119,6 +119,7 @@ Options:
   --platform <list>        linux/amd64,linux/arm64 (default: linux/amd64)
   --bun-path <file>        Bun executable used for bundling and installation
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
+  --cache-export-error <warn|fail>  Cache export failure policy (default: warn)
   --cache-repo <repo>      Registry cache repository (default: image repository)
   --no-cache               Disable persistent local/registry layer caches and download caches
   --no-app-cache           Disable reusable application output
@@ -262,6 +263,7 @@ export async function main(argv: string[]): Promise<number> {
       "cache-repo": { type: "string" },
       "cache-from": { type: "string", multiple: true },
       "cache-write": { type: "boolean", default: true },
+      "cache-export-error": { type: "string" },
       "keep-bytes": { type: "string" },
       "install-cache": { type: "string" }, "asset-cache": { type: "string" },
       "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
@@ -404,7 +406,7 @@ export async function main(argv: string[]): Promise<number> {
       push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
-      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"],
+      cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheWrite: values["cache-write"], cacheExportError: values["cache-export-error"] as "warn" | "fail" | undefined,
       localCache: values.cache && values["local-cache"], registryCache: values.cache && (values.offline && !supplied("registry-cache") ? false : values["registry-cache"]),
       installCache: values["install-cache"], assetCache: values["asset-cache"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,

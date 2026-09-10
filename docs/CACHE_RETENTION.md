@@ -11,7 +11,7 @@ bunko build . --repo registry.example/team/app \
 
 Reads try the local cache, each `--cache-from` in order, then `--cache-repo` (the output repository by default when pushing). A denied, missing or corrupt cache source falls through to the remaining sources and then rebuilding. Every accepted layer is checked against its compressed digest and uncompressed DiffID. Reports identify the successful registry source and whether a final miss involved unavailable or invalid data.
 
-Registry cache writes use only `--cache-repo` or its normal default destination and occur after successful image publication. Hits from another read repository are eligible for promotion to that destination. `--cache-write=false` keeps registry reads and disables registry cache writes; local persistence remains controlled by `--local-cache=false`. `--cache=false` disables both caches and cannot be combined with explicit read sources.
+Registry cache writes use only `--cache-repo` or its normal default destination. They occur after successful build validation and, when requested, image publication. Explicit `--cache-repo` also exports when `--push=false`; dry-run and offline builds never export remote caches. Hits from another read repository are eligible for promotion to that destination. `--cache-write=false` keeps registry reads and disables registry cache writes; local persistence remains controlled by `--local-cache=false`. `--cache=false` disables both caches and cannot be combined with explicit read sources.
 
 ```sh
 bunko cache-info --cache-dir ./cache
@@ -44,3 +44,15 @@ Bun's extracted package download cache is trusted build input. Reusing an entry 
 Prune results list layer key records as `<kind>/<digest>.json` and closure plan records as `plans/deps/<digest>.json` in `keys`. Cache events describe lookup attempts; an invalid or unavailable closure plan may be followed by a lookup of the newly projected content key.
 
 Orphaned closure plans and plans using an obsolete layout or pack format are reclaimed before age or byte-budget selection. Their dependency layers remain available unless those layer records are independently selected for pruning.
+
+## Export outcomes and immutable repositories
+
+`cacheExports` in build reports records each attempted export's backend, destination, layer kind, key, status, transferred bytes and duration. Status is `written`, `already-present` or `failed`; failures distinguish conflicting output, invalid existing data, denied access, timeout and unavailability. A failed cache export warns by default. Use `--cache-export-error=fail` for strict cache-warming jobs. A strict error does not undo image publication; the failure report retains the published reference and export outcomes.
+
+Cache tags are derived from input keys. Existing identical records are reused without retagging. After a concurrent immutable-tag refusal or uncertain write, Bunko reconciles the winning record once, checking metadata, layer digest and DiffID. Different results for the same key are reported as conflicts and never accepted as successful cache writes.
+
+Prefer separate release and cache repositories, with appropriate writer permissions and provider cleanup policies. Unique cache tags avoid moving-tag updates but do not guarantee reclaimable storage: Artifact Registry cannot delete tagged artifacts while tag immutability is enabled. Bunko never changes repository policies. Live private-provider immutability/retention validation is separate from the mocked concurrency checks.
+
+OpenTelemetry includes cache export counts, transferred bytes and duration histograms with bounded backend/kind/result/reason labels. Repository names and cache keys are kept out of metric labels.
+
+Strict export mode rejects offline and dry-run builds. Local persistence failures do not disable registry exports. A reconciled concurrent write reports `already-present` with `reconciled: true`; `bytes` still includes any bytes uploaded before reconciliation. Missing referenced blobs are reported as `invalid`.

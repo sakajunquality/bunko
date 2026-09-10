@@ -61,6 +61,7 @@ export interface BuildOptions {
   cacheRepo?: string;
   cacheFrom?: string[];
   cacheWrite?: boolean;
+  cacheExportError?: "warn" | "fail";
   registryCache?: boolean;
   registry?: RegistryOptions;
   installCache?: string;
