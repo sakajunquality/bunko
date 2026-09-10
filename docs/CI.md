@@ -43,7 +43,11 @@ Persist a local `cache-dir` with your CI cache service, or use explicit registry
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-On main after promotion, setup defaults to the verified 0.1.2 release and Bun 1.4.2. The immutable `v0.1.2` Action tag defaults to CLI 0.1.1 and Bun 1.4.2; pass `version: v0.1.2` explicitly when pinning it. Older Action commits also retain their original defaults, so keep both version inputs explicit. Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+When `version` is omitted, setup uses its own `uses:` ref only if the Action repository matches the configured release repository: a version-shaped ref such as `v0.1.2` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, a ref from a different repository also falls back to the checkout version. An explicit `version` always overrides automatic resolution. Branch and commit pins require the checkout version to have a published release; during release preparation, explicitly select an already published version. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the pinned commit above and the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+
+## Diagnostic output
+
+`check-config` and `doctor` keep their single-line JSON whenever stdout is not a terminal. The choice depends on stdout alone: a pipe or a redirect produces JSON regardless of stderr or environment variables, so steps such as `bunko check-config . | jq -r .status` are unaffected, while a runner that allocates a pseudo-terminal for the step receives the text summary instead. Pass `--format json` wherever the output is parsed, and `--format text` for a readable summary in a local terminal or a job log.
 
 ## Invocation constants
 

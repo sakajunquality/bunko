@@ -1,5 +1,5 @@
 import { assertNoSourcePrivateKey, gitSourceIgnore } from "./source-policy.ts";
-import { sourceIgnore, sourceOmissions } from "./ignore.ts";
+import { filesystemMetadata, sourceIgnore, sourceOmissions } from "./ignore.ts";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, open } from "node:fs/promises";
 import { join, posix, relative, resolve } from "node:path";
@@ -40,6 +40,11 @@ export async function snapshot(source: string, destination: string, excluded: st
   const exclude = excluded.map((p) => resolve(p));
   async function walk(path: string) {
     const current = join(source, path);
+    if (filesystemMetadata(path)) {
+      const input = required.find((item) => item === path || item.startsWith(`${path}/`));
+      if (input) throw new Error(`Excluded required source input: ${input}`);
+      return;
+    }
     if (assetExclusions.some((excluded) => current === excluded || current.startsWith(`${excluded}/`))) {
       if (!required.some((input) => input === path || input.startsWith(`${path}/`))) return;
     }
