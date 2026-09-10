@@ -1,4 +1,4 @@
-import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, visit, type Document, type Node, type Scalar } from "yaml";
+import { isAlias, isMap, isNode, isScalar, isSeq, parseAllDocuments, visit, type Document, type Node, type Scalar } from "yaml";
 
 function valueValid(value: string): boolean { return value.length <= 63 && (!value || /^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(value)); }
 function keyValid(key: string): boolean {
@@ -92,6 +92,7 @@ function preserveRemovedAnchors(document: Document, aliases: Map<number, Node | 
     if (!target || ancestors.has(target)) throw new Error("Cyclic or unresolved List alias");
     if (++expansions > 100) throw new Error("List alias expansion exceeds safe limits");
     const next = new Set(ancestors).add(target), copy = target.clone();
+    if (!isNode(copy)) throw new Error("Invalid List alias target");
     visit(copy, {
       Node(_key, node) {
         if (++nodes > 100_000) throw new Error("List alias expansion exceeds safe limits");
