@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock } from "../packages/bunko/deps.ts";
+import { buildDependencyFilters, classifyAddon, dependencyInputs, dependencyPlan, inspectELF, installDependencies, runtimeEntries, validateLock } from "../packages/bunko/deps.ts";
+import { discover } from "../packages/bunko/workspace.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
-import { selectToolchain } from "../packages/bunko/toolchain.ts";
+import { bundle, selectToolchain } from "../packages/bunko/toolchain.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { baseLayout, inspectTar, project, temporary } from "./helpers.ts";
@@ -14,6 +15,7 @@ const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
 async function dir() { const root = await temporary(); directories.push(root); return root; }
 import { dependencyFixture } from "./dependency-fixture.ts";
+import { workspaceFixture } from "./workspace-fixture.ts";
 
 describe("isolated Bun dependency preparation", () => {
   test("adapts optional peer metadata and invalidates dependency keys when patches change", async () => {
@@ -102,6 +104,70 @@ describe("isolated Bun dependency preparation", () => {
     await installDependencies(stage, plan, await selectToolchain(), undefined, fixture.cache);
     expect(await Bun.file(join(stage, ".npmrc")).exists()).toBe(false);
     expect(await readFile(join(fixture.source, ".npmrc"), "utf8")).toContain("private-test-token");
+  });
+
+  test("scopes the host build install to the target member and its workspace closure", async () => {
+    const root = await dir(), f = await workspaceFixture(root), toolchain = await selectToolchain();
+    const discovered = await discover({ path: join(f.source, "services/api") });
+    const target = await loadProject({ path: join(f.source, "services/api") }, discovered.workspace);
+    const plan = await dependencyPlan(target, f.source);
+    const filters = buildDependencyFilters(plan, target.targetPath);
+    expect(filters).toEqual([".", "./services/api"]);
+    expect(buildDependencyFilters({ ...plan, workspace: undefined }, "services/api")).toBeUndefined();
+    expect(buildDependencyFilters(plan, "")).toBeUndefined();
+    // Bun reads `*`, a leading `!` and a trailing `...` as pattern syntax, and an
+    // unmatched filter only warns, so those member paths take the full install.
+    for (const path of ["services/*", "services/api...", "!services/api", "services/a..b", "services/api!", "services/{api}"]) {
+      expect(buildDependencyFilters({ ...plan, workspace: { ...plan.workspace!, packages: [...plan.workspace!.packages, { path, text: "", manifest: {} }] } }, path)).toBeUndefined();
+    }
+    expect(buildDependencyFilters({ ...plan, workspace: { ...plan.workspace!, packages: [...plan.workspace!.packages, { path: "services/api.v2", text: "", manifest: {} }] } }, "services/api.v2")).toEqual([".", "./services/api.v2"]);
+    const scoped = join(root, "scoped"), complete = join(root, "complete");
+    for (const stage of [scoped, complete]) await cp(f.source, stage, { recursive: true });
+    await installDependencies(scoped, plan, toolchain, undefined, f.cache, false, filters);
+    await installDependencies(complete, plan, toolchain, undefined, f.cache);
+    // Only the worker pins fixture-msg@2.0.0, so it proves the sibling stayed out of the store.
+    expect(await readdir(join(complete, "node_modules/.bun"))).toContain("fixture-msg@2.0.0");
+    expect(await readdir(join(scoped, "node_modules/.bun"))).not.toContain("fixture-msg@2.0.0");
+    expect(await readdir(join(scoped, "node_modules/.bun"))).toContain("fixture-msg@1.0.0");
+    expect(await readdir(join(scoped, "services/worker"))).not.toContain("node_modules");
+    // The target keeps the exact tree the bundler resolves through, links included.
+    expect((await readdir(join(scoped, "services/api/node_modules"))).sort()).toEqual((await readdir(join(complete, "services/api/node_modules"))).sort());
+    for (const link of ["@fixture/shared", "fixture-msg"]) {
+      expect(await readlink(join(scoped, "services/api/node_modules", link))).toBe(await readlink(join(complete, "services/api/node_modules", link)));
+    }
+    // Peer contexts and overrides are resolved from the same lock, so everything the
+    // scoped install materializes must be byte-identical to the full install's copy.
+    let compared = 0;
+    async function sameAsComplete(path: string) {
+      const info = await lstat(join(scoped, path));
+      if (info.isSymbolicLink()) { compared++; return expect(await readlink(join(scoped, path))).toBe(await readlink(join(complete, path))); }
+      if (info.isDirectory()) { for (const child of (await readdir(join(scoped, path))).sort()) await sameAsComplete(`${path}/${child}`); return; }
+      compared++;
+      expect(await readFile(join(scoped, path))).toEqual(await readFile(join(complete, path)));
+    }
+    for (const tree of ["node_modules", "services/api/node_modules"]) await sameAsComplete(tree);
+    expect(compared).toBeGreaterThan(10);
+  });
+
+  test("scoped and full build installs bundle byte-identical application output", async () => {
+    const root = await realpath(await dir()), f = await workspaceFixture(root), toolchain = await selectToolchain();
+    const discovered = await discover({ path: join(f.source, "services/api") });
+    const target = await loadProject({ path: join(f.source, "services/api") }, discovered.workspace);
+    const plan = await dependencyPlan(target, f.source);
+    const outputs: Record<string, string>[] = [];
+    for (const [name, filters] of [["scoped", buildDependencyFilters(plan, target.targetPath)], ["complete", undefined]] as const) {
+      const stage = join(root, name);
+      await cp(f.source, stage, { recursive: true });
+      await installDependencies(stage, plan, toolchain, undefined, f.cache, false, filters);
+      const built = await bundle({ ...target, platform: { os: "linux", architecture: "amd64" } }, toolchain, join(stage, target.targetPath), () => {}, stage);
+      const emitted: Record<string, string> = { inventory: canonicalJSON(built.inventory).toString() };
+      for (const file of (await readdir(built.outdir, { recursive: true })).sort()) {
+        if ((await lstat(join(built.outdir, file))).isFile()) emitted[file] = await readFile(join(built.outdir, file), "utf8");
+      }
+      outputs.push(emitted);
+    }
+    expect(Object.keys(outputs[0]!).sort()).toEqual(["inventory", "src/server.js", "src/server.js.map"]);
+    expect(outputs[0]).toEqual(outputs[1]!);
   });
 
   test("refuses escaping dependency symlinks and packages requiring install scripts", async () => {

@@ -20,6 +20,23 @@ function inside(root: string, path: string): boolean {
   return local !== ".." && !local.startsWith("../");
 }
 
+export interface BundleDiagnostic { name: string; message: string }
+function bundleDiagnostics(value: unknown): BundleDiagnostic[] {
+  return Array.isArray(value) ? value.map((entry) => ({ name: String(object(entry, "Build diagnostic").name ?? ""), message: String(object(entry, "Build diagnostic").message ?? "") })) : [];
+}
+
+/**
+ * Bun classifies an unresolvable module as a `ResolveMessage`, so a caller can
+ * recover from it by widening the installed dependency tree. A `BuildMessage`
+ * about a file that merely happens to be named like one is a different failure
+ * and must not be retried, which is why the class, not the concatenated error
+ * text, decides.
+ */
+export function unresolvedBundleImport(error: unknown): boolean {
+  const diagnostics = (error as { diagnostics?: unknown })?.diagnostics;
+  return bundleDiagnostics(diagnostics).some((entry) => entry.name === "ResolveMessage" && entry.message.startsWith("Could not resolve"));
+}
+
 export async function selectToolchain(path?: string): Promise<Toolchain> {
   const executable = path ? resolve(path) : Bun.which("bun");
   if (!executable) throw new Error("Bun is required; install Bun 1.3.13 or set --bun-path");
@@ -59,8 +76,9 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   const [, , exit] = await Promise.all([drain(child.stdout), drain(child.stderr), child.exited]);
   if (exit !== 0) {
     const errors = Bun.file(join(root, OUTPUT_DIRECTORY, "errors.json"));
-    const detail = await errors.exists() ? (await errors.json() as string[]).join("; ").slice(0, 8192) : "";
-    throw new Error(`Bun build failed (exit ${exit})${detail ? `: ${detail}` : ""}`);
+    const diagnostics = await errors.exists() ? bundleDiagnostics(await errors.json()) : [];
+    const detail = diagnostics.map((entry) => entry.message).join("; ").slice(0, 8192);
+    throw Object.assign(new Error(`Bun build failed (exit ${exit})${detail ? `: ${detail}` : ""}`), { diagnostics });
   }
   if (syntax) {
     const stats = object(JSON.parse(await readFile(join(root, OUTPUT_DIRECTORY, "validation.json"), "utf8")), "Worker validation statistics");

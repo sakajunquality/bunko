@@ -3,7 +3,7 @@ import { measured } from "./telemetry.ts";
 
 export interface ProgressEvent {
   schemaVersion: 1;
-  phase: "snapshot" | "prepare" | "publish" | "base-resolve" | "base-inspect" | "base-pull" | "runtime" | "assemble" | "install" | "bundle" | "pack" | "push";
+  phase: "snapshot" | "prepare" | "publish" | "base-resolve" | "base-inspect" | "base-pull" | "runtime" | "assemble" | "build-deps" | "install" | "bundle" | "pack" | "push";
   status: "started" | "completed" | "failed";
   target?: string;
   platform?: string;
