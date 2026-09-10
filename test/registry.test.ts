@@ -302,7 +302,7 @@ describe("Distribution publication", () => {
     try { await publisher.publish(store, manifest, ["latest"]); throw new Error("expected failure"); }
     catch (error) {
       expect(error).toBeInstanceOf(PublicationError);
-      expect((error as Error).message).toBe("Registry PUT failed (403): registry.example");
+      expect((error as Error).message).toStartWith("Registry PUT failed (403): registry.example");
       const result = (error as PublicationError).result;
       expect(result.published).toBe(false);
       // The batch that started alongside the refusal is still reported, in manifest order.

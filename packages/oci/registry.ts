@@ -1,3 +1,4 @@
+import { registryAuthHelp } from "./auth-help.ts";
 import { registryHost } from "./registry-host.ts";
 import { dockerCredentials, type CredentialProvider } from "./credentials.ts";
 import { object } from "./digest.ts";
@@ -124,7 +125,7 @@ export class RegistryError extends Error {
   /** The refusal's own Retry-After survives the throw: an upload recovery must wait as long as
    * a rate-limited registry asked for, not for its own exponential guess. */
   constructor(readonly status: number, method: string, registry: string, readonly codes: string[] = [], readonly immutableTag = false, readonly retryAfter?: string) {
-    super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}`);
+    super(`Registry ${method} failed (${status}): ${registry}${codes.length ? ` [${codes.join(", ")}]` : ""}${[401, 403].includes(status) && !immutableTag ? ` ${registryAuthHelp(registry)}` : ""}`);
   }
   static async response(response: Response, method: string, registry: string): Promise<RegistryError> {
     const after = response.headers.get("Retry-After");
@@ -171,7 +172,7 @@ export class RegistryClient {
   private async authenticate(challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
     const credential = await this.credentials(this.registry, refresh);
     if (/^Basic\s/i.test(challenge)) {
-      if (credential?.username === undefined || credential.password === undefined) throw new Error(`Registry credentials required: ${this.registry}; configure Docker login or a credential helper`);
+      if (credential?.username === undefined || credential.password === undefined) throw new Error(`Registry credentials required: ${this.registry}; ${registryAuthHelp(this.registry)}`);
       return { authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`, expires: Date.now() + 5 * 60_000 };
     }
     if (!/^Bearer\s/i.test(challenge)) throw new Error(`Unsupported registry authentication: ${this.registry}`);

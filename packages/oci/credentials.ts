@@ -1,3 +1,4 @@
+import { registryAuthHelp } from "./auth-help.ts";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ function host(key: string): string {
 async function runHelper(helper: string, server: string): Promise<Credential | undefined> {
   if (!/^[a-zA-Z0-9_.-]+$/.test(helper)) throw new Error("Invalid Docker credential helper name");
   const binary = Bun.which(`docker-credential-${helper}`);
-  if (!binary) throw new Error(`Docker credential helper not found: docker-credential-${helper}`);
+  if (!binary) throw new Error(`Docker credential helper not found: docker-credential-${helper}. Install it on PATH for the Bunko process. ${registryAuthHelp(server)}`);
   const child = Bun.spawn([binary, "get"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   child.stdin.write(`${server}\n`);
   child.stdin.end();
