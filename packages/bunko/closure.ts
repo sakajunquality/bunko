@@ -6,10 +6,29 @@ import { object } from "../oci/digest.ts";
 import type { TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
-import { AddonLedger, includeRuntimeLink, inspectRuntimeFile, packageRoot, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { AddonLedger, dependencyInputs, includeRuntimeLink, inspectRuntimeFile, packageRoot, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
 import { candidateRuntimeFile, reachableUndeclaredImports, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
+import type { Toolchain } from "./toolchain.ts";
 
 export const closureDirectory = ".bunko-deps";
+/** Projection layout of the content-addressed closure key; bumping it invalidates closure layers and plans alike. */
+export const closureStrategy = "closure-v1";
+
+/**
+ * Pre-install identity of a closure: every input that can change the projected
+ * bytes, expressed without installing or projecting anything. It reuses the
+ * production dependency serialization (manifest fields, full lock, patches,
+ * noncredential registry settings, install policy, catalogs, reachable workspace
+ * source bytes, Bun version/revision, platform, base digest, libc) and adds the
+ * closure-specific policy inputs. Bun's extracted download cache stays a trusted
+ * build input here exactly as it is for production dependency keys.
+ */
+export function closurePlanInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, projects: Project[]): Record<string, unknown> {
+  return { ...dependencyInputs(plan, toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
+    targets: projects.map((project) => ({ targetPath: project.targetPath, mode: project.mode, depsStrategy: project.depsStrategy, external: project.external, allowIgnoredScripts: project.allowIgnoredScripts ?? [], undeclaredImports: project.undeclaredImports })),
+    undeclaredImports: undeclaredImportPolicy(projects) };
+}
+
 /** `files` maps instance-relative paths of the regular files the undeclared-import scan may consult to their sizes; the scan reads only what the entry points reach. */
 interface Instance { path: string; manifest: Record<string, unknown>; edges: Map<string, string>; files: Map<string, number> }
 
