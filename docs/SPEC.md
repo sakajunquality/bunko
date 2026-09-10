@@ -37,6 +37,7 @@ bunko version
 | `--no-cache` | Disable persistent reuse of both layer caches. |
 | `--no-local-cache` / `--no-registry-cache` | Disable the respective cache. |
 | `--install-cache DIR` | Bun package download cache, separate from the layer cache (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`). |
+| `--asset-cache DIR` | Verified URL downloads and extracted image asset subtrees (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/assets/v1`). |
 | `--insecure-registry HOST:PORT` | Explicitly permit HTTP for a host; repeatable. |
 | `--dry-run` | Build and estimate transfers with Registry reads; no Registry writes, export, or loading. |
 | `--reproducible` | Require an explicit base digest or local base layout. |
@@ -262,6 +263,12 @@ Builder identity is an input to application caching and runnable image labels. D
 ### Named asset contexts
 
 `bunko.assetMappings` accepts `{context, from, to}` records. `--asset-context NAME=DIR` binds each logical context to a local directory. `from` selects an exact relative file or subtree; `to` is its exact absolute image destination. Only selected inputs are frozen. Exclusions, symlink rejection, protected destinations, cross-layer collisions, content-based caching, and logical material provenance follow the [application compatibility contract](APPLICATION_COMPATIBILITY.md#named-local-asset-contexts). Host context paths are not persisted in materials.
+
+### External asset sources
+
+`assetMappings` entries also accept two external sources, each mutually exclusive with `context` and with each other. `{image, from, to}` copies one exact absolute file or directory out of another image, as `COPY --from=<image>` does; `<ref>` is resolved per target platform through the same registry credentials as base pulls, an optional `platform` selects a specific manifest of a single-platform tool image, tags are accepted but `--reproducible` requires a digest, and the resolved platform manifest digest is recorded in the report and provenance. `{url, sha256, to}` fetches exactly one file over HTTPS; `sha256` is mandatory and verified before the bytes are usable, redirects are limited and confined to the original site, and the body is size-capped at 512 MiB. Both accept `mode`; only `image` sources produce directories, and no credentials are ever attached to a URL fetch.
+
+Reserved destinations, collision rules, mode handling and system font validation are unchanged. Extraction resolves layers in order with whiteouts, resolves directories a layer populates without a header without displacing a surviving entry at that path, and never follows a link out of the selected subtree: links, device nodes and other non-regular entries inside a selection are rejected. Selected content is bounded to 512 MiB and 20,000 entries including implied directories and versions later layers delete; each layer is separately bounded while decoding, so those limits do not bound peak extraction disk. Verified downloads and extracted subtrees are cached under `--asset-cache` (default `~/.cache/bunko/assets/v1`), keyed by declared digest and by resolved image digest, selection and mode respectively, with a per-entry digest manifest for extractions. Every cached entry is copied into private build staging through one descriptor and re-verified there before it is hashed or packed, so packed bytes are the verified bytes; a mismatch discards the entry. `--offline` serves cached URL files and rejects image sources, which require a registry. Asset layer identity continues to include every material digest, so a per-platform image source produces a per-platform asset layer, and each material records the target platforms it was resolved for.
 
 
 ## Injected runtime layers

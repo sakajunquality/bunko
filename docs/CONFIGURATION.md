@@ -100,6 +100,22 @@ External asset mappings can set `exclude` and `mode` independently:
 
 Mapping exclusions are relative to the selected `from` directory; for a single file they match its basename. Explicit exclusions run before reading descendant file contents. Existing context, symlink, reserved-destination and collision rules remain in force. File modes participate in asset material/cache identity. A narrow [system font exception](FONTS.md) permits validated non-executable font data and notices below `/usr/share/fonts` and `/usr/local/share/fonts`; other reserved roots remain protected.
 
+A mapping can name `image` or `url` instead of `context`, for a file that already exists in another image or for one published file with a known checksum:
+
+```json
+{
+  "bunko": {
+    "assetMappings": [
+      { "image": "ghcr.io/OWNER/spannerdef:v0.6.1", "from": "/usr/local/bin/spannerdef", "to": "/app/bin/spannerdef", "mode": "0755" },
+      { "url": "https://example.com/tool/v1.2.3/tool-linux-amd64", "sha256": "<64 hex characters>", "to": "/app/bin/tool", "mode": "0755" }
+    ]
+  }
+}
+```
+
+Exactly one of `context`, `image` and `url` is allowed per mapping. `image` mappings accept `from`, `to`, `mode` and an optional `platform`; `url` mappings accept `url`, `sha256`, `to` and `mode`, and `sha256` is mandatory. `exclude` remains specific to context mappings. `image` references resolve per target platform and require a digest under `--reproducible`; `url` accepts HTTPS only and never sends credentials. Destination, mode, collision and font rules are identical to context mappings. `--asset-cache <dir>` selects where verified downloads and extracted image subtrees are kept (default `~/.cache/bunko/assets/v1`); `--no-local-cache` disables it, and `--offline` reuses cached downloads while rejecting image sources. See [image and URL asset sources](APPLICATION_COMPATIBILITY.md#image-and-url-asset-sources) for the full contract.
+
+
 ## Application CA certificates
 
 `bunko.runtime.caCertificates` explicitly supplies public trust certificates for the application:

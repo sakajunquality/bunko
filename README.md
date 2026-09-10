@@ -206,4 +206,6 @@ See [security reporting](SECURITY.md) and the [roadmap](docs/ROADMAP.md) for sup
 
 Named external runtime files can be mapped with `bunko.assetMappings` and repeatable `--asset-context NAME=DIR` bindings. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md#named-local-asset-contexts) for exact destination and exclusion rules.
 
+An `assetMappings` entry can also take its content from outside the project instead of a bound context. `{ "image": "ghcr.io/OWNER/tool:v1", "from": "/usr/local/bin/tool", "to": "/app/bin/tool", "mode": "0755" }` copies an exact file or directory out of another image, the way `COPY --from` does, resolving the reference per target platform and recording the resolved digest in the report and provenance; `{ "url": "https://...", "sha256": "<64 hex>", "to": "/app/bin/tool", "mode": "0755" }` fetches one file over HTTPS and verifies it against the mandatory checksum before use. Both are cached under `--asset-cache`, so a non-Bun binary such as a static Go migration tool no longer needs a CI download step. See [image and URL asset sources](docs/APPLICATION_COMPATIBILITY.md#image-and-url-asset-sources).
+
 Build observability is available through opt-in [OpenTelemetry traces and metrics](docs/TELEMETRY.md) with `--otel`.

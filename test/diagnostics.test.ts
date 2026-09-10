@@ -73,7 +73,7 @@ test("diagnostics check named entries and external bindings without staging or e
   const before = await readdir(root), result = await checkConfig({path:source,assetContexts:{data:inputs}});
   expect(result.targets[0]!.entrypoints).toEqual({server:"src/server.ts",worker:"src/worker.ts"});
   expect(result.targets[0]!.assetMappings).toEqual([mapping]);
-  expect(result.targets[0]!.assetInputs).toEqual({entries:1,contexts:["data"]});
+  expect(result.targets[0]!.assetInputs).toEqual({entries:1,contexts:["data"],external:0});
   expect(JSON.stringify(result)).not.toContain(inputs);
   expect(await readdir(root)).toEqual(before);
   for (const command of ["check-config", "doctor"]) {

@@ -11,7 +11,8 @@ import { installCachePath } from "./install-cache.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
 import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
 import { locationHint, locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
-import { assertAssetRuntime, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
+import { assertAssetRuntime, imageMapping, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
+import { assetCachePath } from "./asset-cache.ts";
 import { readBunfig } from "./bunfig.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
@@ -37,6 +38,7 @@ import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { packLayer } from "../oci/tar.ts";
 import { media, type BaseImage, type Descriptor, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
+import { platformKey } from "./platforms.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
@@ -152,7 +154,7 @@ export async function writeFailureReport(path: string, value: unknown, original:
 }
 
 interface BuildContext {
-  mappedAssets: Awaited<ReturnType<typeof stageAssetMappings>>;
+  mappedAssets: Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>;
   syntax: SyntaxCache;
   toolchainDigest: Digest;
   inputDigest: Digest;
@@ -261,24 +263,43 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
     }
     const prefix = project.workdir.slice(1);
-    const layerRoots = [prefix, ...context.mappedAssets.materials.map((material) => material.to.slice(1))];
     const originalAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix, project.assetExcludes.length > 0);
     const selectedAssets = assetPolicy(originalAssets, prefix, project.assetExcludes, project.assetMode);
-    const assets = [...(project.mode === "source" ? [] : selectedAssets), ...context.mappedAssets.entries, ...context.runtimeCertificate ? [context.runtimeCertificate.entry] : []];
-    assertNoLayerCollision([assets]);
-    const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(context.mappedAssets.materials.length ? { materials: context.mappedAssets.materials } : {}), entries: await assetInputs(assets) });
+    // Image asset sources resolve per target platform, so the asset layer is computed per platform and shared by key.
+    const assetSets: { entries: typeof selectedAssets; materials: AssetMaterial[]; roots: string[]; key: Digest }[] = [];
+    for (const target of project.platforms) {
+      const staged = context.mappedAssets.get(platformKey(target))!;
+      const entries = [...(project.mode === "source" ? [] : selectedAssets), ...staged.entries, ...context.runtimeCertificate ? [context.runtimeCertificate.entry] : []];
+      assertNoLayerCollision([entries]);
+      assetSets.push({ entries, materials: staged.materials, roots: [prefix, ...staged.materials.map((material) => material.to.slice(1))],
+        key: cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(staged.materials.length ? { materials: staged.materials } : {}), entries: await assetInputs(entries) }) });
+    }
+    // One entry per distinct material, naming every target platform that resolved to it.
+    const materialsByIdentity = new Map<string, AssetMaterial & { platforms: string[] }>();
+    for (const [index, set] of assetSets.entries()) for (const material of set.materials) {
+      const identity = Buffer.from(canonicalJSON(material)).toString(), target = project.platforms[index]!;
+      if (!materialsByIdentity.has(identity)) materialsByIdentity.set(identity, { ...material, platforms: [] });
+      materialsByIdentity.get(identity)!.platforms.push(`${target.os}/${target.architecture}`);
+    }
+    const assetMaterials = [...materialsByIdentity.values()];
     const records: CacheRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
       const result: PlatformResult[] = [];
       let sharedBundle: Awaited<ReturnType<typeof bundle>> | undefined;
-      let assetsLayer: Layer | undefined;
-      if (assets.length) {
-        const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
-        assetsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp, layerRoots));
-        if (!hit && iteration === 1 && assetsLayer) records.push({ schemaVersion: 1, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer: assetsLayer, inventory: [], native: [] });
-      }
+      const assetLayers = new Map<Digest, Layer | undefined>();
       for (const [index, platform] of project.platforms.entries()) {
         await stage("assemble", async () => {
+        const { entries: assets, key: assetKey, roots: layerRoots } = assetSets[index]!;
+        let assetsLayer: Layer | undefined;
+        if (assets.length) {
+          if (!assetLayers.has(assetKey)) {
+            const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
+            const layer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp, layerRoots));
+            assetLayers.set(assetKey, layer);
+            if (!hit && iteration === 1 && layer) records.push({ schemaVersion: 1, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer, inventory: [], native: [] });
+          }
+          assetsLayer = assetLayers.get(assetKey);
+        }
         const base = bases[index]!;
         const ca = context.runtimeCertificate;
         if (ca) {
@@ -425,7 +446,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       imageRepository: destination ?? `bunko.local/${project.name}`, buildParameters: buildParameters(project),
       schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
-      sourceDigest, runtimeCA: context.runtimeCertificate?.metadata, ...(context.mappedAssets.materials.length ? { assetMaterials: context.mappedAssets.materials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
+      sourceDigest, runtimeCA: context.runtimeCertificate?.metadata, ...(assetMaterials.length ? { assetMaterials } : {}), baseDigest: first.baseDigest, baseRuntimeVerified: false, toolchain: { version: toolchain.version, revision: toolchain.revision, digest: context.toolchainDigest }, builder: context.builder,
       layers: first.layers, images, cache: cache.events, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
@@ -562,12 +583,13 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   if (archive && archive === report) throw new Error("Tarball and report must have different paths");
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const installCache = await installCachePath(options);
+  const assetCache = options.localCache === false ? undefined : await assetCachePath(options.assetCache);
   const signingFile = options.signKey && !/^[a-z][a-z0-9+.-]*:\/\//i.test(options.signKey) ? await canonicalOutput(options.signKey) : undefined;
   const runtimeCertificates = new Map(await Promise.all(projects.map(async (project) => [project.directory, await runtimeCA(project)] as const)));
   const installCertificate = await npmCertificate(discovered.directory);
   const network = installNetworkEnvironment();
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
-  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
+  const exclusions = [options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), await assetCachePath(options.assetCache), signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   await assertReportNotInput(report, [
     ...["package.json", "bun.lock", "tsconfig.json", "jsconfig.json", ".npmrc", "bunfig.toml", ".bunkoignore"].map((name) => join(discovered.directory, name)),
@@ -609,14 +631,24 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       const captured = await workspaceAt(source, discovered.workspace.packages[0]!);
       if (JSON.stringify(captured.packages.map((pkg) => pkg.path)) !== JSON.stringify(discovered.workspace.packages.map((pkg) => pkg.path))) throw new Error("Workspace membership changed while creating the snapshot; retry the build");
     }
-    const mapped = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
-    for (const [index, project] of projects.entries()) mapped.set(project.directory, await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index)), [...exclusions, temporary]));
+    const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
+    const mapped = new Map<string, Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>>();
+    for (const [index, project] of projects.entries()) {
+      // Only image sources differ per platform; every other mapping is staged once and shared.
+      const shared = !project.assetMappings.some(imageMapping);
+      const staged = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
+      for (const [order, target] of project.platforms.entries()) {
+        if (shared && order) { staged.set(platformKey(target), staged.get(platformKey(project.platforms[0]!))!); continue; }
+        staged.set(platformKey(target), await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index), String(order)), [...exclusions, temporary],
+          { platform: target, registry, cache: assetCache, offline: options.offline, reproducible: options.reproducible, temporary: join(temporary, "asset-work", String(index), String(order)), log: options.log }));
+      }
+      mapped.set(project.directory, staged);
+    }
     const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
     assertLockToolchain(plan, toolchain);
     for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory, options.log);
-    const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
     const closure: BuildContext["closure"] = (selected, platform, iteration) => {
       const key = JSON.stringify([selected.map((p) => p.targetPath), platform, iteration]);
