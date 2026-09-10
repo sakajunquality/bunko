@@ -50,6 +50,7 @@ import { assertSharedClosure, byteSize, closureCoversTarget, closureDuplicates, 
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { acknowledgedImportSummary, acknowledgedImports, applyAcknowledgements, optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, unusedAcknowledgementMessage, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
+import { readBaseInspection, writeBaseInspection } from "./base-inspect.ts";
 
 import { mapJobs } from "./concurrency.ts";
 import { SyntaxCache } from "./syntax-cache.ts";
@@ -273,9 +274,21 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const { source, pinned, trees } = await context.sources.get(sourceKey)!;
     const baseAnnotations = (digest: Digest): Record<string, string> => ({ "org.opencontainers.image.base.digest": digest,
       ...(source instanceof RegistrySource ? { "org.opencontainers.image.base.name": `${repositoryName(source.ref)}@${digest}` } : {}) });
+    // The base is pinned to an immutable digest, so its inspected tree is a pure function of
+    // (digest, inspection version): a validated local record replaces decoding every base layer,
+    // and leaves the layer blobs deferred until assembly or publication actually needs them.
     const filesystem = (base: BaseImage) => {
-      if (!trees.has(base.descriptor.digest)) trees.set(base.descriptor.digest, stage("base-inspect", () => baseFilesystem(store, base, temporary), project.platforms.find((platform) => platform.architecture === base.config.architecture)));
-      return trees.get(base.descriptor.digest)!;
+      const digest = base.descriptor.digest;
+      if (!trees.has(digest)) trees.set(digest, stage("base-inspect", async () => {
+        const hit = cacheDirectory ? await readBaseInspection(cacheDirectory, digest, log) : undefined;
+        cache.note({ kind: "base", key: digest, status: hit?.tree ? "local" : cacheDirectory ? "miss" : "bypass",
+          ...(hit?.tree ? {} : { reason: !cacheDirectory ? "disabled" : hit!.invalid ? "invalid-or-unavailable" : "not-found" }) });
+        if (hit?.tree) { log(`Reusing inspected base filesystem (${digest})\n`); return hit.tree; }
+        const tree = await baseFilesystem(store, base, temporary);
+        if (cacheDirectory) await writeBaseInspection(cacheDirectory, digest, tree, context.cachePersistence, log);
+        return tree;
+      }, project.platforms.find((platform) => platform.architecture === base.config.architecture)));
+      return trees.get(digest)!;
     };
     const fixedSource = { root: async () => pinned, blob: source.blob.bind(source) };
     const bases: BaseImage[] = [];

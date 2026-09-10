@@ -1,12 +1,17 @@
 import { VERSION } from "../packages/bunko/config.ts";
 import { afterEach, expect, test } from "bun:test";
-import { readFile, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkConfig, doctor, type DiagnosticTarget } from "../packages/bunko/diagnostics.ts";
 import { diagnosticsFormat, diagnosticsOutput, renderDiagnostics, renderedTargetKeys } from "../packages/bunko/diagnostics-format.ts";
 import { closureReport, formatClosureInfo, formatWhy, whyPackage } from "../packages/bunko/closure-report.ts";
 import { validateCommandOptions } from "../packages/bunko/command-options.ts";
 import { cli, project, temporary } from "./helpers.ts";
+import { loadProject } from "../packages/bunko/config.ts";
+import { requiredInputs } from "../packages/bunko/ignore.ts";
+import { snapshot } from "../packages/bunko/files.ts";
+import { discover } from "../packages/bunko/workspace.ts";
+import { dependencyPlan } from "../packages/bunko/deps.ts";
 import { workspaceFixture } from "./workspace-fixture.ts";
 import { main } from "../packages/bunko/cli.ts";
 
@@ -347,4 +352,134 @@ test("deep bundle checks reject selected assets under omitted ancestors", async 
   await mkdir(join(source, ".env-private"));
   await writeFile(join(source, ".env-private/config.json"), "{}");
   await expect(checkConfig({ path: source, deep: true })).rejects.toThrow("Excluded required source input: .env-private/config.json");
+});
+
+test("workspace diagnostics skip the node_modules a build's snapshot never packages", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  // bun install leaves node_modules/.bin/<tool> as a symlink; a build drops node_modules
+  // when it snapshots the source, so no diagnostic may walk into it either.
+  for (const base of ["", "packages/shared", "services/api"]) {
+    await mkdir(join(f.source, base, "node_modules/.bin"), { recursive: true });
+    await mkdir(join(f.source, base, "node_modules/typescript/bin"), { recursive: true });
+    await writeFile(join(f.source, base, "node_modules/typescript/bin/tsc"), "#!/usr/bin/env bun\n");
+    await symlink("../typescript/bin/tsc", join(f.source, base, "node_modules/.bin/tsc"));
+  }
+  const selection = { path: f.source, targets: ["services/api"] };
+  const health = await doctor(selection);
+  // The host's own Bun binary can sit under a node_modules directory (bunx, an npm-installed
+  // toolchain) and doctor reports that path; only the project's own files are in question here.
+  const projectOnly = (text: string) => text.replaceAll(health.toolchain.path, "<bun>");
+  for (const report of [await checkConfig(selection), await checkConfig({ ...selection, deep: true }), health]) {
+    expect(report.status).toBe("valid");
+    expect(report.targets.map((target) => target.path)).toEqual(["services/api"]);
+    expect(projectOnly(JSON.stringify(report))).not.toContain("node_modules");
+    expect(projectOnly(renderDiagnostics(report))).not.toContain("node_modules");
+  }
+  for (const command of ["check-config", "doctor"]) {
+    for (const format of ["json", "text"]) {
+      const result = await runCLI([command, f.source, "--target", "services/api", "--format", format]);
+      expect(result.stderr).toBe(""); expect(result.code).toBe(0);
+      expect(projectOnly(result.stdout)).not.toContain("node_modules");
+      if (format === "json") expect(JSON.parse(result.stdout).status).toBe("valid");
+    }
+  }
+});
+
+test("a symlink inside a selected asset directory is reported the way a build reports it", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  // A shared package that is also a build target: diagnostics walk it both as a
+  // workspace source of the other members and as the selected target's assets.
+  await writeFile(join(f.source, "packages/shared/package.json"), JSON.stringify({ ...f.manifests["packages/shared"], bunko: { assets: ["public"] } }));
+  await mkdir(join(f.source, "packages/shared/public"));
+  await writeFile(join(f.source, "packages/shared/public/message.txt"), "stable asset");
+  await symlink("../index.ts", join(f.source, "packages/shared/public/linked.ts"));
+  const selection = { path: f.source, targets: ["packages/shared"] };
+  // requiredInputs is the walker a build runs over declared assets before snapshotting.
+  const discovery = await discover(selection);
+  const projects = [await loadProject({ path: join(discovery.directory, discovery.targets[0]!.path) }, discovery.workspace)];
+  const build = await requiredInputs(discovery.directory, projects).then(() => "", (error: Error) => error.message);
+  expect(build).toBe("Source symlinks are not supported: packages/shared/public/linked.ts");
+  // The depth that walks the source reports it exactly as the build does.
+  await expect(checkConfig({ ...selection, deep: true })).rejects.toThrow(build);
+  await expect(doctor({ ...selection, deep: true })).rejects.toThrow(build);
+  // The shallow check never opens the asset, which is what its own unchecked list says.
+  const shallow = await checkConfig(selection);
+  expect(shallow.status).toBe("valid");
+  expect(shallow.unchecked).toContain("project asset availability and generated build outputs");
+});
+
+test("diagnostics accept a workspace member file the build's snapshot leaves out", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  // Source mode makes the snapshot apply .gitignore too, so this symlink never reaches a build.
+  const api = JSON.parse(await readFile(join(f.source, "services/api/package.json"), "utf8"));
+  await writeFile(join(f.source, "services/api/package.json"), JSON.stringify({ ...api, bunko: { ...api.bunko, mode: "source", build: null } }));
+  await mkdir(join(f.source, "packages/shared/scratch"));
+  await writeFile(join(f.source, "packages/shared/scratch/note.txt"), "scratch");
+  await symlink("../index.ts", join(f.source, "packages/shared/scratch/link"));
+  await writeFile(join(f.source, ".gitignore"), "packages/shared/scratch/\n");
+  const selection = { path: f.source, targets: ["services/api"] };
+  // The build's snapshot stage accepts the tree and drops the ignored directory with the symlink in it.
+  const discovery = await discover(selection);
+  const projects = [await loadProject({ ...selection, path: join(discovery.directory, discovery.targets[0]!.path) }, discovery.workspace)];
+  const staging = join(root, "snapshot"), assetExclusions: string[] = [], explicitAssets = new Set<string>();
+  const required = await requiredInputs(discovery.directory, projects, [], assetExclusions, explicitAssets);
+  await snapshot(discovery.directory, staging, [], undefined, [], required, assetExclusions, true, explicitAssets);
+  expect(await readdir(join(staging, "packages/shared"))).not.toContain("scratch");
+  for (const report of [await checkConfig(selection), await checkConfig({ ...selection, deep: true }), await doctor(selection)]) expect(report.status).toBe("valid");
+});
+
+test("diagnostics reject a malformed workspace lock dependency map as build planning does", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  const selection = { path: f.source, targets: ["services/api"] };
+  const discovery = await discover(selection);
+  const project = await loadProject({ ...selection, path: join(discovery.directory, discovery.targets[0]!.path) }, discovery.workspace);
+  const original = JSON.parse(await readFile(join(f.source, "bun.lock"), "utf8"));
+  // Collecting workspace references is what validates these maps, so it has to run at
+  // every depth: only hashing the members it finds needs a snapshot to walk.
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    const lock = JSON.parse(JSON.stringify(original));
+    lock.packages["fixture-adapter"] = ["fixture-adapter@1.0.0", "", { [field]: "broken" }, lock.packages["fixture-msg"][3]];
+    await writeFile(join(f.source, "bun.lock"), JSON.stringify(lock));
+    const build = await dependencyPlan(project, discovery.directory).then(() => "", (error: Error) => error.message);
+    expect(build).toBe(`${field} must be an object`);
+    await expect(checkConfig(selection)).rejects.toThrow(build);
+    await expect(checkConfig({ ...selection, deep: true })).rejects.toThrow(build);
+    await expect(doctor(selection)).rejects.toThrow(build);
+  }
+});
+
+test("deep checks read every included file, so an unreadable input fails as it fails a build", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await workspaceFixture(root);
+  const blocked = join(f.source, "packages/shared/locked.ts");
+  await writeFile(blocked, "export const locked = 1;\n");
+  await chmod(blocked, 0o000);
+  // root, and some filesystems, ignore the mode; only assert where it actually denies the read.
+  const denied = await readFile(blocked).then(() => false, () => true);
+  try {
+    if (denied) {
+      const selection = { path: f.source, targets: ["services/api"] };
+      // The build fails copying the file into its snapshot; the deep inspection reads it and fails alike.
+      const discovery = await discover(selection);
+      const projects = [await loadProject({ ...selection, path: join(discovery.directory, discovery.targets[0]!.path) }, discovery.workspace)];
+      const assetExclusions: string[] = [], explicitAssets = new Set<string>();
+      const required = await requiredInputs(discovery.directory, projects, [], assetExclusions, explicitAssets);
+      const build = await snapshot(discovery.directory, join(root, "snapshot"), [], undefined, [], required, assetExclusions, false, explicitAssets).then(() => "", (error: Error) => error.message);
+      expect(build).toContain("EACCES");
+      expect(build).toContain("packages/shared/locked.ts");
+      // One rejection at a time: a second command started here would reject with nothing
+      // awaiting it yet, which the runner reports as an unhandled error.
+      for (const run of [() => checkConfig({ ...selection, deep: true }), () => doctor({ ...selection, deep: true })]) {
+        const message = await run().then(() => "", (error: Error) => error.message);
+        expect(message).toContain("EACCES");
+        expect(message).toContain("packages/shared/locked.ts");
+      }
+      // The shallow check does not walk the source, so it reports the configuration as valid.
+      expect((await checkConfig(selection)).status).toBe("valid");
+    }
+  } finally { await chmod(blocked, 0o644); }
 });

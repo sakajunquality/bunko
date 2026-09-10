@@ -1,3 +1,4 @@
+import { baseInspectDirectory, baseInspectVersion, baseInspectVersionPattern, validateBaseInspection } from "./base-inspect.ts";
 import { cacheMetadataLimit, closurePlanLayout, packFormat } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
   const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0 };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
-    for (const path of ["keys", "plans", "plans/deps", "blobs", "blobs/sha256"]) {
+    for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {
       try { const info = await lstat(join(directory, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Prune refuses symlinked or non-directory cache paths"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
@@ -23,8 +24,14 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     try { if ((await readdir(join(directory, "plans"))).some((name) => name !== "deps")) throw new Error("Prune refuses unknown cache plan namespaces"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    let inspectionVersions: string[] = [];
+    try { inspectionVersions = (await readdir(join(directory, baseInspectDirectory))).sort(); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (inspectionVersions.some((name) => !baseInspectVersionPattern.test(name))) throw new Error("Prune refuses unknown base inspection namespaces");
     const cutoff = Date.now() - olderThanSeconds * 1000;
+    // `digest` is empty for metadata that owns no blob, such as a base inspection record.
     const records: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number }[] = [];
+    const inspections: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number; stale: boolean }[] = [];
     const safeRead = async (path: string) => { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size > cacheMetadataLimit) throw new Error("Prune refuses non-regular or oversized cache metadata"); return { info, bytes: await readFile(path) }; };
     for (const kind of ["deps", "assets", "app", "runtime"]) {
       const dir = join(directory, "keys", kind);
@@ -40,6 +47,31 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         records.push({ path, key: `${kind}/${name}`, digest: blob.digest, bytes, mtime: info.mtimeMs });
       }
     }
+    // Base inspections replay what an immutable base digest yielded. They reference no blob and
+    // nothing references them, so they are ordinary budget candidates. A record under the current
+    // version is held to exactly the rules a build reads it by, so what `cache-info` counts and
+    // what the budget reclaims is always something a build could have used; a malformed one stops
+    // prune for investigation, as it does for a key record, and an ordinary build replaces it.
+    // A record under a superseded version can never be read again whatever it contains, so it is
+    // checked only for its name and envelope and is always reclaimed.
+    for (const version of inspectionVersions) {
+      const dir = join(directory, baseInspectDirectory, version);
+      let names: string[];
+      try { if ((await lstat(dir)).isSymbolicLink()) throw new Error("Prune refuses symlinked cache directories"); names = await readdir(dir); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+      const stale = version !== baseInspectVersion;
+      for (const name of names.sort()) {
+        if (name.startsWith(".tmp-")) continue;
+        if (!/^[a-f0-9]{64}\.json$/.test(name)) throw new Error("Prune refuses unknown cache records");
+        const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Base inspection");
+        const digest = `sha256:${name.slice(0, 64)}` as const;
+        if (value.schemaVersion !== 1 || value.kind !== "base-inspect" || value.version !== version || value.digest !== digest) throw new Error("Prune refuses inconsistent cache metadata");
+        if (!stale) try { validateBaseInspection(value, digest); } catch { throw new Error("Prune refuses inconsistent cache metadata"); }
+        else if (!Array.isArray(value.entries)) throw new Error("Prune refuses inconsistent cache metadata");
+        inspections.push({ path, key: `${baseInspectDirectory}/${version}/${name}`, digest: "", bytes, mtime: info.mtimeMs, stale });
+      }
+    }
+
     // Closure plans index key records; they own no blobs and are dropped with the record they name.
     const plans: { path: string; key: string; target: string; bytes: Uint8Array; mtime: number; stale: boolean }[] = [];
     {
@@ -60,6 +92,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     // CAS files and unrelated content are outside this managed-byte budget.
     const sizes = new Map<string, number>(), references = new Map<string, number>(), present = new Set<string>();
     for (const plan of plans) result.managedBytes += plan.bytes.byteLength;
+    for (const inspection of inspections) result.managedBytes += inspection.bytes.byteLength;
     for (const record of records) {
       result.managedBytes += record.bytes.byteLength;
       references.set(record.digest, (references.get(record.digest) ?? 0) + 1);
@@ -75,7 +108,8 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     // A plan is only useful while the record it names survives, so its bytes are reclaimed with
     // that record and must be credited as the budget is spent, not after the selection ends.
     const known = new Set(records.map((record) => record.key)), attached = new Map<string, typeof plans>();
-    const reclaim = (plan: (typeof plans)[number]) => {
+    // Also reclaims a superseded base inspection, which likewise owns no blob.
+    const reclaim = (plan: { path: string; key: string; bytes: Uint8Array; mtime: number }) => {
       candidates.push({ ...plan, digest: "" }); result.keys.push(plan.key);
       result.bytes += plan.bytes.byteLength; result.remainingBytes -= plan.bytes.byteLength;
     };
@@ -83,11 +117,13 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       if (plan.stale || !known.has(plan.target)) { reclaim(plan); continue; }
       attached.set(plan.target, [...attached.get(plan.target) ?? [], plan]);
     }
-    for (const record of records.sort((a, b) => a.mtime - b.mtime || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
+    for (const inspection of inspections) if (inspection.stale) reclaim(inspection);
+    for (const record of [...records, ...inspections.filter((inspection) => !inspection.stale)].sort((a, b) => a.mtime - b.mtime || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
       if (keepBytes === undefined ? record.mtime > cutoff : result.remainingBytes <= keepBytes) continue;
       candidates.push(record); result.keys.push(record.key);
       result.bytes += record.bytes.byteLength; result.remainingBytes -= record.bytes.byteLength;
       for (const plan of attached.get(record.key) ?? []) reclaim(plan);
+      if (!record.digest) continue;
       const count = references.get(record.digest)! - 1; references.set(record.digest, count);
       if (count === 0 && present.has(record.digest)) {
         result.blobs.push(record.digest); result.bytes += sizes.get(record.digest)!; result.remainingBytes -= sizes.get(record.digest)!;
