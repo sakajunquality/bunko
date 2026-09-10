@@ -221,13 +221,6 @@ export function assertLockToolchain(plan: Pick<DependencyPlan, "lock">, toolchai
  */
 const plainPathSegment = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 
-/**
- * Host build installs only need the bundled target's dependency subtree, so a
- * workspace member is installed with `--filter`. Bun also installs the root
- * package and every workspace package the target depends on, which is exactly
- * what the isolated linker exposes to the bundler; unrelated members and their
- * trees are skipped. Filters are paths so a member never has to be named.
- */
 /** Only explicit workspace edges establish a guaranteed filtered install scope.
  * Ambiguous semver/catalog edges conservatively trigger the full-install fallback. */
 export function bundleOutsideBuildScope(plan: DependencyPlan, targetPath: string, inputs: string[]): boolean {
@@ -250,6 +243,13 @@ export function bundleOutsideBuildScope(plan: DependencyPlan, targetPath: string
   });
 }
 
+/**
+ * Host build installs only need the bundled target's dependency subtree, so a
+ * workspace member is installed with `--filter`. Bun also installs the root
+ * package and every workspace package the target depends on, which is exactly
+ * what the isolated linker exposes to the bundler; unrelated members and their
+ * trees are skipped. Filters are paths so a member never has to be named.
+ */
 export function buildDependencyFilters(plan: DependencyPlan, targetPath: string): string[] | undefined {
   const path = targetPath.replace(/^\.?\/+|\/+$/g, "");
   if (!plan.workspace || !path || !plan.workspace.packages.some((pkg) => pkg.path === path)) return undefined;
