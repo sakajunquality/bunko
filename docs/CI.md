@@ -10,7 +10,7 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/bunko@0492630c520d4d9608e1fa41494568c00b09a7d9
+  - uses: sakajunquality/bunko@45f2daab119ed5d378f315c75afb73b322014086
     with:
       bun-version: 1.4.2
       verify-attestation: 'true'
@@ -18,7 +18,7 @@ steps:
     env:
       GHCR_TOKEN: ${{ github.token }}
     run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-  - uses: sakajunquality/bunko/build@0492630c520d4d9608e1fa41494568c00b09a7d9
+  - uses: sakajunquality/bunko/build@45f2daab119ed5d378f315c75afb73b322014086
     id: image
     with:
       path: .
@@ -56,7 +56,7 @@ On GitHub Actions, set `cache: github` and the build Action persists the managed
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-When `version` is omitted, setup uses its own `uses:` ref only if the Action repository matches the configured release repository: a version-shaped ref such as `v0.4.0` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, a ref from a different repository also falls back to the checkout version. An explicit `version` always overrides automatic resolution. Branch and commit pins require the checkout version to have a published release; during release preparation, explicitly select an already published version. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+When `version` is omitted, setup uses its own `uses:` ref only if the Action repository matches the configured release repository: a version-shaped ref such as `v0.5.0` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, a ref from a different repository also falls back to the checkout version. An explicit `version` always overrides automatic resolution. Branch and commit pins require the checkout version to have a published release; during release preparation, explicitly select an already published version. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
 
 ## The GitHub Actions cache
 
