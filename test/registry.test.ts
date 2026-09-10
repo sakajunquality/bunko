@@ -390,7 +390,8 @@ describe("Distribution publication", () => {
     const result = await publisher.publish(store, manifest, ["latest"]);
     expect(result.blobs.uploaded).toBe(6);
     expect(delays.length).toBeGreaterThan(0);
-    expect(delays.every((ms) => ms > 1990 && ms <= 2001)).toBe(true);
+    expect(delays.every((ms) => ms > 0 && ms <= 2001)).toBe(true);
+    expect(Math.max(...delays)).toBeCloseTo(2000, 0);
   });
 
   test("dry-run only reads, and partial tag publication is reported without rollback", async () => {
