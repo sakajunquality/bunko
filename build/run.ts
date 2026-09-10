@@ -1,6 +1,7 @@
 import { appendFile, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { escape, renderSummary, summaryBytes, summaryNote } from "./summary.ts";
 
 type Inputs = Record<string, string | undefined>;
 export interface ActionImage { target: string; digest: string; reference?: string }
@@ -41,9 +42,30 @@ export function imageResults(report: unknown): ActionImage[] {
     return { target: item.target, digest: item.root.digest, ...reference ? { reference } : {} };
   });
 }
-const escape = (value: string) => value.replace(/[&<>|`\r\n]/g, (c) => `&#${c.charCodeAt(0)};`);
 export function buildSummary(images: ActionImage[]): string {
   return `## Bunko build\n\n| Target | Image digest | Published reference |\n| --- | --- | --- |\n${images.map((i) => `| ${escape(i.target)} | ${i.digest} | ${escape(i.reference ?? "Local OCI layout")} |`).join("\n")}\n`;
+}
+
+/** The job summary is diagnostic output: a step summary that cannot be written, or a report that
+ * cannot be read, never changes the result of the build. Returns the bytes actually appended. */
+async function appendSummary(destination: string, text: string): Promise<number> {
+  try { await appendFile(destination, text); return Buffer.byteLength(text); }
+  catch (error) { process.stderr.write(`Bunko build Action could not write the job summary: ${error instanceof Error ? error.message : String(error)}\n`); return 0; }
+}
+
+/** Render the report into the step summary within `budget` bytes; GitHub rejects a step summary
+ * over 1 MiB, and report strings are long enough to reach that on their own. */
+export async function appendReportSummary(destination: string, report: string, budget = summaryBytes): Promise<void> {
+  let section: string;
+  try {
+    section = (await stat(report)).size > 32 * 1024 * 1024
+      ? summaryNote("The build report is too large to summarize; download the report artifact instead.")
+      : renderSummary(await Bun.file(report).json(), Math.max(budget, 0));
+  } catch {
+    section = summaryNote("No readable build report was available for this summary.");
+  }
+  // A leading blank line keeps the section separate from anything the job already appended.
+  await appendSummary(destination, `\n${section}`);
 }
 
 export async function runBuildAction(inputs: Inputs): Promise<void> {
@@ -51,7 +73,9 @@ export async function runBuildAction(inputs: Inputs): Promise<void> {
   const root = await mkdtemp(join(process.env.RUNNER_TEMP ?? tmpdir(), "bunko-action-"));
   if (/[\r\n]/.test(root)) throw new Error("Invalid Action temporary directory");
   const invocation = buildArguments(inputs, root);
+  const summary = boolean(inputs.summary, true);
   const outputs: Record<string, string> = { report: invocation.report };
+  let appended = 0, failure: unknown;
   try {
     // Arguments are passed directly without shell interpolation or command echoing.
     const child = Bun.spawn([executable, ...invocation.args], { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
@@ -62,11 +86,18 @@ export async function runBuildAction(inputs: Inputs): Promise<void> {
     const serialized = JSON.stringify(images);
     if (Buffer.byteLength(serialized) > 512 * 1024) throw new Error("Build Action results exceed the output limit; use the report file");
     Object.assign(outputs, { images: serialized, digest: images.length === 1 ? images[0]!.digest : "", reference: images.length === 1 ? images[0]!.reference ?? "" : "", layout: invocation.layout, "image-refs": invocation.references });
-    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, buildSummary(images));
-  } finally {
-    // Preserve reports and layouts for subsequent upload-artifact steps, including failures.
-    if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join(""));
+    if (summary && process.env.GITHUB_STEP_SUMMARY) appended = await appendSummary(process.env.GITHUB_STEP_SUMMARY, buildSummary(images));
+  } catch (error) { failure = error; }
+  // Preserve reports and layouts for subsequent upload-artifact steps, including failures. An output
+  // write that fails on its own is the result of the step; it must not replace a build failure.
+  try { if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join("")); }
+  catch (error) {
+    if (failure) process.stderr.write(`Bunko build Action could not write step outputs: ${error instanceof Error ? error.message : String(error)}\n`);
+    else failure = error;
   }
+  // Where the time went is most useful exactly when the build failed, so the section is written either way.
+  if (summary && process.env.GITHUB_STEP_SUMMARY) await appendReportSummary(process.env.GITHUB_STEP_SUMMARY, invocation.report, summaryBytes - appended);
+  if (failure) throw failure;
 }
 if (import.meta.main) {
   const inputs = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith("BUNKO_INPUT_")).map(([name, value]) => [name.slice(12).toLowerCase().replaceAll("_", "-"), value]));

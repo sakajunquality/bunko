@@ -76,6 +76,9 @@ inputs:
   otel:
     description: 'Opt in to OpenTelemetry export configured by workflow environment'
     default: 'false'
+  summary:
+    description: 'Write a job summary with per-phase timings, cache status, layer sizes and publication; set to false to write nothing to GITHUB_STEP_SUMMARY'
+    default: 'true'
 outputs:
   images:
     description: 'JSON array with every target digest and optional published reference'
@@ -127,4 +130,5 @@ runs:
         BUNKO_INPUT_REGISTRY_MIRRORS: ${{ inputs.registry-mirrors }}
         BUNKO_INPUT_REGISTRY_CONFIG: ${{ inputs.registry-config }}
         BUNKO_INPUT_OTEL: ${{ inputs.otel }}
+        BUNKO_INPUT_SUMMARY: ${{ inputs.summary }}
       run: bun "$BUNKO_ACTION_PATH/run.ts"

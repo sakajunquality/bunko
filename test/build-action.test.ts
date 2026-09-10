@@ -64,8 +64,81 @@ test("installed CLI builds two workspace targets and exposes report/layout witho
   expect(JSON.parse(values.images!).map((i: { target: string }) => i.target)).toEqual(["first", "second"]);
   expect(values.digest).toBe(""); expect(values.reference).toBe(""); expect(values["image-refs"]).toBe("");
   expect(await Bun.file(values.report!).exists()).toBe(true);
-  expect((await readFile(summary, "utf8"))).toContain("second");
+  const written = await readFile(summary, "utf8");
+  expect(written).toContain("second");
+  // The report-derived section follows the image table for every target of the same build.
+  expect(written).toContain("### bunko build");
+  expect(written).toContain(`bunko ${metadata.version}`);
+  expect(written).toContain("| Phase |");
+  expect(written).toContain("- Cache: ");
+  expect(written).toContain("- Layers: ");
+  expect(written).toContain("#### first");
+  expect(written).toContain("#### second");
 }, 15000);
+
+/** A stub CLI keeps summary behavior testable without a real build. Fixture path and exit code are
+ * baked into the script because spawned children do not observe later process.env mutations. */
+async function stubCLI(directory: string, options: { report?: string; exit?: number } = {}): Promise<string> {
+  await mkdir(directory, { recursive: true });
+  const copy = options.report ? `if [ -n "$target" ]; then cp ${JSON.stringify(options.report)} "$target"; fi\n` : "";
+  await writeFile(join(directory, "bunko"), `#!/bin/sh\ntarget=""\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--report" ]; then target="$2"; fi\n  shift\ndone\n${copy}exit ${options.exit ?? 0}\n`, { mode: 0o755 });
+  return directory;
+}
+async function withActionEnvironment<T>(values: Record<string, string | undefined>, task: () => Promise<T>): Promise<T> {
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(values)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  try { return await task(); }
+  finally { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+}
+
+test("the job summary follows the build report, honors summary: false and notes an unwritten report", async () => {
+  const directory = join(root, "summary-inputs"); await mkdir(directory, { recursive: true });
+  const digest = `sha256:${"c".repeat(64)}`;
+  const success = join(directory, "success.json"), failure = join(directory, "failure.json");
+  await writeFile(success, JSON.stringify({ schemaVersion: 2, target: "api", platform: "linux/amd64", builder: { version: "9.9.9" }, root: { digest }, timings: [{ phase: "bundle", status: "completed", durationMs: 2500, platform: "linux/amd64" }], cache: [{ kind: "deps", key: digest, status: "local" }], layers: [{ kind: "app", descriptor: { size: 1_500_000, mediaType: "x" } }] }));
+  await writeFile(failure, JSON.stringify({ schemaVersion: 3, status: "failed", error: "registry.example rejected the manifest", targets: [], pendingTargets: ["api"] }));
+  const passing = await stubCLI(join(root, "stub-pass"), { report: success });
+  const failing = await stubCLI(join(root, "stub-fail"), { report: failure, exit: 1 });
+  const silent = await stubCLI(join(root, "stub-silent"), { exit: 1 });
+  const run = async (file: string, bin: string, inputs: Record<string, string> = {}, environment: Record<string, string | undefined> = {}) =>
+    withActionEnvironment({ PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: root, GITHUB_OUTPUT: undefined, GITHUB_STEP_SUMMARY: join(directory, file), ...environment },
+      () => runBuildAction({ path: directory, ...inputs }));
+
+  await run("enabled.md", passing);
+  const enabled = await readFile(join(directory, "enabled.md"), "utf8");
+  expect(enabled).toContain("### bunko build");
+  expect(enabled).toContain("bunko 9.9.9");
+  expect(enabled).toContain("| bundle | 1 | 2.5 |");
+  expect(enabled).toContain("- Cache: deps=local");
+  expect(enabled).toContain("- Layers: app 1.5 MB (1.5 MB stored)");
+
+  await run("disabled.md", passing, { summary: "false" });
+  expect(await Bun.file(join(directory, "disabled.md")).exists()).toBe(false);
+
+  // A failing build still explains where the time went, and a missing report degrades to one note.
+  await expect(run("failed.md", failing)).rejects.toThrow("Bunko build failed");
+  expect(await readFile(join(directory, "failed.md"), "utf8")).toContain("Build failed: registry.example rejected the manifest");
+  await expect(run("absent.md", silent)).rejects.toThrow("Bunko build failed");
+  const absent = await readFile(join(directory, "absent.md"), "utf8");
+  expect(absent).toContain("No readable build report was available for this summary.");
+  expect(absent.trim().split("\n").filter(Boolean)).toHaveLength(2);
+
+  // Summary rendering is diagnostic only: an unwritable step summary leaves a successful build successful.
+  const blocked = join(directory, "blocked"); await mkdir(blocked, { recursive: true });
+  const outputs = join(directory, "outputs.txt");
+  await run("unused.md", passing, {}, { GITHUB_STEP_SUMMARY: blocked, GITHUB_OUTPUT: outputs });
+  expect(await readFile(outputs, "utf8")).toContain("images=");
+
+  // Step outputs are the result of the step, so their failure surfaces on a successful build and
+  // stays out of the way of a build failure.
+  await expect(run("output-success.md", passing, {}, { GITHUB_OUTPUT: blocked })).rejects.toThrow(/EISDIR|directory/);
+  await expect(run("output-failure.md", failing, {}, { GITHUB_OUTPUT: blocked })).rejects.toThrow("Bunko build failed");
+  expect(await readFile(join(directory, "output-failure.md"), "utf8")).toContain("Build failed: registry.example rejected the manifest");
+
+  // A failing build with the summary disabled reports only the build failure and writes no summary.
+  await expect(run("off.md", failing, { summary: "false" })).rejects.toThrow("Bunko build failed");
+  expect(await Bun.file(join(directory, "off.md")).exists()).toBe(false);
+});
 
 test("build Action forwards typed cache sources, destinations and export policy literally", () => {
   const result = buildArguments({ "cache-from": "type=local,src=cache with spaces", "cache-to": "type=registry,repo=registry.test/cache\ntype=local,dest=exported cache", "cache-export-error": "fail" }, "/tmp/action");
