@@ -75,7 +75,7 @@ export function renderDiagnostics(report: DiagnosticsReport): string {
     lines.push("", section.heading);
     for (const entry of section.entries) lines.push(...entry.value.split("\n").map((line, index) => `  ${(index ? "" : entry.label).padEnd(width)}  ${line}`));
   }
-  lines.push("", "Not checked offline:", ...report.unchecked.map((item) => `  - ${item}`));
+  lines.push("", `Not checked offline (${report.unchecked.length} categories):`, ...report.unchecked.map((item) => `  - ${item}`));
   if (health) lines.push("", "Next steps:", ...health.advice.map((item) => `  - ${item}`));
   // Configuration and filesystem names can contain terminal control characters.
   return `${lines.join("\n")}\n`.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);

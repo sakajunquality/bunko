@@ -107,7 +107,7 @@ test("typed exports retain implicit image-repository reads and strict failure ca
   const { root, source, base } = await fixture(), mock = new MockRegistry();
   const registry = { credentials: async () => undefined, fetcher: mock.fetch };
   const options = { path: source, baseLayout: base, push: true, repo: "registry.test/images", localCache: false, gitMetadata: false, registry };
-  await build(options);
+  await build({ ...options, cacheRepo: "registry.test/images/hello" });
   const second = await build({ ...options, cacheTo: ["type=registry,repo=registry.test/exported"] });
   expect(second.cache.some((entry) => entry.status === "registry" && entry.source?.startsWith("registry.test/images/"))).toBe(true);
   mock.cacheWritable = false;
@@ -137,4 +137,22 @@ test("existing and dangling leaf symlinks are rejected before cache access or so
   expect(await readFile(join(source, "package.json"), "utf8")).toBe(manifest);
   await expect(stat(join(root, "absent"))).rejects.toMatchObject({ code: "ENOENT" });
   await expect(stat(join(source, "keys"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("plain publication reads legacy cache without writing cache tags", async () => {
+  const { root, source, base } = await fixture(), mock = new MockRegistry();
+  const options = { path: source, baseLayout: base, push: true, repo: "registry.test/releases", localCache: false, gitMetadata: false,
+    registry: { credentials: async () => undefined, fetcher: mock.fetch } };
+  await build({ ...options, cacheRepo: "registry.test/releases/hello" });
+  mock.requests.length = 0;
+  const result = await build(options);
+  expect(result.cache.some((event) => event.status === "registry")).toBe(true);
+  expect(result.cacheExports).toEqual([]);
+  expect(mock.requests.some((request) => request.method === "PUT" && request.url.pathname.includes("bunko-cache-v1-"))).toBe(false);
+  expect(result.publication?.reference).toBeDefined();
+});
+
+test("strict export requires an explicit destination even during publication", async () => {
+  const { source, base } = await fixture();
+  await expect(build({ path: source, baseLayout: base, push: true, repo: "registry.test/releases", cacheExportError: "fail", gitMetadata: false })).rejects.toThrow("Strict cache export requires a cache write destination");
 });

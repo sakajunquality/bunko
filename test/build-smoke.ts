@@ -34,7 +34,7 @@ export async function smoke() {
     }
     const source = join(temporary, "source");
     await cp(resolve("examples/dependencies"), source, { recursive: true, filter: (path) => !path.split("/").includes("node_modules") });
-    const options = { path: source, base, platform: "linux/amd64,linux/arm64", push: true, repo, bare: true, tags: ["smoke"],
+    const options = { path: source, base, platform: "linux/amd64,linux/arm64", push: true, repo, cacheRepo: repo, bare: true, tags: ["smoke"],
       gitMetadata: false, localCache: false, registry: { insecure: [host], credentials: async () => undefined },
       installCache: process.env.BUNKO_SMOKE_NPM_CACHE ?? join(temporary, "npm-cache"), log: (message: string) => process.stderr.write(message) };
     const start = performance.now();

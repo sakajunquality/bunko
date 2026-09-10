@@ -162,3 +162,9 @@ Native CA trust example:
 ```
 
 Run `bun run test:native-ca` with Go, OpenSSL and Docker installed to build static Go TLS probes for both Linux architectures, package a gitignored generated asset, and verify positive and negative trust checks in read-only nonroot containers without external networking.
+
+## Deeper offline checks
+
+Use `bunko check-config . --deep --format text` to validate selected local assets and entrypoints before installing dependencies. It reuses the source walker and configured asset selection rules and reads font contents for local mappings. It creates no staging tree and does not fetch remote assets. Text output names and counts unchecked categories; `valid` covers only the chosen validation depth. URL/hash shape is checked, while remote contents, future generated outputs and runtime compatibility still require a build. See the [cookbook](COOKBOOK.md).
+
+Deep checks do not accept build output, cache, signing or registry credential paths. Those invocation-specific exclusions and collisions are checked by the full build; keep custom output/cache directories outside the project or exclude them with `.gitignore`.

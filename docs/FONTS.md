@@ -48,7 +48,7 @@ Start with the [complete Canvas/Resvg example](../examples/font-validation/READM
 - Existing context selection, exclusions, source ignore, reserved internal names, symlink and layer-collision checks apply. A regular file cannot replace either font root. Base filesystem metadata is checked for every platform; symlink/non-directory parents and incompatible existing destinations are rejected. Existing regular font files can be replaced explicitly.
 - Other `/usr` destinations remain reserved. Fontconfig configuration, shared libraries, executables and cache files are not accepted through this exception.
 
-`check-config` inspects selected names, types, modes and sizes without reading font contents. Builds validate the staged bytes before hashing or packing, including on asset-cache hits.
+`check-config` inspects selected names, types, modes and sizes without reading font contents; current development adds `--deep` to validate local font bytes too. Builds validate the staged bytes before hashing or packing, including on asset-cache hits.
 
 ## Automatic discovery and explicit registration
 

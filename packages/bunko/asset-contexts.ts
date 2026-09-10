@@ -101,10 +101,10 @@ export function assertAssetRuntime(mappings: AssetMapping[], runtimePath: string
   }
 }
 
-/** Check selected filesystem entries without staging, reading file contents or contacting a registry. */
-export async function inspectAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>) {
+/** Check selected filesystem entries without staging or contacting a registry; deep mode also validates local font bytes. */
+export async function inspectAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, deep = false) {
   const validated = assetMappings(mappings), local = validated.filter(contextMapping);
-  const result = await selectedAssetMappings(local, contexts);
+  const result = await selectedAssetMappings(local, contexts, undefined, [], undefined, deep);
   return { entries: result.entries.length, contexts: [...new Set(local.map((mapping) => mapping.context))].sort(), external: validated.length - local.length };
 }
 
@@ -113,7 +113,7 @@ export async function stageAssetMappings(mappings: AssetMapping[], contexts: Rec
   return selectedAssetMappings(mappings, contexts, stage, exclusions, external);
 }
 
-async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, stage?: string, exclusions: string[] = [], external?: ExternalAssetOptions): Promise<{ entries: TarEntry[]; materials: AssetMaterial[] }> {
+async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<string, string>, stage?: string, exclusions: string[] = [], external?: ExternalAssetOptions, validateContents = false): Promise<{ entries: TarEntry[]; materials: AssetMaterial[] }> {
   const entries: TarEntry[] = [], materials: AssetMaterial[] = [];
   if (!mappings.length) return { entries, materials };
   mappings = assetMappings(mappings);
@@ -156,14 +156,14 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
       // Check every ancestor with lstat; never traverse an intermediate symlink.
       for (const [i] of mapping.from.split("/").entries()) {
         const path = mapping.from.split("/").slice(0, i + 1).join("/");
-        if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}`);
+        if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}; metadata, credentials, ignored paths and output/cache directories are excluded; remove it or narrow the mapping with exclude`);
         const info = await lstat(join(root, path)).catch((error) => { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`Missing asset input: ${mapping.context}/${path}`); throw error; });
         if (info.isSymbolicLink()) throw new Error(`Asset symlinks are not supported: ${mapping.context}/${path}`);
       }
       async function walk(path: string, destination: string) {
         if (path !== mapping.from && filesystemMetadata(path)) return;
         if (path !== mapping.from && excludeAsset(path.slice(mapping.from.length + 1))) return;
-        if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}`);
+        if (forbidden(path)) throw new Error(`Excluded asset input: ${mapping.context}/${path}; metadata, credentials, ignored paths and output/cache directories are excluded; remove it or narrow the mapping with exclude`);
         validateDestination(destination);
         const input = join(root, path), info = await lstat(input);
         if (info.isSymbolicLink()) throw new Error(`Asset symlinks are not supported: ${mapping.context}/${path}`);
@@ -176,6 +176,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
           if (path === mapping.from && excludeAsset(basename(path))) return;
           if (systemFontPath(destination)) fontFileKind(destination, mode ?? info.mode, info.size);
           if (stage === undefined) {
+            if (validateContents && systemFontPath(destination)) await validateFontFile(input, destination, mode ?? info.mode);
             selected.push({ type: "file", path: destination, content: new Uint8Array(0), ...(mode !== undefined ? { mode } : {}), executable: Boolean((mode ?? info.mode) & 0o111) });
             return;
           }

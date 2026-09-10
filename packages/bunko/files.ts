@@ -32,7 +32,8 @@ export async function hashFile(path: string): Promise<Digest> {
   } finally { await file.close(); }
 }
 
-export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = [], assetExclusions: string[] = [], sourceMode = false, explicitAssets = new Set<string>()): Promise<Digest> {
+/** inspectOnly applies the same selection and validation without copying or producing a reusable content digest. */
+export async function snapshot(source: string, destination: string, excluded: string[] = [], syntax?: SyntaxCache, strictAssetRoots: string[] = [], required: string[] = [], assetExclusions: string[] = [], sourceMode = false, explicitAssets = new Set<string>(), inspectOnly = false): Promise<Digest> {
   const ignored = await sourceIgnore(source);
   const gitIgnored = sourceMode ? gitSourceIgnore(source) : undefined;
   const assetParents = new Set<string>();
@@ -67,7 +68,7 @@ export async function snapshot(source: string, destination: string, excluded: st
     if (omitted.has(name) || name.startsWith(".env")) {
       if (strictAsset) throw new Error(`Excluded source name inside bunkodata: ${path}`);
       const input = required.find((item) => item === path || item.startsWith(`${path}/`));
-      if (input && sourceMode) throw new Error(`Excluded required source input: ${input}`);
+      if (input && (sourceMode || explicitAssets.has(path) || assetParents.has(path))) throw new Error(`Excluded required source input: ${input}; credential and internal output/cache paths cannot be packaged`);
       return;
     }
     if (path) {
@@ -84,15 +85,15 @@ export async function snapshot(source: string, destination: string, excluded: st
     }
     if (info.isSymbolicLink()) throw new Error(`Source symlinks are not supported: ${path}`);
     if (info.isDirectory()) {
-      await mkdir(join(destination, path), { recursive: true });
+      if (!inspectOnly) await mkdir(join(destination, path), { recursive: true });
       if (path) records.push({ path, type: "directory" });
       for (const child of (await readdir(current)).sort()) await walk(path ? `${path}/${child}` : child);
     } else if (info.isFile()) {
-      const copied = join(destination, path);
-      await copyFile(current, copied);
+      const copied = inspectOnly ? current : join(destination, path);
+      if (!inspectOnly) await copyFile(current, copied);
       if (sourceMode) await assertNoSourcePrivateKey(copied, path);
-      await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
-      records.push({ path, type: "file", digest: await hashFile(copied), executable: Boolean(info.mode & 0o111) });
+      if (!inspectOnly) await chmod(copied, info.mode & 0o111 ? 0o755 : 0o644);
+      records.push({ path, type: "file", ...(inspectOnly ? {} : { digest: await hashFile(copied) }), executable: Boolean(info.mode & 0o111) });
     } else throw new Error(`Unsupported source file type: ${path}`);
   }
   await walk("");
