@@ -15,8 +15,8 @@ bun install --frozen-lockfile --ignore-scripts   # always frozen, never run inst
 bun run check          # typecheck + unit tests (what CI runs first)
 bun run typecheck      # tsc --noEmit (strict, noUncheckedIndexedAccess, verbatimModuleSyntax)
 bun run test           # bun test --timeout 15000
-bun test test/tar.test.ts                        # one file
-bun test test/tar.test.ts -t "pattern"           # one test by name
+bun test --timeout 15000 test/tar.test.ts                        # one file
+bun test --timeout 15000 test/tar.test.ts -t "pattern"           # one test by name
 bun run build          # bundle CLI to dist/bunko.js
 bun run dev build examples/hello --push=false --oci-layout .bunko-output/hello   # run CLI from source
 bun run release:prepare  # dist/release with SHA256SUMS; refuses an existing directory
@@ -24,7 +24,7 @@ bun run release:prepare  # dist/release with SHA256SUMS; refuses an existing dir
 
 Unit tests (`test/*.test.ts`) do not require Docker or external service credentials, but use loopback HTTP/TLS servers and local package-registry fixtures. Python 3, OpenSSL and tar must be on PATH; several tests use `python3`'s `tarfile` module as an independent tar reader (`inspectTar` in `test/helpers.ts`). Signed-runtime verification cases require `gpgv` and are skipped if it is unavailable. Tests spawn the CLI from source with `--no-local-cache` via the `cli()` helper, and use `MockRegistry` (`test/mock-registry.ts`) as an in-memory Distribution endpoint.
 
-Many smoke tests (`test/*-smoke.ts`, run via `bun run test:<name>`) need Docker and network access for prerequisites. Check each runner for its requirements and cleanup scope. The native CA smoke also requires Go; signed runtime injection requires `gpgv`. Set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict platform selection, which is what CI does. `scripts/validation/*` are the application-validation, fonts, runtime-injection and telemetry smoke runners.
+Many smoke tests (`test/*-smoke.ts`, run via `bun run test:<name>`) need Docker and network access for prerequisites. Use `package.json` for the exact script-to-file mapping; check each runner for its requirements and cleanup scope. The native CA smoke also requires Go; signed runtime injection requires `gpgv`. Set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict platform selection, which is what CI does. `scripts/validation/*` are the application-validation, fonts, runtime-injection and telemetry smoke runners.
 
 CI matrix: Linux and macOS × Bun 1.3.13, 1.4.0, 1.4.2. The supported range is `>=1.3.13 <1.5` (`package.json` engines).
 
