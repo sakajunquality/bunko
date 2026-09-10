@@ -89,8 +89,11 @@ test("the setup Action installs the release matching its own ref or checkout", a
     expect(await select({ GITHUB_ACTION_REF: ref, GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
   expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "other/wrapper", GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
   expect(await select({ GITHUB_ACTION_REF: "v9.9.9", BUNKO_ACTION_REPOSITORY: "other/wrapper", INPUT_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual(checkoutSource);
-  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", GITHUB_ACTION_PATH: checkout })).toEqual(checkoutSource);
+  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual(checkoutSource);
   expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "other/wrapper", BUNKO_ACTION_REF: "v0.2.0-rc.1", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual({ version: "v0.2.0-rc.1", source: "GITHUB_ACTION_REF" });
+  // Ref, repository and checkout path must all come from the same Action context.
+  expect(await select({ GITHUB_ACTION_REF: "v9.9.9", GITHUB_ACTION_REPOSITORY: "other/wrapper", GITHUB_ACTION_PATH: join(root, "wrapper"), BUNKO_ACTION_REF: "main", BUNKO_ACTION_REPOSITORY: "sakajunquality/bunko", BUNKO_ACTION_PATH: checkout })).toEqual(checkoutSource);
+  expect(await select({ GITHUB_ACTION_PATH: join(root, "wrapper"), BUNKO_ACTION_PATH: checkout })).toEqual(checkoutSource);
   const literal = { version: fallbackVersion, source: "the built-in default" };
   expect(await select({ INPUT_VERSION: "", GITHUB_ACTION_REF: "main", GITHUB_ACTION_PATH: join(root, "missing") })).toEqual(literal);
   expect(await select({})).toEqual(literal);

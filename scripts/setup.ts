@@ -64,12 +64,13 @@ export async function resolveVersion(env: Record<string, string | undefined>, re
   const repository = env.INPUT_REPOSITORY?.trim() || "sakajunquality/bunko";
   // Keep the ref and repository from the same context; a wrapper's ref must never
   // borrow this Action's repository identity from a different environment source.
-  const context = env.BUNKO_ACTION_REF?.trim()
-    ? { ref: env.BUNKO_ACTION_REF.trim(), repository: env.BUNKO_ACTION_REPOSITORY?.trim() }
-    : { ref: env.GITHUB_ACTION_REF?.trim(), repository: env.GITHUB_ACTION_REPOSITORY?.trim() };
+  const bound = [env.BUNKO_ACTION_REF, env.BUNKO_ACTION_REPOSITORY, env.BUNKO_ACTION_PATH].some((value) => value?.trim());
+  const context = bound
+    ? { ref: env.BUNKO_ACTION_REF?.trim(), repository: env.BUNKO_ACTION_REPOSITORY?.trim(), path: env.BUNKO_ACTION_PATH?.trim() }
+    : { ref: env.GITHUB_ACTION_REF?.trim(), repository: env.GITHUB_ACTION_REPOSITORY?.trim(), path: env.GITHUB_ACTION_PATH?.trim() };
   const ref = context.repository?.toLowerCase() === repository.toLowerCase() ? candidateTag(context.ref, true) : undefined;
   if (ref) return { version: ref, source: "GITHUB_ACTION_REF" };
-  const actionPath = env.GITHUB_ACTION_PATH?.trim() || env.BUNKO_ACTION_PATH?.trim();
+  const actionPath = context.path;
   const checkout = actionPath ? candidateTag((await readPackageVersion(join(actionPath, "package.json")))?.trim(), false) : undefined;
   if (checkout) return { version: checkout, source: "the Action checkout package.json" };
   return { version: fallbackVersion, source: "the built-in default" };
