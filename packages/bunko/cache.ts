@@ -99,7 +99,7 @@ export function validateClosurePlan(input: unknown, planKey: Digest, expected: {
   // Aliases become real symlinks in the application layer, so they are held to the packing rules
   // here rather than at pack time: a stored plan that could not be packed must be a miss while the
   // build can still reproject, never an exception raised after the closure has been accepted.
-  const aliases: Record<string, TarEntry[]> = {};
+  const aliases: Record<string, TarEntry[]> = Object.create(null);
   for (const [target, list] of Object.entries(object(value.aliases, "Closure plan aliases"))) {
     if (!Array.isArray(list) || list.length > maxPlanAliases) throw new Error("Invalid closure plan aliases");
     aliases[target] = list.map((raw) => {

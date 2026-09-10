@@ -61,6 +61,13 @@ test("a registry cache build publishes the closure plan as its own validated art
   // The published bytes are exactly the record the local index holds, so the same validator accepts both.
   const platform = { os: "linux" as const, architecture: "amd64" as const };
   const plan = validateClosurePlan(record, record.planKey, { destination: record.destination, platform });
+  // Workspace target names are data, including names inherited by ordinary objects.
+  const named = validateClosurePlan({ ...record, aliases: JSON.parse('{"__proto__":[],"constructor":[]}') }, record.planKey, { destination: record.destination, platform });
+  expect(Object.hasOwn(named.aliases, "__proto__")).toBe(true);
+  expect(named.aliases.__proto__).toEqual([]);
+  expect(named.aliases.constructor).toEqual([]);
+  expect(named.aliases.toString).toBeUndefined();
+  expect(JSON.parse(Buffer.from(canonicalJSON(named)).toString()).aliases).toEqual(JSON.parse('{"__proto__":[],"constructor":[]}'));
   // The plan is an index: the deps artifact it names is in the same repository.
   expect(mock.manifests.has(`${repo}/bunko-cache-v1-deps-${plan.key.slice(7)}`)).toBe(true);
   expect(result.cache.find((event) => event.kind === "deps-plan")).toMatchObject({ status: "miss", reason: "not-found" });
