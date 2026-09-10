@@ -58,9 +58,13 @@ async function extractImagePath(store: BlobStore, image: BaseImage, from: string
   if (!root || !paths.length) throw new Error(`Missing image asset input: ${from}`);
   if (paths.length > entryLimit) throw new Error("Image asset selection has too many entries");
   // A file that a later layer populated through without replacing it is inconsistent; never silently drop its children.
-  for (const [index, path] of paths.entries()) {
+  const checkedParents = new Set<string>();
+  for (const path of paths) {
+    for (let parent = dirname(path); inside(parent) && !checkedParents.has(parent); parent = dirname(parent)) {
+      checkedParents.add(parent);
+      if (tree.get(parent)?.type === "file") throw new Error(`Image asset path is a file with entries beneath it: /${parent}`);
+    }
     const type = tree.get(path)!.type;
-    if (type === "file" && paths[index + 1]?.startsWith(`${path}/`)) throw new Error(`Image asset path is a file with entries beneath it: /${path}`);
     if (type !== "file" && type !== "directory") throw new Error(`Unsupported image asset entry type (${type}): /${path}`);
   }
   await mkdir(dirname(content), { recursive: true, mode: 0o700 });

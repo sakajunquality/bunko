@@ -596,7 +596,7 @@ test("mixed image and local mappings freeze local bytes once across platforms", 
 
 test("nested files populated without replacement fail with a structural diagnostic", async () => {
   const f = await layeredImage("nested-file-populated", [
-    [{ name: "opt/z", content: "file" }], [{ name: "opt/z/inner", content: "child" }],
+    [{ name: "opt/z", content: "file" }, { name: "opt/z-1", content: "sibling sorting before descendants" }], [{ name: "opt/z/inner", content: "child" }],
   ]);
   await expect(stageAssetMappings([{ image: f.image.reference, from: "/opt", to: "/tools/opt" }], {}, join(f.root, "stage"), [], f.external())).rejects.toThrow("is a file with entries beneath it: /opt/z");
 });
