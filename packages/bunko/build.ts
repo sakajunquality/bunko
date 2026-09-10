@@ -39,12 +39,12 @@ import { media, type BaseImage, type Descriptor, type Digest, type Layer, type P
 import { epoch, loadProject, VERSION, type BuildOptions, type Project, validateDependencySpecs } from "./config.ts";
 import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot } from "./files.ts";
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
-import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
+import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
-import { assertSharedClosure, byteSize, dependencyClosure, closureDirectory, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
+import { assertSharedClosure, byteSize, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
-import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy } from "./undeclared-imports.ts";
-import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
+import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
+import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type ClosurePlanRecord } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
 import { SyntaxCache } from "./syntax-cache.ts";
@@ -153,6 +153,22 @@ export async function writeFailureReport(path: string, value: unknown, original:
   }
 }
 
+/** Reports undeclared-import findings once per closure and platform, and applies the strictest selected policy. */
+function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndeclared: UndeclaredImport[], projects: Project[], notice: string, announced: Set<string>, iteration: number, log: (message: string) => void): void {
+  const policy = undeclaredImportPolicy(projects);
+  // Peer contexts repeat one package version as several instances; identical findings are reported once.
+  const messages = [...new Set(undeclared.map(undeclaredImportMessage))];
+  const optional = [...new Set(optionalUndeclared.map(optionalImportMessage))];
+  const lines = policy === "strict" ? [...messages, ...optional] : messages;
+  if (lines.length && policy !== "off" && iteration === 1 && !announced.has(notice)) {
+    announced.add(notice);
+    for (const message of lines.slice(0, undeclaredImportLimit)) log(`${message}\n`);
+    if (lines.length > undeclaredImportLimit) log(`BUNKO_UNDECLARED_IMPORT: ${lines.length - undeclaredImportLimit} additional warnings omitted\n`);
+  }
+  const failures = policy === "strict" ? lines.length : policy === "error" ? messages.length : 0;
+  if (failures) throw new Error(`BUNKO_UNDECLARED_IMPORT: ${failures} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
+}
+
 interface BuildContext {
   mappedAssets: Awaited<ReturnType<typeof stageAssetMappings>>;
   syntax: SyntaxCache;
@@ -164,7 +180,9 @@ interface BuildContext {
   project: Project; runtimeCertificate?: Awaited<ReturnType<typeof runtimeCA>>; source: string; sourceDigest: Digest; plan: DependencyPlan;
   toolchain: Toolchain; git: Record<string, string>; multiple: boolean; reports: Set<string>;
   closureProjects: Project[];
-  closure: (projects: Project[], platform: Platform, iteration: number) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
+  closure: (projects: Project[], platform: Platform, iteration: number, notice: string) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
+  /** Undeclared-import findings are reported once per closure, whether they were projected or replayed from a plan. */
+  closureNotices: Set<string>;
   sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
 }
 interface PreparedBuild {
@@ -270,6 +288,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     assertNoLayerCollision([assets]);
     const assetKey = cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(context.mappedAssets.materials.length ? { materials: context.mappedAssets.materials } : {}), entries: await assetInputs(assets) });
     const records: CacheRecord[] = [];
+    const plans: ClosurePlanRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
       const result: PlatformResult[] = [];
       let sharedBundle: Awaited<ReturnType<typeof bundle>> | undefined;
@@ -301,7 +320,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         await cp(snapshotRoot, root, { recursive: true });
-        const noteOmittedAddons = (omitted: OmittedAddon[]) => { if (omitted.length) log(`Omitted ${omitted.length} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
+        const noteOmittedAddons = (omitted: number) => { if (omitted) log(`Omitted ${omitted} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
         let depsEntries: Awaited<ReturnType<typeof runtimeEntries>>["entries"] = [];
@@ -313,23 +332,41 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (dependencyArtifact) {
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
-          noteOmittedAddons(content.omitted);
+          noteOmittedAddons(content.omitted.length);
           depsEntries = content.entries; inventory = content.inventory; native = content.native;
           for (const name of project.external) if (!(project.mode === "source" && Object.hasOwn(JSON.parse(project.manifestText).optionalDependencies ?? {}, name)) && !inventory.some((item) => item.name === name)) throw new Error(`External artifact is missing runtime package: ${name}`);
           depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
         } else if (project.depsStrategy === "closure" && context.closureProjects.some((p) => p.external.length)) {
-          const content = await context.closure(context.closureProjects, platform, iteration);
-          aliases = content.aliases.get(project.targetPath) ?? [];
-          inventory = content.inventory; native = content.native;
-          closureSizes = { bytes: content.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: content.packages.reduce((total, pkg) => total + pkg.files, 0), packages: content.packages, duplicates: content.duplicates };
-          noteOmittedAddons(content.omitted);
-          const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`,
-            strategy: "closure-v1", entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
-            toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
-          const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
-          depsEntries = content.entries;
-          depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
-          if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
+          const destination = `${project.workdir}/node_modules`;
+          // The plan key is computed from inputs that exist before any install, so an
+          // unchanged closure skips both the frozen Linux install and per-file projection.
+          const planKey = cacheKey({ kind: "deps-plan", layout: closurePlanLayout, packFormat, epoch: timestamp, destination, ...closurePlanInputs(plan, toolchain, platform, base.descriptor.digest, context.closureProjects) });
+          const notice = `${planKey}/${platform.architecture}`;
+          const planned = options.verifyDeterministic ? undefined : await cache.plan(planKey, { destination, platform });
+          const reused = planned && await cache.get(planned.key, "deps", false, { destination, platform });
+          if (planned && reused) {
+            aliases = planned.aliases[project.targetPath] ?? [];
+            inventory = reused.inventory; native = reused.native; depsLayer = reused.layer;
+            closureSizes = { bytes: planned.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: planned.packages.reduce((total, pkg) => total + pkg.files, 0), packages: planned.packages, duplicates: closureDuplicates(planned.packages) };
+            noteOmittedAddons(planned.omitted);
+            reportUndeclaredImports(planned.undeclared, planned.optionalUndeclared, context.closureProjects, notice, context.closureNotices, iteration, log);
+            log(`Reusing dependency closure (${platform.architecture})\n`);
+          } else {
+            const content = await context.closure(context.closureProjects, platform, iteration, notice);
+            aliases = content.aliases.get(project.targetPath) ?? [];
+            inventory = content.inventory; native = content.native;
+            closureSizes = { bytes: content.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: content.packages.reduce((total, pkg) => total + pkg.files, 0), packages: content.packages, duplicates: content.duplicates };
+            noteOmittedAddons(content.omitted.length);
+            const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination,
+              strategy: closureStrategy, entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
+              toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
+            // A plan that already missed on this exact key needs no second lookup or event.
+            const hit = planned?.key === key ? undefined : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
+            depsEntries = content.entries;
+            depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
+            if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
+            if (iteration === 1 && depsLayer) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
+          }
         } else if (project.external.length || project.mode === "source" && plan.lock) {
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
@@ -341,7 +378,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
-            noteOmittedAddons(content.omitted);
+            noteOmittedAddons(content.omitted.length);
             depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
             if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
           }
@@ -392,8 +429,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (hint) log(`${hint}\n`);
           if (application.locations.total && project.moduleLocations === "error") throw new Error(`Module-location diagnostics fail this build (build.moduleLocations=error): ${application.locations.total} flagged reference${application.locations.total === 1 ? "" : "s"}`);
         }
-        // Reserve runtime namespaces even when the corresponding trees are lazy.
-        if (depsLayer && [...assets, ...app].some((e) => e.path === `${prefix}/node_modules` || e.path.startsWith(`${prefix}/node_modules/`) || e.path === `${prefix}/${workspaceDirectory}` || e.path.startsWith(`${prefix}/${workspaceDirectory}/`) || e.path === `${prefix}/${closureDirectory}` || e.path.startsWith(`${prefix}/${closureDirectory}/`))) throw new Error("Assets/application overlap runtime node_modules");
+        // Reserve runtime namespaces even when the corresponding trees are lazy. The comparison is
+        // case-insensitive because assertNoLayerCollision rejects case-colliding paths, and a
+        // dependency cache or closure plan hit contributes no entries for it to compare against.
+        const reserved = [`${prefix}/node_modules`, `${prefix}/${workspaceDirectory}`, `${prefix}/${closureDirectory}`].map((path) => path.toLowerCase());
+        if (depsLayer && [...assets, ...app].map((e) => e.path.toLowerCase()).some((path) => reserved.some((root) => path === root || path.startsWith(`${root}/`)))) throw new Error("Assets/application overlap runtime node_modules");
         app.push(...aliases);
         assertNoLayerCollision([runtime?.entries ?? [], depsEntries, assets, app]);
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
@@ -423,6 +463,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     }
     for (const record of records) await cache.remember(record);
     await cache.persistHits();
+    // Index the closure only after its layer is durable; rememberPlan reconfirms the record under its own lock.
+    for (const entry of plans) await cache.rememberPlan(entry);
     const first = images[0]!;
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, annotations: { ...project.annotations, ...baseAnnotations(pinned.descriptor.digest) }, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
@@ -621,7 +663,8 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const git = options.gitMetadata === false ? {} : await gitLabels(discovered.directory, options.log);
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const closures = new Map<string, Promise<Awaited<ReturnType<typeof dependencyClosure>>>>();
-    const closure: BuildContext["closure"] = (selected, platform, iteration) => {
+    const closureNotices = new Set<string>();
+    const closure: BuildContext["closure"] = (selected, platform, iteration, notice) => {
       const key = JSON.stringify([selected.map((p) => p.targetPath), platform, iteration]);
       if (!closures.has(key)) closures.set(key, (async () => {
         const runtime = join(temporary, `closure-${closures.size}`);
@@ -630,19 +673,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
         if (iteration === 1) options.log?.(`Dependency closure: ${content.packages.length} packages, ${byteSize(content.packages.reduce((total, pkg) => total + pkg.bytes, 0))}${content.duplicates.length ? `; ${content.duplicates.length} duplicate versions (see report)` : ""}\n`);
-        const policy = undeclaredImportPolicy(selected);
-        // Peer contexts repeat one package version as several instances; identical findings are reported once.
-        const messages = [...new Set(content.undeclared.map(undeclaredImportMessage))];
-        // Guarded imports are carried in every scanning policy for the closure report, but only strict prints and enforces them.
-        const optional = [...new Set(content.optionalUndeclared.map(optionalImportMessage))];
-        // Undeclared findings come first and the two kinds share one budget, so a closure never logs more than the limit.
-        const lines = policy === "strict" ? [...messages, ...optional] : messages;
-        if (policy !== "off" && iteration === 1) {
-          for (const message of lines.slice(0, undeclaredImportLimit)) options.log?.(`${message}\n`);
-          if (lines.length > undeclaredImportLimit) options.log?.(`BUNKO_UNDECLARED_IMPORT: ${lines.length - undeclaredImportLimit} additional warnings omitted\n`);
-        }
-        const failures = policy === "strict" ? messages.length + optional.length : policy === "error" ? messages.length : 0;
-        if (failures) throw new Error(`BUNKO_UNDECLARED_IMPORT: ${failures} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
+        reportUndeclaredImports(content.undeclared, content.optionalUndeclared, selected, notice, closureNotices, iteration, (message) => options.log?.(message));
         return content;
       })());
       return closures.get(key)!;
@@ -650,7 +681,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

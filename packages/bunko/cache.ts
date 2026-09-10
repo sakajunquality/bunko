@@ -16,6 +16,8 @@ import { withCacheLock } from "./cache-lock.ts";
 import { mapFiles } from "./concurrency.ts";
 import { archivePath, type TarEntry } from "../oci/tar.ts";
 import type { InventoryEntry, NativeBinary } from "./deps.ts";
+import type { ClosurePackage } from "./closure.ts";
+import type { UndeclaredImport } from "./undeclared-imports.ts";
 
 const configMedia = "application/vnd.bunko.cache.config.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
@@ -30,6 +32,9 @@ async function readMetadata(path: string): Promise<unknown> {
   return JSON.parse(Buffer.from(bytes).toString());
 }
 const maxLayerBytes = 2 * 1024 ** 3;
+/** Bumping this invalidates every stored closure plan without touching content-addressed layer identity. */
+export const closurePlanLayout = "closure-plan-v2";
+const maxPlanAliases = 100_000, maxPlanFindings = 100_000;
 
 export interface CacheRecord {
   schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app" | "runtime"; packFormat: string;
@@ -37,6 +42,49 @@ export interface CacheRecord {
   inventory: InventoryEntry[]; native: NativeBinary[];
   application?: { locations: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
 }
+/**
+ * Maps a pre-install closure plan key to the content-addressed closure key a full
+ * build produced, plus the target aliases and diagnostics that projection would
+ * otherwise have to recompute. The plan is an index into the layer cache, never a
+ * layer identity: a hit is only honoured once the referenced `deps` record itself
+ * validates and materializes.
+ */
+export interface ClosurePlanRecord {
+  schemaVersion: 1; kind: "deps-plan"; layout: string; packFormat: string; planKey: Digest; key: Digest;
+  destination: string; platform: Platform; aliases: Record<string, TarEntry[]>; undeclared: UndeclaredImport[]; optionalUndeclared: UndeclaredImport[]; omitted: number;
+  packages: ClosurePackage[];
+}
+export function validateClosurePlan(input: unknown, planKey: Digest, expected: { destination: string; platform: Platform }): ClosurePlanRecord {
+  const value = object(input, "Closure plan");
+  if (value.schemaVersion !== 1 || value.kind !== "deps-plan" || value.layout !== closurePlanLayout || value.packFormat !== packFormat || value.planKey !== planKey || value.destination !== expected.destination
+    || Buffer.compare(Buffer.from(canonicalJSON(value.platform)), Buffer.from(canonicalJSON(expected.platform)))
+    || !Number.isSafeInteger(value.omitted) || (value.omitted as number) < 0 || !Array.isArray(value.undeclared) || value.undeclared.length > maxPlanFindings) throw new Error("Unsupported or inconsistent closure plan metadata");
+  assertDigest(value.key as string);
+  // Aliases become real symlinks in the application layer, so validate their shape and paths before they are reused.
+  for (const list of Object.values(object(value.aliases, "Closure plan aliases"))) {
+    if (!Array.isArray(list) || list.length > maxPlanAliases) throw new Error("Invalid closure plan aliases");
+    for (const raw of list) {
+      const entry = object(raw, "Closure plan alias");
+      if (entry.type !== "symlink" || typeof entry.path !== "string" || typeof entry.target !== "string" || !entry.target.length) throw new Error("Invalid closure plan alias");
+      archivePath(entry.path);
+    }
+  }
+  if (!Array.isArray(value.optionalUndeclared) || value.optionalUndeclared.length > maxPlanFindings) throw new Error("Invalid closure plan optional findings");
+  for (const [findings, code] of [[value.undeclared, "BUNKO_UNDECLARED_IMPORT"], [value.optionalUndeclared, "BUNKO_OPTIONAL_IMPORT"]] as const) for (const raw of findings) {
+    const item = object(raw, "Closure plan finding");
+    if (item.code !== code || !["package", "version", "path", "name", "file"].every((field) => typeof item[field] === "string")) throw new Error("Invalid closure plan finding");
+  }
+  if (!Array.isArray(value.packages) || value.packages.length > maxPlanAliases) throw new Error("Invalid closure plan packages");
+  for (const raw of value.packages) {
+    const pkg = object(raw, "Closure plan package");
+    if (!["name", "version", "path"].every((field) => typeof pkg[field] === "string")
+      || !["bytes", "files"].every((field) => Number.isSafeInteger(pkg[field]) && (pkg[field] as number) >= 0)
+      || !Array.isArray(pkg.via) || !pkg.via.length || !pkg.via.every((name) => typeof name === "string")) throw new Error("Invalid closure plan package");
+    archivePath(pkg.path as string);
+  }
+  return value as unknown as ClosurePlanRecord;
+}
+
 export interface CacheEvent { kind: "deps" | "assets" | "app" | "runtime"; key: Digest; status: "local" | "registry" | "miss" | "bypass"; source?: string; reason?: "disabled" | "not-found" | "invalid-or-unavailable" }
 export function cacheKey(inputs: unknown): Digest { return sha256(Buffer.concat([Buffer.from("bunko/cache/v1\0"), Buffer.from(canonicalJSON(inputs))])); }
 export function cacheTag(kind: string, key: Digest) { assertDigest(key); return `bunko-cache-v1-${kind}-${key.slice(7)}`; }
@@ -149,6 +197,36 @@ export class LayerCache {
       } catch (error) { if (found || !(error instanceof RegistryError && error.status === 404)) { unavailable = true; this.options.log(`Registry ${kind} cache unavailable; trying remaining sources\n`); } }
     }
     this.event({ key, kind, status: "miss", reason: unavailable || this.invalidLocal.has(key) ? "invalid-or-unavailable" : "not-found" });
+  }
+
+  /** Reads the closure plan index. A missing, stale or malformed entry is a miss: the caller reprojects. */
+  async plan(planKey: Digest, expected: { destination: string; platform: Platform }): Promise<ClosurePlanRecord | undefined> {
+    if (!this.local) return;
+    let found = false;
+    try {
+      const value = await readMetadata(join(this.local.root, "plans", "deps", `${planKey.slice(7)}.json`)); found = true;
+      return validateClosurePlan(value, planKey, expected);
+    } catch (error) { if (found || (error as NodeJS.ErrnoException).code !== "ENOENT") this.options.log("Ignoring invalid local dependency closure plan\n"); }
+  }
+
+  /** Replaces any earlier plan for the same key: the newest full build describes the current inputs. */
+  async rememberPlan(record: ClosurePlanRecord): Promise<void> {
+    const bytes = canonicalJSON(record);
+    if (!this.local || this.persistence.disabled || bytes.length > cacheMetadataLimit) return;
+    const dir = join(this.local.root, "plans", "deps");
+    const temporary = join(dir, `.tmp-${randomUUID()}`);
+    try {
+      await withCacheLock(this.local.root, async () => {
+        // A plan must never outlive the record it names, so reconfirm that record under this
+        // lock: a prune between persisting the layer and indexing it leaves no orphan behind.
+        try { this.validate(await readMetadata(join(this.local!.root, "keys", "deps", `${record.key.slice(7)}.json`)), record.key, "deps", { destination: record.destination, platform: record.platform }); }
+        catch { return; }
+        await mkdir(dir, { recursive: true });
+        await writeFile(temporary, bytes, { flag: "wx" });
+        await rename(temporary, join(dir, `${record.planKey.slice(7)}.json`));
+      }, () => !this.persistence.disabled);
+    } catch { this.options.log("Could not persist the local dependency closure plan; the next build reprojects the closure\n"); }
+    finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
 
   async persistHits(): Promise<void> {

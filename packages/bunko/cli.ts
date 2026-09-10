@@ -31,6 +31,7 @@ THE SOFTWARE.
 */
 import { checkConfig, doctor } from "./diagnostics.ts";
 import { closureReport, formatClosureInfo, formatWhy, whyPackage } from "./closure-report.ts";
+import { diagnosticsFormat, diagnosticsOutput } from "./diagnostics-format.ts";
 import { validateCommandOptions } from "./command-options.ts";
 import { parseArgs } from "node:util";
 import { buildTargets } from "./build.ts";
@@ -60,8 +61,8 @@ Usage:
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
-  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>]
-  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>]
+  bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>]
+  bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>]
   bunko why <package> [path] [--target <name/path>] [--json]
   bunko closure-info [path] [--target <name/path>] [--top <count>] [--json]
   bunko metadata <image@digest|layout:DIR> --metadata-dir <directory>
@@ -148,6 +149,7 @@ Options:
   --top <count>            closure-info rows, largest first (default: 20)
   --json                   Machine-readable why/closure-info output
   --progress <plain|json>   Stage events on stderr (default: plain)
+  --format <json|text>     check-config/doctor output (default: text on a terminal, json otherwise)
   --report <file>          Write a JSON result, including transfers/cache/partial publication; replaces an existing Bunko report (regular file)
   --help                   Show this help
 
@@ -230,6 +232,7 @@ export async function main(argv: string[]): Promise<number> {
       "registry-config": { type: "string" },
       "tag-conflict": { type: "string" },
       progress: { type: "string" },
+      format: { type: "string" },
       otel: { type: "boolean" },
       "app-cache": { type: "boolean", default: true },
       jobs: { type: "string" },
@@ -292,8 +295,9 @@ export async function main(argv: string[]): Promise<number> {
     const registry = { onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
+      const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));
       const options = { path, runtimeArgs: values["runtime-arg"], define: parseDefines(values.define), assetContexts: parseAssetContexts(values["asset-context"]), targets: values.target, platform: values.platform, mode: values.mode, moduleLocations: values["module-locations"], depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"], bunPath: values["bun-path"], cosignPath: values["cosign-path"] };
-      process.stdout.write(JSON.stringify(await (command === "doctor" ? doctor(options) : checkConfig(options))) + "\n"); return 0;
+      process.stdout.write(diagnosticsOutput(await (command === "doctor" ? doctor(options) : checkConfig(options)), format)); return 0;
     }
     if (command === "why" || command === "closure-info") {
       const why = command === "why" ? positionals[1] : undefined;

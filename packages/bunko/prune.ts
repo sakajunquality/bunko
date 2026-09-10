@@ -1,7 +1,7 @@
-import { cacheMetadataLimit } from "./cache.ts";
+import { cacheMetadataLimit, closurePlanLayout, packFormat } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
+import { assertDigest, canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
 import { Publisher } from "../oci/publish.ts";
 import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
 import { media } from "../oci/types.ts";
@@ -15,11 +15,13 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
   const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0 };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
-    for (const path of ["keys", "blobs", "blobs/sha256"]) {
+    for (const path of ["keys", "plans", "plans/deps", "blobs", "blobs/sha256"]) {
       try { const info = await lstat(join(directory, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Prune refuses symlinked or non-directory cache paths"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
     try { if ((await readdir(join(directory, "keys"))).some((name) => !["deps", "assets", "app", "runtime"].includes(name))) throw new Error("Prune refuses unknown cache key namespaces"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try { if ((await readdir(join(directory, "plans"))).some((name) => name !== "deps")) throw new Error("Prune refuses unknown cache plan namespaces"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     const cutoff = Date.now() - olderThanSeconds * 1000;
     const records: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number }[] = [];
@@ -38,9 +40,26 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         records.push({ path, key: `${kind}/${name}`, digest: blob.digest, bytes, mtime: info.mtimeMs });
       }
     }
+    // Closure plans index key records; they own no blobs and are dropped with the record they name.
+    const plans: { path: string; key: string; target: string; bytes: Uint8Array; mtime: number; stale: boolean }[] = [];
+    {
+      const dir = join(directory, "plans", "deps");
+      let names: string[] = [];
+      try { if ((await lstat(dir)).isSymbolicLink()) throw new Error("Prune refuses symlinked cache directories"); names = await readdir(dir); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      for (const name of names.sort()) {
+        if (name.startsWith(".tmp-")) continue;
+        if (!/^[a-f0-9]{64}\.json$/.test(name)) throw new Error("Prune refuses unknown cache records");
+        const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Closure plan");
+        if (value.schemaVersion !== 1 || value.kind !== "deps-plan" || value.planKey !== `sha256:${name.slice(0, 64)}` || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
+        assertDigest(value.key);
+        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout !== closurePlanLayout || value.packFormat !== packFormat });
+      }
+    }
     // Account only for validated metadata and its referenced blobs. Unreferenced
     // CAS files and unrelated content are outside this managed-byte budget.
     const sizes = new Map<string, number>(), references = new Map<string, number>(), present = new Set<string>();
+    for (const plan of plans) result.managedBytes += plan.bytes.byteLength;
     for (const record of records) {
       result.managedBytes += record.bytes.byteLength;
       references.set(record.digest, (references.get(record.digest) ?? 0) + 1);
@@ -53,10 +72,22 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     }
     result.remainingBytes = result.managedBytes;
     const candidates: typeof records = [];
+    // A plan is only useful while the record it names survives, so its bytes are reclaimed with
+    // that record and must be credited as the budget is spent, not after the selection ends.
+    const known = new Set(records.map((record) => record.key)), attached = new Map<string, typeof plans>();
+    const reclaim = (plan: (typeof plans)[number]) => {
+      candidates.push({ ...plan, digest: "" }); result.keys.push(plan.key);
+      result.bytes += plan.bytes.byteLength; result.remainingBytes -= plan.bytes.byteLength;
+    };
+    for (const plan of plans) {
+      if (plan.stale || !known.has(plan.target)) { reclaim(plan); continue; }
+      attached.set(plan.target, [...attached.get(plan.target) ?? [], plan]);
+    }
     for (const record of records.sort((a, b) => a.mtime - b.mtime || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
       if (keepBytes === undefined ? record.mtime > cutoff : result.remainingBytes <= keepBytes) continue;
       candidates.push(record); result.keys.push(record.key);
       result.bytes += record.bytes.byteLength; result.remainingBytes -= record.bytes.byteLength;
+      for (const plan of attached.get(record.key) ?? []) reclaim(plan);
       const count = references.get(record.digest)! - 1; references.set(record.digest, count);
       if (count === 0 && present.has(record.digest)) {
         result.blobs.push(record.digest); result.bytes += sizes.get(record.digest)!; result.remainingBytes -= sizes.get(record.digest)!;
