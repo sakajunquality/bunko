@@ -31,7 +31,7 @@ Bunko has no Dockerfile and no `RUN`. Image content comes from three sources: th
 | `tags: registry/repo/app:sha` | `--repo registry/repo` (+ `imageName`) or `--repo registry/repo/app --bare`; `--tag sha --tag latest` (default: `latest` and the Git revision) | `repo`, `bare`, `tags` |
 | `push: true` | default; `--push=false` disables | `push` |
 | `platforms: linux/amd64,linux/arm64` | `--platform linux/amd64,linux/arm64` | `platforms` |
-| `cache-from/cache-to: type=gha` | `--cache-dir DIR` (layers) and `--install-cache DIR` (package downloads) persisted with `actions/cache`, or `--cache-repo` / `--cache-from` registry caches | `cache-dir`, `install-cache`, `cache-repo`, `cache-from` |
+| `cache-from/cache-to: type=gha` | `--cache-repo` / `--cache-from` registry caches, which carry layers and the closure plan index, optionally with `--cache-dir DIR` (layers) and `--install-cache DIR` (package downloads) persisted with `actions/cache` | `cache-dir`, `install-cache`, `cache-repo`, `cache-from` |
 | `load: true` | `--local` (single platform, needs Docker) | not in the Action |
 | `outputs: type=oci` | `--oci-layout DIR`, `--tarball FILE` | `export-layout` |
 | `build-contexts: name=path` | `--asset-context NAME=DIR`, or an `image`/`url` asset mapping needing no CI step | `asset-contexts` |
@@ -152,6 +152,8 @@ Workflow steps (pin Action commits as described in [CI.md](CI.md)):
   with:
     version: v0.4.0
     bun-version: 1.4.2
+# Optional; it carries Bun's package download cache. A registry cache repository already
+# carries the layers and the closure plan index, so a fresh runner builds warm without it.
 - uses: actions/cache@<commit>
   with:
     path: ${{ runner.temp }}/bunko

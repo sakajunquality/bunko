@@ -111,7 +111,7 @@ export class RegistrySource implements ImageSource {
   }
   async root() {
     const response = await this.read(`/v2/${this.ref.repository}/manifests/${this.ref.reference}`, this.ref.reference.startsWith("sha256:"));
-    const bytes = await responseBytes(response);
+    const bytes = await responseBytes(response, undefined, this.bodyIdleTimeoutMs);
     const digest = sha256(bytes);
     if (this.ref.reference.startsWith("sha256:") && digest !== this.ref.reference) throw new Error("Base manifest digest mismatch");
     const declared = response.headers.get("docker-content-digest");

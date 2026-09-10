@@ -57,7 +57,8 @@ export async function workspaceSmoke(options: { closure?: boolean; resolve?: boo
     await writeFile(app, (await readFile(app, "utf8")).replace('service: "api"', 'service: "api-v2"'));
     const second = await build(2);
     for (const target of second) {
-      if (!target.cache.length || !target.cache.filter((event) => event.kind !== "app").every((event) => event.status === "registry")) throw new Error("Expected workspace Registry cache hits");
+      // deps-plan is a lookup of the closure index, not of a layer, and it is served locally here.
+      if (!target.cache.length || !target.cache.filter((event) => !["app", "deps-plan"].includes(event.kind)).every((event) => event.status === "registry")) throw new Error("Expected workspace Registry cache hits");
       if (target.publication!.transfers.some((transfer) => ["deps", "assets"].includes(transfer.kind) && transfer.uploaded !== 0)) throw new Error("Workspace deps/assets uploaded after source-only edit");
     }
     const shared = options.closure ? await build(3, true) : [];

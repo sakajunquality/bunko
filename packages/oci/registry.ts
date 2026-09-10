@@ -42,14 +42,41 @@ export async function* webStream(stream: ReadableStream<Uint8Array>): AsyncGener
   }
 }
 
-export async function responseBytes(response: Response, limit = 8 * 1024 * 1024): Promise<Uint8Array> {
+/**
+ * The request deadline only bounds the wait for GET/HEAD headers, so a registry that answers 200
+ * and then stalls the body would hang here forever: blob transfers are protected by the pull
+ * stream's idle timeout, and metadata reads need the same guard. A stalled body becomes an ordinary
+ * connection failure, which every caller already treats as a miss or a fall-through to the next source.
+ */
+export async function responseBytes(response: Response, limit = 8 * 1024 * 1024, idleTimeoutMs = 120_000): Promise<Uint8Array> {
   if (!response.body) throw new Error("Empty registry response");
+  if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > 2_147_483_647) throw new Error("Registry metadata idle timeout must be positive and fit a timer");
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of webStream(response.body)) {
-    size += chunk.byteLength;
-    if (size > limit) throw new Error(`Registry metadata exceeds ${limit} bytes`);
-    chunks.push(chunk);
+  // Read through an explicit reader rather than the shared generator: abandoning a stalled body
+  // must not wait on the read that stalled, and a generator's return() would do exactly that.
+  const reader = response.body.getReader();
+  let complete = false;
+  try {
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let step: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        step = await Promise.race([reader.read(), new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new RegistryConnectionError(`Registry metadata body timed out after ${idleTimeoutMs} ms`)), idleTimeoutMs);
+        })]);
+      } finally { clearTimeout(timer); }
+      if (step.done) { complete = true; break; }
+      size += step.value.byteLength;
+      if (size > limit) throw new Error(`Registry metadata exceeds ${limit} bytes`);
+      chunks.push(step.value);
+    }
+  } finally {
+    // Start the cancellation but never await it: a registry that stopped sending may also never
+    // acknowledge. The read result stands either way, and consumers verify size and digest.
+    if (!complete) void Promise.resolve(reader.cancel()).catch(() => {});
+    // Bun 1.3.11 can throw while releasing an already completed HTTP reader.
+    try { reader.releaseLock(); } catch { /* completed stream is reclaimed by GC */ }
   }
   return Buffer.concat(chunks);
 }

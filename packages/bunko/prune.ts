@@ -116,7 +116,7 @@ export async function pruneRegistry(repository: string, execute = false, registr
     const response = await publisher.client.request(url, {}, [scope]);
     const value = object(JSON.parse(Buffer.from(await responseBytes(response)).toString()), "Tag list");
     if (value.tags != null && (!Array.isArray(value.tags) || !value.tags.every((v) => typeof v === "string"))) throw new Error("Invalid tag list");
-    for (const tag of value.tags as string[] ?? []) if (/^bunko-cache-v1-(?:deps|assets|app|runtime)-[a-f0-9]{64}$/.test(tag)) tags.add(tag);
+    for (const tag of value.tags as string[] ?? []) if (/^bunko-cache-v1-(?:deps-plan|deps|assets|app|runtime)-[a-f0-9]{64}$/.test(tag)) tags.add(tag);
     const link = response.headers.get("Link"); if (!link) break;
     const next = /<([^>]+)>;\s*rel="?next"?/.exec(link)?.[1];
     if (!next) throw new Error("Invalid tag pagination Link");
@@ -128,15 +128,19 @@ export async function pruneRegistry(repository: string, execute = false, registr
   for (const tag of [...tags].sort()) {
     const response = await publisher.client.request(`/v2/${publisher.ref.repository}/manifests/${tag}`, {}, [scope]);
     const bytes = await responseBytes(response), manifest = object(JSON.parse(Buffer.from(bytes).toString()), "Cache manifest");
-    const [, kind, key] = /^bunko-cache-v1-(deps|assets|app|runtime)-([a-f0-9]{64})$/.exec(tag)!;
+    const [, kind, key] = /^bunko-cache-v1-(deps-plan|deps|assets|app|runtime)-([a-f0-9]{64})$/.exec(tag)!;
     if (manifest.mediaType !== media.manifest || manifest.artifactType !== "application/vnd.bunko.cache.v1" || !Array.isArray(manifest.layers) || manifest.layers.length !== 1) throw new Error("Prune refuses a cache-named tag with unrelated content");
+    const plan = kind === "deps-plan";
     const config = descriptor(manifest.config);
-    if (config.mediaType !== "application/vnd.bunko.cache.config.v1+json") throw new Error("Invalid cache configuration type");
+    if (config.mediaType !== (plan ? "application/vnd.bunko.cache.plan.config.v1+json" : "application/vnd.bunko.cache.config.v1+json")) throw new Error("Invalid cache configuration type");
     const responseConfig = await publisher.client.request(`/v2/${publisher.ref.repository}/blobs/${config.digest}`, {}, [scope]);
     const configBytes = await responseBytes(responseConfig);
     if (sha256(configBytes) !== config.digest || configBytes.length !== config.size) throw new Error("Cache configuration digest mismatch");
     const value = object(JSON.parse(Buffer.from(configBytes).toString()), "Cache config");
-    if (value.schemaVersion !== 1 || value.kind !== kind || value.key !== `sha256:${key}` || Buffer.compare(Buffer.from(canonicalJSON(object(value.layer, "Cache layer").descriptor)), Buffer.from(canonicalJSON(manifest.layers[0])))) throw new Error("Cache tag and configuration disagree");
+    // A plan owns no layer, so the tag is checked against its own plan key instead of a layer descriptor.
+    if (value.schemaVersion !== 1 || value.kind !== kind || (plan ? value.planKey !== `sha256:${key}`
+      : value.key !== `sha256:${key}` || Buffer.compare(Buffer.from(canonicalJSON(object(value.layer, "Cache layer").descriptor)), Buffer.from(canonicalJSON(manifest.layers[0]))))) throw new Error("Cache tag and configuration disagree");
+    if (plan) assertDigest(value.key);
     selected.push({ tag, digest: sha256(bytes) });
   }
   const deleted: string[] = [];
