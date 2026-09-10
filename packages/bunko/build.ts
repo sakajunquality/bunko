@@ -41,7 +41,7 @@ import { assetEntries, assertNoLayerCollision, fileEntries, hashFile, snapshot }
 import { bundle, selectToolchain, type Toolchain } from "./toolchain.ts";
 import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependencies, runtimeEntries, type InventoryEntry, type NativeBinary, type OmittedAddon, type DependencyPlan } from "./deps.ts";
 import { discover, workspaceAt } from "./workspace.ts";
-import { dependencyClosure, closureDirectory } from "./closure.ts";
+import { assertSharedClosure, byteSize, dependencyClosure, closureDirectory, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, LayerCache, packFormat, type CacheRecord, type CacheEvent } from "./cache.ts";
@@ -60,6 +60,8 @@ export interface PlatformResult {
   baseInventory?: { described: string[]; namespace: string; digest: Digest; artifactDigest: Digest; reference: string };
   entrypoints?: Record<string, string>;
   bundledInventory?: InventoryEntry[];
+  /** Closure strategy only: the packaged instances with their uncompressed sizes and the versions the closure carries more than once. */
+  closure?: { bytes: number; files: number; packages: ClosurePackage[]; duplicates: ClosureDuplicate[] };
   dependencyArtifact?: Digest;
   platform: Platform; manifest: Descriptor; config: Descriptor; layers: Layer[];
   baseDigest: Digest; inventory: InventoryEntry[]; native: NativeBinary[];
@@ -306,6 +308,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         let aliases: Awaited<ReturnType<typeof dependencyClosure>>["entries"] = [];
         let dependencyArtifactDigest: Digest | undefined;
         const dependencyArtifact = (options.externalDepsByTarget?.[project.directory] ?? options.externalDeps)?.[`${platform.os}/${platform.architecture}`];
+        // Imported artifacts have no closure accounting; projected empty closures do.
+        let closureSizes: PlatformResult["closure"] = project.depsStrategy === "closure" && !dependencyArtifact ? { bytes: 0, files: 0, packages: [], duplicates: [] } : undefined;
         if (dependencyArtifact) {
           const content = await importDependencies(dependencyArtifact, platform, project.workdir, plan.lock, join(temporary, `external-${iteration}-${platform.architecture}`), registry, project.targetPath);
           dependencyArtifactDigest = content.artifactDigest;
@@ -317,6 +321,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const content = await context.closure(context.closureProjects, platform, iteration);
           aliases = content.aliases.get(project.targetPath) ?? [];
           inventory = content.inventory; native = content.native;
+          closureSizes = { bytes: content.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: content.packages.reduce((total, pkg) => total + pkg.files, 0), packages: content.packages, duplicates: content.duplicates };
           noteOmittedAddons(content.omitted);
           const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`,
             strategy: "closure-v1", entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
@@ -405,7 +410,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }, true);
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
-        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, closure: closureSizes, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;
@@ -541,9 +546,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const required = project.platforms.map((p) => `${p.os}/${p.architecture}`);
     if (Object.keys(artifacts).length !== required.length || required.some((p) => !artifacts[p])) throw new Error("Supply exactly one dependency artifact for every selected platform");
   }
-  if (sharedDeps && (!discovered.workspace || projects.some((p) => p.depsStrategy !== "closure"))) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
-  if (sharedDeps && new Set(projects.map((p) => JSON.stringify(p.allowIgnoredScripts ?? []))).size !== 1) throw new Error("sharedDeps requires matching deps.allowIgnoredScripts policies");
-  if (sharedDeps && new Set(projects.map((p) => JSON.stringify([p.workdir, p.base, p.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
+  assertSharedClosure(projects, sharedDeps, Boolean(discovered.workspace));
   if (new Set(projects.map((project) => project.name.toLowerCase())).size !== projects.length) throw new Error("Workspace image name collision; set distinct bunko.imageName values");
   if (discovered.workspace) for (const pkg of discovered.workspace.packages) {
     validateDependencySpecs(pkg.manifest, discovered.workspace);
@@ -626,6 +629,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         await cp(source, runtime, { recursive: true });
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
+        if (iteration === 1) options.log?.(`Dependency closure: ${content.packages.length} packages, ${byteSize(content.packages.reduce((total, pkg) => total + pkg.bytes, 0))}${content.duplicates.length ? `; ${content.duplicates.length} duplicate versions (see report)` : ""}\n`);
         const policy = undeclaredImportPolicy(selected);
         // Peer contexts repeat one package version as several instances; identical findings are reported once.
         const messages = [...new Set(content.undeclared.map(undeclaredImportMessage))];
