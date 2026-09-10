@@ -17,14 +17,18 @@ export interface BaseNode { type: string; link?: string; mode: number; size: num
  * Directories a layer only implies carry no stream and are reported once, when they enter the tree. */
 export type LayerCapture = (index: number, path: string, node: BaseNode, stream?: Readable) => Promise<void>;
 export type BaseFilesystem = Map<string, BaseNode>;
-function pathName(value: string): string {
+/** Normalizes a layer entry name the way container runtimes do: leading `/` and `./` prefixes are dropped (ko and
+ * some tar writers emit absolute names such as `/ko-app/tool`); traversal, empty segments, backslashes and control
+ * characters remain rejected. Exported for tests. */
+export function layerPath(value: string): string {
   if (Buffer.byteLength(value) > 8192) throw new Error("Base filesystem path exceeds inspection limits");
-  const name = value.replace(/^(\.\/)+/, "").replace(/\/$/, "");
+  const name = value.replace(/^(\/+|\.\/)+/, "").replace(/\/$/, "");
   if (!name || name === ".") return "";
   if (Buffer.byteLength(name) > 4096 || name.split("/").length > 128) throw new Error("Base filesystem path exceeds inspection limits");
-  if (name.startsWith("/") || /[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error("Unsupported path in runtime base filesystem");
+  if (/[\\\x00-\x1f\x7f]/.test(name) || name.split("/").some((p) => !p || p === ".." || p === ".")) throw new Error(`Unsupported path in runtime base filesystem: ${JSON.stringify(value.slice(0, 200)).replace(/\x7f/g, "\\u007f")}`);
   return name;
 }
+const pathName = layerPath;
 function ancestors(path: string) { const parts = path.split("/"); return parts.map((_, i) => parts.slice(0, i + 1).join("/")); }
 
 /** Inspect metadata without extracting or following paths on the build host. */

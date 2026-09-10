@@ -184,7 +184,10 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
     if ([media.index, media.dockerIndex].includes(d.mediaType as typeof media.index)) {
       if (!Array.isArray(value.manifests)) throw new Error("Invalid base index");
       const candidates = value.manifests.map(descriptor).filter((child) => {
-        if (child.artifactType) return false;
+        // OCI 1.1 index entries may carry artifactType; ko and BuildKit set it to the image config media type on
+        // ordinary platform images. Only non-image artifacts (attestations, SBOMs, signatures) are skipped here; the
+        // selected manifest's config media type is verified below regardless.
+        if (child.artifactType && ![media.config, media.dockerConfig].includes(child.artifactType as typeof media.config)) return false;
         if (!child.platform) return true;
         return child.platform.os === platform.os && child.platform.architecture === platform.architecture
           && (child.platform.variant ?? (child.platform.architecture === "arm64" ? "v8" : undefined)) === (platform.variant ?? (platform.architecture === "arm64" ? "v8" : undefined));
