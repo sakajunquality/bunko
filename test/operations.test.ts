@@ -42,8 +42,9 @@ test("external dependency artifacts preserve prepared packages, enforce lock/pla
   expect(imported.inventory).toEqual(packed.inventory);
   const base = await baseLayout(join(root, "base"));
   const result = await build({ path: f.source, baseLayout: base, output: join(root, "image"), push: false,
-    localCache: false, gitMetadata: false, installCache: f.cache, externalDeps: { "linux/amd64": `layout:${output}` }, provenance: true });
+    localCache: false, gitMetadata: false, installCache: f.cache, externalDeps: { "linux/amd64": `layout:${output}` }, depsStrategy: "closure", provenance: true });
   expect(result.images[0]!.dependencyArtifact).toBe(packed.digest);
+  expect(result.images[0]!.closure).toBeUndefined();
   expect(await runImage(result, join(root, "runtime"))).toBe("fixture-msg works");
   await expect(importDependencies(`layout:${output}`, platform, "/app", {}, join(root, "bad-lock"), {})).rejects.toThrow("lock mismatch");
   await expect(importDependencies(`layout:${output}`, { os: "linux", architecture: "arm64", variant: "v8" }, "/app", plan.lock, join(root, "bad-arch"), {})).rejects.toThrow("platform");

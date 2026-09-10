@@ -81,13 +81,52 @@ With the closure strategy each package instance has aliases for its declared dep
 BUNKO_UNDECLARED_IMPORT grpc-gcp@1.0.1 imports "protobufjs" without declaring it (build/src/generated/grpc_gcp.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application's dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.
 ```
 
-Upgrade the package when a fixed release exists. Otherwise add the missing name to the application's `dependencies` and `bunko.external`: the application alias under `workdir/node_modules` is reachable from every closure instance. The default is a warning because optional `try { require("supports-color") } catch {}` probes are legitimate and indistinguishable by syntax; `deps.undeclaredImports: "error"` fails the build instead, and `"off"` skips the scan. Computed specifiers, unparseable files, files above 4 MiB and files no entry point reaches (shipped tests, benchmarks and unused sources) are not inspected, so a clean scan is not proof that every runtime import resolves. A package with no resolvable entry point at all is scanned whole, except `test`, `tests`, `__tests__`, `spec`, `bench`, `benchmark`, `browser-test` and `system-test` directories and `test`, `*.test`, `*.spec` and `*.bench` files.
+Upgrade the package when a fixed release exists. Otherwise add the missing name to the application's `dependencies` and `bunko.external`: the application alias under `workdir/node_modules` is reachable from every closure instance.
+
+Names a package guards itself are separated from these findings. A missing name is optional when every literal naming it, in every file the scan reaches, is the argument of `require.resolve()`, or of `require()`/`import()` inside a `try` block that a `catch` handler protects; a static source, a `try` block with only a `finally`, an unprotected `catch` body, a plain mention, an unguarded occurrence in any other file of the package, and anything the scan cannot lex with certainty — including a reached file above the 4 MiB cap — all keep the name a regular finding. `debug@4.4.3` is the canonical example: `src/node.js` runs `try { const supportsColor = require("supports-color"); … } catch (error) {}` to pick a color depth and mentions the name nowhere else, so the probe degrades instead of crashing and `deps.undeclaredImports: "error"` can be a CI default without it. The rule is per package instance and deliberately unforgiving, so a package can miss it: `@babel/core@7.27.7` guards `require("@babel/preset-typescript")` inside `getTSPreset`, but the same `lib/config/files/module-types.js` also requires `@babel/preset-typescript/package.json` from a `catch` handler, which is not a guarded position, and the name stays a regular finding. Genuine findings such as `@google-cloud/opentelemetry-resource-util@2.4.0` requiring `@opentelemetry/api` at the top of `build/src/detector/gce.js` are reported as before. `"strict"` additionally logs and fails on the optional ones:
+
+```text
+BUNKO_OPTIONAL_IMPORT debug@4.4.3 imports "supports-color" only inside try/catch (src/node.js); treated as optional
+```
+
+`"off"` skips the scan. The classification is textual rather than an execution model: a `require()` in a function that only a `try` block calls is reported, and one a `try` block merely defers to a callback is treated as optional even though the deferred call is unprotected, so optional means no unguarded use was found rather than a guarantee that the package cannot crash. Computed specifiers, unparseable files, files above 4 MiB and files no entry point reaches (shipped tests, benchmarks and unused sources) are not inspected, so a clean scan is not proof that every runtime import resolves: an import that exists only in a file skipped for size is never discovered, although reaching such a file does stop the package's other names from being called optional. A package with no resolvable entry point at all is scanned whole, except `test`, `tests`, `__tests__`, `spec`, `bench`, `benchmark`, `browser-test` and `system-test` directories and `test`, `*.test`, `*.spec` and `*.bench` files.
 
 `build.allowUnresolved` uses Bun's **specifier patterns**, not importing-package names. An empty string allows opaque dependency expressions such as `require(variable)` to remain for runtime resolution. Application computed imports remain rejected, and missing literal imports still fail. An allowance does not ensure that a dynamically requested package is present. Leave the setting absent to retain strict behavior.
 
 Packages that ship one prebuilt `.node` per platform in a single tree, such as Temporal's core bridge or Snowflake's minicore, are supported: only the target's little-endian ELF64 shared-object addons with System V/GNU OSABI are packaged. Recognized foreign signatures/architectures and links to those addons are omitted. Unknown content, truncated ELF headers and target non-shared objects remain errors. The nearest named package manifest owns each addon; unnamed module-scope manifests do not split ownership, and lookup stays inside the frozen runtime tree. A package whose addons include none for the target still fails; the runtime selection logic inside the package is not inspected. Fresh runtime walks log omission counts, prepared packing reports omitted paths, and cache hits reuse already filtered layers without recounting. Directory-enumerating loaders see the pruned tree; libc and actual addon loading still require runtime validation.
 
 `inheritBaseOciLabels: false` omits inherited `org.opencontainers.image.*` labels. Explicit application labels and Bunko-generated labels remain; other base labels retain their existing behavior. This option alone does not anonymize image metadata, provenance, inventories, or sourcemaps.
+
+## Trimming a dependency closure
+
+A closure keeps every concrete instance the declared externals reach, so a single well-behaved external can quietly carry a large transitive tree, including the same package under two versions. Nothing about that is visible in an image digest, so start from measurement rather than intuition. The abridged report below shows the shape of the problem for a Bun service depending on `@google-cloud/spanner`, whose closure was 204 packages and roughly 150 MiB of packaged files:
+
+```console
+$ bunko closure-info . --top 5
+api (.) — linux/amd64, deps.strategy closure
+204 packages, 150.3 MiB, 21874 files; 2 duplicated package(s)
+
+Largest packages (5 of 204)
+    SIZE  FILES  PACKAGE                              VERSION  VIA
+ 12.0 MiB   1420  @opentelemetry/semantic-conventions   1.40.0  @google-cloud/spanner > @google-cloud/opentelemetry-cloud-trace-exporter
+  7.0 MiB    880  @opentelemetry/semantic-conventions   1.28.0  @google-cloud/spanner > google-gax
+  5.0 MiB   1310  caniuse-lite                          1.0.x   @google-cloud/spanner > @babel/core > browserslist
+...
+
+Duplicate versions (largest first)
+   SIZE  PACKAGE                              VERSIONS
+19.0 MiB  @opentelemetry/semantic-conventions  1.40.0 (12.0 MiB), 1.28.0 (7.0 MiB)
+```
+
+`bunko why PACKAGE` answers the follow-up question for one name, listing every instance with its version, size, install path and the dependency path from a declared external. `--json` emits the same records (`packages[]` and `duplicates[]`) for scripts, and a closure build writes them into the report under `images[].closure`. A size is the payload of the regular files that instance contributes, before compression; tar headers, padding, directories, symlinks and addons omitted for another platform are not counted, so it sits just under the instance's share of the extracted layer. The registry transfers the compressed layer, which is much smaller and deduplicates repeated trees well, but the extracted image, the page cache and the container filesystem still pay close to the full number.
+
+Three levers, in order of preference:
+
+- **Update the dependency that lags.** Two versions of one package usually mean one dependency pins an older range. `bun update <package>` or a newer major of the direct dependency collapses them without changing resolution semantics for anyone else.
+- **Add a `package.json` override.** `"overrides": { "@opentelemetry/semantic-conventions": "1.40.0" }` at the workspace root forces one version for the whole graph. This is a resolution change, not a packaging trick: run the application's tests against the installed tree, because the deduplicated version must actually satisfy every consumer. Bunko validates that `overrides` agree between `package.json` and `bun.lock`, so run `bun install` after editing.
+- **Narrow `bunko.external`.** Only packages that must stay unbundled — native addons, packages reading their own files at runtime — need to be external. Every other dependency is better bundled into the application layer, where the bundler keeps only reached code. A build-time-only package such as `@babel/core` or `browserslist` reaching a server image is almost always a dependency of an external that does not need to be external at all.
+
+Removing an instance from the closure is only safe when nothing loads it at runtime; the closure never guesses. Re-run `closure-info` after each change and verify the application in the image, not only in tests.
 
 ## Validation and remaining work
 
@@ -162,4 +201,6 @@ Reports and provenance record logical context names, selected relative paths, ex
 
 Follow [application validation](APPLICATION_VALIDATION.md) for a disposable functional fixture, private output handling, and the remote acceptance checklist. `check-config` and `doctor` require bindings for selected asset mappings and inspect selected filesystem entries without copying or hashing their contents. They report named entries, the default command, logical mappings, and selected entry counts. They reject missing inputs, normal source omissions, context-root `.bunkoignore` exclusions, symlinks, mapping collisions, and overlap with the configured runtime. Build-specific output/cache/staging-directory exclusions are checked only during a build. Regular project assets, bundle/dependency collisions, file content, and actual runtime behavior still require a build and runtime checks.
 
-Strict undeclared-import checks enforce the importing package's manifest, not the availability of an application-level fallback. Adding an application dependency and external does not repair that declaration; use the advisory policy for this workaround and test the runtime. Optional probes and unused shipped files can also produce findings.
+Strict undeclared-import checks enforce the importing package's manifest, not the availability of an application-level fallback. Adding an application dependency and external does not repair that declaration; use the advisory policy for this workaround and test the runtime. Probes the package guards itself are reported only under `"strict"`; unused shipped files can still produce findings.
+
+Build reports include closure sizes only when bunko projects the dependency closure. Prepared dependency artifacts do not carry closure accounting and omit that field, even if the selected strategy is closure.
