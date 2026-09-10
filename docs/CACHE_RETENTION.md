@@ -42,3 +42,5 @@ Usage and preview operations take the same exclusive lock as deletion to provide
 Bun's extracted package download cache is trusted build input. Reusing an entry does not independently reverify its package integrity. Keep it private to the intended trust domain and never restore a cache writable by untrusted pull requests into a trusted publishing build. Use `--no-local-cache` without an explicit `--install-cache` to retain per-build temporary staging.
 
 Prune results list layer key records as `<kind>/<digest>.json` and closure plan records as `plans/deps/<digest>.json` in `keys`. Cache events describe lookup attempts; an invalid or unavailable closure plan may be followed by a lookup of the newly projected content key.
+
+Orphaned closure plans and plans using an obsolete layout or pack format are reclaimed before age or byte-budget selection. Their dependency layers remain available unless those layer records are independently selected for pruning.

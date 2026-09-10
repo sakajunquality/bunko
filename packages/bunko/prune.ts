@@ -1,4 +1,4 @@
-import { cacheMetadataLimit } from "./cache.ts";
+import { cacheMetadataLimit, closurePlanLayout, packFormat } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { assertDigest, canonicalJSON, descriptor, object, sha256 } from "../oci/digest.ts";
@@ -41,7 +41,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       }
     }
     // Closure plans index key records; they own no blobs and are dropped with the record they name.
-    const plans: { path: string; key: string; target: string; bytes: Uint8Array; mtime: number }[] = [];
+    const plans: { path: string; key: string; target: string; bytes: Uint8Array; mtime: number; stale: boolean }[] = [];
     {
       const dir = join(directory, "plans", "deps");
       let names: string[] = [];
@@ -53,7 +53,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Closure plan");
         if (value.schemaVersion !== 1 || value.kind !== "deps-plan" || value.planKey !== `sha256:${name.slice(0, 64)}` || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
         assertDigest(value.key);
-        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs });
+        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout !== closurePlanLayout || value.packFormat !== packFormat });
       }
     }
     // Account only for validated metadata and its referenced blobs. Unreferenced
@@ -80,7 +80,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       result.bytes += plan.bytes.byteLength; result.remainingBytes -= plan.bytes.byteLength;
     };
     for (const plan of plans) {
-      if (!known.has(plan.target)) { reclaim(plan); continue; }
+      if (plan.stale || !known.has(plan.target)) { reclaim(plan); continue; }
       attached.set(plan.target, [...attached.get(plan.target) ?? [], plan]);
     }
     for (const record of records.sort((a, b) => a.mtime - b.mtime || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
