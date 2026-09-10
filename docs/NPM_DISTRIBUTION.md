@@ -25,7 +25,7 @@ For local preparation, download the complete release into a new directory, verif
 
 ```sh
 gh release download v0.3.0 --repo sakajunquality/bunko --dir dist/release
-BUNKO_ATTESTATION_SOURCE_DIGEST=e3644475fecfae587db11a8c7dca229dbd6c4ca1 \
+BUNKO_ATTESTATION_SOURCE_DIGEST=c75a6c815553ac0502addbeb69f7f449f9e04e91 \
   bun scripts/verify-release.ts dist/release v0.3.0
 bun scripts/npm-package.ts dist/release dist/npm v0.3.0
 bun scripts/validation/npm-smoke.ts dist/npm dist/npm-artifact
@@ -49,8 +49,8 @@ Then configure the npm package's **Trusted Publisher** for:
 
 Create the matching GitHub `npm` environment and restrict deployment branches to main. The workflow also requires main for publishing. Use GitHub-hosted runners and a supported npm CLI (>=11.5.1) with Node >=22.14.0. It publishes with OIDC and provenance without a long-lived npm token. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-rc.5 was published during authenticated local bootstrap and has no npm workflow provenance. Its enclosed CLI release provenance remains intact. Version 0.1.0 is the first successful OIDC publication; those versions remain immutable and must not be published again. Versions 0.1.1 through 0.1.4 and 0.3.0 use the same trusted-publishing workflow.
+rc.5 was published during authenticated local bootstrap and has no npm workflow provenance. Its enclosed CLI release provenance remains intact. Version 0.1.0 is the first successful OIDC publication; those versions remain immutable and must not be published again. Versions 0.1.1 through 0.1.4, 0.2.0 and 0.3.0 use the same trusted-publishing workflow.
 
 For future releases, dispatch the workflow on main with a **new, unpublished npm version** whose GitHub release has already been published and verified, and `publish: true`. It publishes the tested tarball once, downloads it independently, compares its SHA512 integrity with the candidate and executes the npm and bunx consumers. A failed post-publication check must be investigated before declaring success; rerunning publication of an existing version is not a repair strategy.
 
-The stable package passed anonymous tarball download, exact candidate integrity comparison, npm installation, fresh-cache bunx execution with both the exact version and `latest`, and `npm audit signatures` verification of the registry signature and npm attestation. Registry installations also passed 0.1.4 → 0.3.0 → 0.1.4 → 0.3.0 upgrades and rollback, followed by Bun installation and bunx execution. The `next` tag remains on rc.5; `latest` selects 0.3.0. See the [versioned results](validation/v0.3.0.md).
+The stable package passed anonymous tarball download, exact candidate integrity comparison, npm installation, fresh-cache bunx execution with both the exact version and `latest`, and `npm audit signatures` verification of the registry signature and npm attestation. Registry installations also passed 0.2.0 → 0.3.0 → 0.2.0 → 0.3.0 upgrades and rollback, followed by Bun installation and bunx execution. The `next` tag remains on rc.5; `latest` selects 0.3.0. See the [versioned results](validation/v0.3.0.md).
