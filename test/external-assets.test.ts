@@ -196,6 +196,28 @@ async function dualBase(root: string): Promise<string> {
   return root;
 }
 
+test("a moved image asset source rebuilds only the assets layer", async () => {
+  const f = await fixture();
+  const source = await project(join(f.root, "app"), { bunko: { assetMappings: [{ image: f.image.reference, from: "/usr/local/bin/spannerdef", to: "/tools/spannerdef", mode: "0755" }] } }, 'console.log("server");');
+  const options = { path: source, baseLayout: await baseLayout(join(f.root, "base")), gitMetadata: false, cacheDir: join(f.root, "cache"),
+    assetCache: join(f.root, "asset-cache"), registry: { fetcher: f.registry.fetch, credentials: async () => undefined } };
+  const first = await build({ ...options, output: join(f.root, "first") });
+  const second = await build({ ...options, output: join(f.root, "second") });
+  expect(second.root.digest).toBe(first.root.digest);
+  expect(second.cache.some((event) => event.kind === "assets" && event.status === "local")).toBe(true);
+  // Re-point the tag at a different build of the same tool. Asset identity lives outside the dependency
+  // plan, so the assets layer has to be rebuilt while everything keyed on the source stays cached.
+  const moved = toolImage(f.registry, "tools/spannerdef", "v1.2.3", [{ platform: amd64, layers: [await layer([{ name: "usr/local/bin/spannerdef", mode: 0o755, content: "amd64 spannerdef v2" }])] }]);
+  const changed = await build({ ...options, output: join(f.root, "changed") });
+  expect(changed.assetMaterials![0]!.resolved).toBe(moved.manifests[0]!.digest);
+  const assets = (result: typeof first) => result.layers.find((item) => item.kind === "assets")!.descriptor.digest;
+  const application = (result: typeof first) => result.layers.find((item) => item.kind === "app")!.descriptor.digest;
+  expect(assets(changed)).not.toBe(assets(first));
+  expect(application(changed)).toBe(application(first));
+  expect(changed.cache.some((event) => event.kind === "assets" && event.status === "miss")).toBe(true);
+  expect(changed.cache.some((event) => event.kind === "app" && event.status === "local")).toBe(true);
+});
+
 test("multi-platform builds pack one asset layer per platform", async () => {
   const f = await fixture();
   const source = await project(join(f.root, "app"), { bunko: { assetMappings: [
