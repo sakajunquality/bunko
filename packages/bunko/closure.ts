@@ -6,7 +6,7 @@ import { object } from "../oci/digest.ts";
 import type { TarEntry } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
 import type { Project } from "./config.ts";
-import { AddonLedger, dependencyInputs, includeRuntimeLink, inspectRuntimeFile, packageRoot, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
+import { AddonLedger, dependencyInputs, includeRuntimeLink, inspectRuntimeFile, packageRoot, reachableLock, type DependencyPlan, type InventoryEntry, type NativeBinary } from "./deps.ts";
 import { candidateRuntimeFile, reachableUndeclaredImports, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
 import type { Toolchain } from "./toolchain.ts";
 
@@ -45,17 +45,42 @@ export function closureCoversTarget(packages: Pick<ClosurePackage, "path">[], pr
 }
 
 /**
+ * The workspace slice a closure plan describes: the members `reachableLock` proved the
+ * selected targets can install, with every other member's manifest and source bytes
+ * dropped. A member the targets cannot reach installs into its own tree, which the
+ * projection — rooted at the targets and following only resolvable dependency edges —
+ * never walks into, so it cannot change the projected bytes. When the walk falls back to
+ * the whole lock it reports no member set and the plan keeps every member, exactly as
+ * before.
+ */
+function reachableWorkspace(plan: DependencyPlan, members: Set<string>): DependencyPlan {
+  return { ...plan,
+    workspace: plan.workspace && { ...plan.workspace, packages: plan.workspace.packages.filter((pkg) => members.has(pkg.path)) },
+    workspaceSources: plan.workspaceSources && Object.fromEntries(Object.entries(plan.workspaceSources).filter(([path]) => members.has(path))) };
+}
+
+/**
  * Pre-install identity of a closure: every input that can change the projected
  * bytes, expressed without installing or projecting anything. It reuses the
- * production dependency serialization (manifest fields, full lock, patches,
+ * production dependency serialization (manifest fields, lock, patches,
  * noncredential registry settings, install policy, catalogs, reachable workspace
  * source bytes minus the targets' own, Bun version/revision, platform, base
- * digest, libc) and adds the closure-specific policy inputs. Bun's extracted
- * download cache stays a trusted build input here exactly as it is for
- * production dependency keys.
+ * digest, libc) and adds the closure-specific policy inputs, but narrows the
+ * workspace to what the selected targets can reach: the lock subset
+ * `reachableLock` walks, the manifests and source bytes of the members that walk
+ * reached, and the names it found no lock entry for, so that a later lock
+ * supplying one of them moves the key. Adding or editing an unrelated workspace
+ * member therefore leaves the plan key alone, while anything the targets can
+ * install still moves it — and any construct the walk does not model reverts to
+ * the whole lock and every member. Bun's extracted download cache stays a
+ * trusted build input here exactly as it is for production dependency keys.
  */
 export function closurePlanInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, projects: Project[]): Record<string, unknown> {
-  return { ...dependencyInputs(closureSources(plan, projects), toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
+  const scoped = closureSources(plan, projects);
+  const reachable = reachableLock(scoped, projects.map((project) => project.targetPath));
+  const narrowed = { ...(reachable.members ? reachableWorkspace(scoped, reachable.members) : scoped), lock: reachable.lock };
+  return { ...dependencyInputs(narrowed, toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
+    ...(reachable.absent?.length ? { absentDependencies: reachable.absent } : {}),
     targets: projects.map((project) => ({ targetPath: project.targetPath, mode: project.mode, depsStrategy: project.depsStrategy, external: project.external, allowIgnoredScripts: project.allowIgnoredScripts ?? [], undeclaredImports: project.undeclaredImports })),
     undeclaredImports: undeclaredImportPolicy(projects) };
 }

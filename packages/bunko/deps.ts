@@ -148,6 +148,215 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown, 
   }
   return lock;
 }
+/** Top-level `bun.lock` fields the reachability walk models directly. */
+const narrowableLockFields = new Set(["lockfileVersion", "configVersion", "workspaces", "packages"]);
+/**
+ * Fields that steer resolution or rewrite content, but only for the packages they name.
+ * Each is hashed in full elsewhere in the plan key — `catalog`/`catalogs` as `catalogs`,
+ * the rest through the manifest fields `dependencyInputs` serialises, patch bytes through
+ * `patches` — so a change to one always moves the key. What the walk cannot model is a
+ * redirect landing on a package it reached, so narrowing survives these fields exactly
+ * while none of the names they mention is reachable. Any other field, present and
+ * non-empty, is a lock the walk does not understand at all.
+ */
+const scopedLockFields = new Set(["overrides", "resolutions", "catalog", "catalogs", "patchedDependencies", "trustedDependencies"]);
+/**
+ * Edges the walk follows. `devDependencies` is deliberately absent: the closure install is
+ * `--production`, so a dev-only package is never installed and never projected. A dev
+ * declaration that shares a name with a runtime one still resolves to the same lock id,
+ * which the walk reaches through the runtime edge.
+ */
+const closureEdgeFields = ["dependencies", "optionalDependencies", "peerDependencies"] as const;
+
+const emptyLockField = (value: unknown): boolean =>
+  value === undefined || value === null || (Array.isArray(value) ? !value.length : typeof value === "object" ? !Object.keys(value as object).length : false);
+const lockRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+
+/**
+ * The package a lock entry actually installs, which is not its lock id: an alias entry is
+ * keyed by the alias (`"alias": ["real@1.0.0", ...]`) and a nested entry by its owner path.
+ * A scoped field names the canonical package, so narrowing must compare against this.
+ */
+function entryName(record: unknown[]): string | undefined {
+  const value = record[0];
+  if (typeof value !== "string") return undefined;
+  const workspace = value.indexOf("@workspace:");
+  const version = value.indexOf("@", value.startsWith("@") ? 1 : 0);
+  if (workspace < 0 && version < 1) return undefined;
+  const name = value.slice(0, workspace < 0 ? version : workspace);
+  try { return packageRoot(name) === name ? name : undefined; } catch { return undefined; }
+}
+
+/** The package names a `scopedLockFields` entry mentions, or undefined when its shape is unrecognised. */
+function scopedNames(field: string, value: unknown): string[] | undefined {
+  if (field === "trustedDependencies") return Array.isArray(value) && value.every((name) => typeof name === "string") ? value as string[] : undefined;
+  const record = lockRecord(value);
+  if (!record) return undefined;
+  if (field === "catalogs") {
+    const names: string[] = [];
+    for (const group of Object.values(record)) {
+      const entries = lockRecord(group);
+      if (!entries) return undefined;
+      names.push(...Object.keys(entries));
+    }
+    return names;
+  }
+  if (field !== "patchedDependencies") return Object.keys(record);
+  // Patch keys are `name@version`, and a scoped name is worthless unless it parses exactly.
+  const names: string[] = [];
+  for (const key of Object.keys(record)) {
+    const at = key.lastIndexOf("@");
+    const name = at > 0 ? key.slice(0, at) : key;
+    try { if (packageRoot(name) !== name) return undefined; } catch { return undefined; }
+    names.push(name);
+  }
+  return names;
+}
+
+export interface ReachableLock {
+  /** The lock to hash: the reachable subset, or the whole lock when the walk falls back. */
+  lock?: Record<string, unknown>;
+  /** Reachable workspace member paths, or undefined when the walk fell back and every member counts. */
+  members?: Set<string>;
+  /**
+   * Names a reachable package declares that no lock entry anywhere installs — an unsatisfied
+   * optional peer, almost always. They are recorded rather than resolved, and hashing the
+   * record is what makes the absence itself part of the plan key: should any later lock
+   * supply one of these names, that name either resolves into the package subset or forces
+   * the whole-lock fallback, and the key moves either way.
+   */
+  absent?: string[];
+}
+
+/**
+ * The part of the lock a selected target can actually install, computed from the lock
+ * graph alone so it is available before any install. The walk starts at the root member
+ * (whose packages occupy the top-level lock ids the target resolves against) and at each
+ * selected target, follows `dependencies`, `optionalDependencies` and `peerDependencies`
+ * through every transitive edge, and resolves each name the way Bun's nested lock ids do:
+ * `<owner id>/<name>` first, then the same probe against each enclosing scope, then the
+ * top-level id. A `workspace:` edge resolves to the member's own lock entry and the walk
+ * continues through that member's dependency fields. A name no probe resolves — an
+ * unsatisfied optional peer, typically — is reported in `absent`, but only when no lock
+ * entry anywhere installs that package: Bun's isolated linker exposes a
+ * `node_modules/.bun/node_modules` fallback tree that the projector's ancestor search can
+ * reach, so any entry under that name could still supply it.
+ *
+ * Narrowing is a pure optimisation, so every construct the walk does not fully model
+ * falls back to the whole lock: an unsupported `lockfileVersion`/`configVersion`; any
+ * top-level lock field outside `narrowableLockFields` and `scopedLockFields`; a
+ * `scopedLockFields` entry (catalog, override/resolution, patch, trusted package, in the
+ * lock or in the manifest) whose shape does not parse or that names a package the walk
+ * reached, canonical alias names included; a workspace or package entry that is not a
+ * recognised lock record or whose installed package name cannot be derived; workspace
+ * members nested inside one another, whose physical resolution order the lock ids do not
+ * express; a selected target absent from the lock; and an unresolved name that some other
+ * lock entry installs, which the isolated linker's fallback tree could supply. The fallback
+ * is silent: it only costs a re-plan.
+ */
+export function reachableLock(plan: Pick<DependencyPlan, "lock" | "manifest">, targets: string[]): ReachableLock {
+  const lock = plan.lock;
+  const full: ReachableLock = { lock };
+  if (!lock) return full;
+  if (lock.lockfileVersion !== 1 && lock.lockfileVersion !== 2) return full;
+  if (lock.configVersion !== undefined && lock.configVersion !== 1) return full;
+  const definitions = catalogs(plan.manifest);
+  // Collect every name a resolution-steering field mentions, from the lock and from the
+  // manifest alike: `validateLock` keeps the two in step, but the walk must not depend on it.
+  const scoped: string[] = [];
+  for (const [field, value] of [...Object.entries(lock), ["catalog", definitions.catalog], ["catalogs", definitions.catalogs],
+    ["overrides", plan.manifest.overrides], ["resolutions", plan.manifest.resolutions], ["patchedDependencies", plan.manifest.patchedDependencies]] as [string, unknown][]) {
+    if (narrowableLockFields.has(field) || emptyLockField(value)) continue;
+    if (!scopedLockFields.has(field)) return full;
+    const names = scopedNames(field, value);
+    if (!names) return full;
+    scoped.push(...names);
+  }
+
+  const members = lockRecord(lock.workspaces), entries = lockRecord(lock.packages);
+  if (!members || !entries) return full;
+  const workspaces = members, packages = entries, paths = Object.keys(workspaces);
+  // A member directory inside another member makes the upward node_modules walk ambiguous.
+  if (paths.some((path) => path && paths.some((other) => other && other !== path && path.startsWith(`${other}/`)))) return full;
+
+  const memberIds = new Map<string, string>([["", ""]]), memberPaths = new Map<string, string>(), byName = new Map<string, string[]>();
+  for (const [id, record] of Object.entries(packages)) {
+    if (!Array.isArray(record)) return full;
+    const name = entryName(record);
+    if (!name) return full;
+    byName.set(name, [...byName.get(name) ?? [], id]);
+    if (record.length === 1) {
+      const marker = typeof record[0] === "string" ? record[0].indexOf("@workspace:") : -1;
+      if (marker < 0) return full;
+      const path = (record[0] as string).slice(marker + "@workspace:".length);
+      if (!path || !Object.hasOwn(workspaces, path) || memberIds.has(path) || memberPaths.has(id)) return full;
+      memberIds.set(path, id); memberPaths.set(id, path);
+    } else if (record.length !== 4 || typeof record[0] !== "string" || !lockRecord(record[2])) return full;
+  }
+  for (const path of paths) if (!memberIds.has(path)) return full;
+  for (const target of targets) if (!memberIds.has(target)) return full;
+
+  const reachedMembers = new Set<string>(), reached = new Set<string>(), visited = new Set<string>(), reachedNames = new Set<string>(), absent = new Set<string>();
+  const pending: { scopes: string[]; record: Record<string, unknown> }[] = [];
+  function enqueueMember(path: string): boolean {
+    if (reachedMembers.has(path)) return true;
+    const record = lockRecord(workspaces[path]);
+    if (!record) return false;
+    reachedMembers.add(path);
+    const id = memberIds.get(path)!;
+    if (id) { reached.add(id); visited.add(id); reachedNames.add(id); }
+    pending.push({ scopes: id ? ["", id] : [""], record });
+    return true;
+  }
+  // The root member always installs: its packages own the top-level ids every target resolves against.
+  if (!enqueueMember("")) return full;
+  for (const target of targets) if (!enqueueMember(target)) return full;
+  while (pending.length) {
+    const node = pending.pop()!;
+    for (const field of closureEdgeFields) {
+      if (node.record[field] === undefined) continue;
+      const edges = lockRecord(node.record[field]);
+      if (!edges) return full;
+      for (const name of Object.keys(edges)) {
+        try { if (packageRoot(name) !== name) return full; } catch { return full; }
+        reachedNames.add(name);
+        let id: string | undefined, scopes: string[] | undefined;
+        for (let index = node.scopes.length - 1; index >= 0; index--) {
+          const scope = node.scopes[index]!, candidate = scope ? `${scope}/${name}` : name;
+          if (Object.hasOwn(packages, candidate)) { id = candidate; scopes = [...node.scopes.slice(0, index + 1), candidate]; break; }
+        }
+        // Nothing in the lock provides the name today. An unrelated member could add it at the
+        // top level tomorrow and change what this target installs, so the absence is recorded
+        // and hashed: supplying the name later moves it out of `absent` and into the subset.
+        if (!id) { absent.add(name); continue; }
+        if (visited.has(id)) continue;
+        visited.add(id); reached.add(id);
+        const member = memberPaths.get(id);
+        if (member !== undefined) { if (!enqueueMember(member)) return full; continue; }
+        pending.push({ scopes: scopes!, record: lockRecord((packages[id] as unknown[])[2])! });
+      }
+    }
+  }
+  // A reached entry is named by the package it installs, not by its lock id, so an alias
+  // (`"alias": ["real@1.0.0", ...]`) puts `real` here too: a scoped field naming the
+  // canonical package must trigger the fallback even when nothing declares that name.
+  for (const id of reached) reachedNames.add(entryName(packages[id] as unknown[])!);
+  // An absent name is only genuinely absent when no lock entry anywhere installs that
+  // package. Bun's isolated linker exposes a `node_modules/.bun/node_modules` fallback tree
+  // holding installed packages, and the projector's ancestor search reaches it, so any entry
+  // under that name — including one belonging to a member the targets cannot reach — could
+  // supply the package and then resolve its own dependencies inside that tree, which the
+  // lock ids do not describe. Nothing narrower than the whole lock covers those bytes.
+  for (const name of absent) if (byName.has(name)) return full;
+  // A catalog, override or patch that names a reachable package could change what the walk
+  // resolved — a patch can add arbitrary dependencies to an installed manifest, which no lock
+  // walk models — so the whole lock is hashed instead. One that names nothing reachable cannot.
+  if (scoped.some((name) => reachedNames.has(name))) return full;
+  return { members: reachedMembers, absent: [...absent].sort(), lock: { lockfileVersion: lock.lockfileVersion, ...(lock.configVersion === undefined ? {} : { configVersion: lock.configVersion }),
+    workspaces: Object.fromEntries(paths.filter((path) => reachedMembers.has(path)).map((path) => [path, workspaces[path]])),
+    packages: Object.fromEntries(Object.keys(packages).filter((id) => reached.has(id)).map((id) => [id, packages[id]])) } };
+}
 
 /**
  * `workspaceSourceDigests` hashes the referenced workspace members under `root`,
