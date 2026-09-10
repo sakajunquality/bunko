@@ -483,3 +483,40 @@ test("deep checks read every included file, so an unreadable input fails as it f
     }
   } finally { await chmod(blocked, 0o644); }
 });
+
+test("diagnostics and build share workspace configuration rejections before build IO", async () => {
+  const root = await temporary(); directories.push(root);
+  const source = await project(join(root, "single"));
+  for (const command of ["check-config", "doctor", "build"]) {
+    const result = await runCLI([command, source, "--shared-deps", ...(command === "build" ? ["--push=false", "--oci-layout", join(root, "output")] : [])]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("sharedDeps requires a workspace and closure strategy for every target");
+  }
+  const workspace = await workspaceFixture(root);
+  await writeFile(join(workspace.source, "services/api/.npmrc"), "registry=https://registry.invalid\n");
+  for (const command of ["check-config", "doctor", "build"]) {
+    const result = await runCLI([command, workspace.source, ...(command === "build" ? ["--push=false", "--oci-layout", join(root, "output")] : [])]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Workspace npm configuration must be in the root .npmrc");
+  }
+  expect(await Bun.file(join(root, "output/index.json")).exists()).toBe(false);
+});
+
+test("offline diagnostics honor root sharedDeps and explicit opt-out", async () => {
+  const root = await temporary(); directories.push(root);
+  const fixture = await workspaceFixture(root);
+  const manifest = { ...fixture.manifests[""], bunko: { sharedDeps: true } };
+  await writeFile(join(fixture.source, "package.json"), JSON.stringify(manifest));
+  await expect(checkConfig({ path: fixture.source, depsStrategy: "production" })).rejects.toThrow("sharedDeps requires");
+  expect((await checkConfig({ path: fixture.source, sharedDeps: false })).status).toBe("valid");
+  expect((await checkConfig({ path: fixture.source, depsStrategy: "closure" })).status).toBe("valid");
+});
+
+test("offline dependency maps canonicalize target aliases as build planning does", async () => {
+  const root = await temporary(); directories.push(root);
+  const fixture = await workspaceFixture(root), alias = join(root, "api-alias");
+  await symlink(join(fixture.source, "services/api"), alias);
+  const result = await checkConfig({ path: fixture.source, targets: ["services/api"], externalDepsByTarget: { [alias]: { "linux/amd64": "layout:/unused-offline-artifact" } } });
+  expect(result.status).toBe("valid");
+  expect(result.targets).toHaveLength(1);
+});

@@ -1,12 +1,12 @@
+import { configurationPlan } from "./configuration-plan.ts";
 import { lstat } from "node:fs/promises";
 import { snapshot } from "./files.ts";
 import { requiredInputs } from "./ignore.ts";
 import { assertToolchain, type ToolchainRequirements } from "./toolchain-policy.ts";
-import { assertAssetRuntime, inspectAssetMappings, normalizeAssetContexts, type AssetMapping } from "./asset-contexts.ts";
+import { inspectAssetMappings, normalizeAssetContexts, type AssetMapping } from "./asset-contexts.ts";
 import { join } from "node:path";
-import { VERSION, loadProject, type BuildOptions } from "./config.ts";
+import { VERSION, type BuildOptions } from "./config.ts";
 import { assertLockToolchain, dependencyPlan } from "./deps.ts";
-import { discover } from "./workspace.ts";
 import { selectToolchain } from "./toolchain.ts";
 import type { FileMode } from "../oci/tar.ts";
 import type { Platform } from "../oci/types.ts";
@@ -48,17 +48,16 @@ export interface DiagnosticTarget {
 /** Offline configuration diagnostics. Never expose env, define or npmrc values. */
 export async function checkConfig(options: BuildOptions) {
   const contexts = normalizeAssetContexts(options.assetContexts);
-  const discovery = await discover(options);
+  const { discovered: discovery, projects: selected } = await configurationPlan(options);
   const projects: DiagnosticTarget[] = [];
-  for (const target of discovery.targets) {
-    const project = await loadProject({ ...options, path: join(discovery.directory, target.path) }, discovery.workspace);
+  for (const [index, project] of selected.entries()) {
+    const target = discovery.targets[index]!;
     // The project directory is a working tree, not a build snapshot, so the plan is
     // taken without workspace source digests: hashing members here walked files no
     // build packages (node_modules, .git, ignored and asset-excluded paths) and failed
     // on the symlinks bun install leaves behind. --deep validates the source tree with
     // the build's own walker below, which is the only place the exclusions are known.
     const plan = await dependencyPlan(project, discovery.directory, false, undefined, false);
-    assertAssetRuntime(project.assetMappings, project.bunPath);
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts, options.deep);
     if (options.deep) {
       const assetExclusions: string[] = [], explicitAssets = new Set<string>();
@@ -77,7 +76,6 @@ export async function checkConfig(options: BuildOptions) {
       runtimeCertificateCount: project.runtimeCAs.length, runtimeSystemCaTrust: project.runtimeSystemCaTrust, explicitAssetsOverrideGitignore: project.mode === "source", assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
   }
-  if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
   return { schemaVersion: 1, status: "valid", depth: options.deep ? "deep" : "configuration", bunko: VERSION, workspace: Boolean(discovery.workspace), targets: projects,
     unchecked: [...(options.deep ? ["remote image/URL asset contents (not fetched); future generated outputs"] : ["project asset availability and generated build outputs"]), "asset collisions with bundled output and runtime dependencies", "source syntax, bundling and module-relative runtime file access", "dependency installation and native compatibility", "base image runtime", "registry credentials and connectivity"] };
 }
