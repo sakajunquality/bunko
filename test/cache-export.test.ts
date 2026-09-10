@@ -133,3 +133,16 @@ test("strict cache failure preserves completed local image evidence", async () =
   expect(await Bun.file(join(output, "index.json")).exists()).toBe(true);
   if (result.supplyChain) expect(result.supplyChain.status).toBe("complete");
 });
+
+test("existing registry blob connection failures are unavailable, not corrupt cache data", async () => {
+  const root = await fixture(), store = new BlobStore(join(root, "store")), mock = new MockRegistry();
+  const registry = { credentials: async () => undefined, fetcher: mock.fetch }, item = await record(store, "payload");
+  const first = new LayerCache(store, { repository: "registry.test/cache", registry, log: () => {} });
+  await first.remember(item); await first.publish();
+  const broken = new LayerCache(store, { repository: "registry.test/cache", exportError: "fail", log: () => {}, registry: { ...registry, retries: 0, sleep: async () => {}, fetcher: async (url, init = {}) => {
+    if (new URL(url).pathname.endsWith(`/blobs/${item.layer.descriptor.digest}`)) throw new Error("Connection dropped");
+    return mock.fetch(url, init);
+  } } });
+  await broken.remember(item); await expect(broken.publish()).rejects.toBeInstanceOf(CacheExportError);
+  expect(broken.exports[0]).toMatchObject({ status: "failed", reason: "unavailable" });
+});
