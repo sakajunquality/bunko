@@ -162,7 +162,11 @@ export function byAcknowledgement(a: AcknowledgedImport, b: AcknowledgedImport):
 }
 
 /** An acknowledgement pins one resolved importer version, never a range: findings carry the exact version an instance's manifest declares. */
-const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+function exactVersion(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim() !== value) return false;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  return Boolean(match && !match[4]?.split(".").some((identifier) => /^0\d+$/.test(identifier)));
+}
 
 /**
  * `deps.acknowledgedImports`: known findings the scan should stop reporting. Entries are validated strictly — an unknown key, a loose package name
@@ -177,7 +181,7 @@ function acknowledgedImports(value: unknown): AcknowledgedImport[] {
     knownKeys(entry, ["package", "name", "version", "reason"], name);
     if (!exactPackageName(entry.package)) throw new Error(`${name}.package must be an exact package name`);
     if (!exactPackageName(entry.name)) throw new Error(`${name}.name must be an exact package name`);
-    if (entry.version !== undefined && (typeof entry.version !== "string" || !exactVersion.test(entry.version))) throw new Error(`${name}.version must be an exact version string`);
+    if (entry.version !== undefined && !exactVersion(entry.version)) throw new Error(`${name}.version must be an exact version string`);
     if (entry.reason !== undefined && (typeof entry.reason !== "string" || entry.reason.includes("\0"))) throw new Error(`${name}.reason must be a string`);
     return { package: entry.package, name: entry.name, ...(entry.version === undefined ? {} : { version: entry.version as string }), ...(entry.reason === undefined ? {} : { reason: entry.reason as string }) } satisfies AcknowledgedImport;
   });

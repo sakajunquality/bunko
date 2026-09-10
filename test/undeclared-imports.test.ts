@@ -607,3 +607,12 @@ test("acknowledgement is applied before the 100-line budget, so the remaining fi
   expect(logs.split("\n").filter((line) => line.startsWith("Acknowledged ")))
     .toEqual([`Acknowledged 100 undeclared import(s): ${names.slice(0, acknowledgedImportSummaryLimit).map((name) => `fixture-msg@1.0.0 -> ${name}`).join(", ")} and 95 more`]);
 }, 30_000);
+
+test("acknowledgement version pins reject malformed semver and trailing line breaks", async () => {
+  const root = await temporary(); directories.push(root);
+  const invalid = ["01.2.3", "1.02.3", "1.2.03", "1.2.3-01", "1.2.3-alpha..1", "1.2.3+build..5", "1.2.3\n", "1.2.3\r\n"];
+  for (const [index, version] of invalid.entries()) {
+    const path = await project(join(root, `invalid-${index}`), { bunko: { deps: { acknowledgedImports: [{ package: "a", name: "b", version }] } } });
+    await expect(loadProject({ path })).rejects.toThrow("version must be an exact version string");
+  }
+});

@@ -54,7 +54,7 @@ BUNKO_OPTIONAL_IMPORT debug@4.4.3 imports "supports-color" only inside try/catch
 
 and counted as failures. Use `strict` when the application must not depend on a probe degrading silently; use `error` to make genuine undeclared imports a CI failure without being blocked by probes such as the `try { require("supports-color") } catch {}` that `debug` ships. The key is a dependency-policy map entry, so a workspace root can set it in `bunko.defaults.deps` and members can override it. Targets sharing one closure under `sharedDeps` are governed by the strictest of their policies. The production strategy is unaffected: hoisted production installs resolve undeclared names the same way local development does.
 
-`deps.acknowledgedImports` lists findings that are already understood, so a dependency nobody is going to fix does not force the whole build back to `warn`:
+Current development after 0.3.2 adds `deps.acknowledgedImports`, which lists findings that are already understood, so a dependency nobody is going to fix does not force the whole build back to `warn`:
 
 ```json
 {
@@ -70,19 +70,19 @@ and counted as failures. Use `strict` when the application must not depend on a 
 }
 ```
 
-`package` is the importing package and `name` the imported one; both are exact package names, as in `deps.allowIgnoredScripts`. An optional `version` pins the acknowledgement to one importer version, so an upgrade surfaces the finding again instead of inheriting the exemption, and an optional `reason` is free text kept for review. Unknown keys, non-object entries, loose names and duplicate entries are rejected by `check-config` and by the build. A matching finding of either kind is not logged and does not count toward failure under `error` or `strict`; the closure logs one line instead:
+`package` is the importing package and `name` the imported one; both are exact package names, as in `deps.allowIgnoredScripts`. An optional `version` pins the acknowledgement to one exact SemVer importer version, so an upgrade surfaces the finding again instead of inheriting the exemption, and an optional `reason` is free text kept for review. Unknown keys, non-object entries, loose names and duplicate entries are rejected by `check-config` and by the build. A matching finding of either kind is not logged and does not count toward failure under `error` or `strict`; the closure logs one summary for findings that the selected policy would otherwise report (optional findings stay silent under `warn` and `error`):
 
 ```text
 Acknowledged 1 undeclared import(s): @babel/core@7.27.7 -> @babel/preset-typescript
 ```
 
-An entry that matches nothing is stale and says so once, without failing the build:
+An entry that matches nothing in a closure/platform is reported as unused there, without failing the build. Platform-specific dependencies can make an entry unused on one platform but necessary on another; check all selected platforms before removing it:
 
 ```text
 BUNKO_UNUSED_ACKNOWLEDGEMENT deps.acknowledgedImports: @babel/core -> @babel/preset-typescript matched no finding
 ```
 
-Targets sharing one closure contribute the union of their lists. Acknowledgement filters reporting only: it enters no cache or plan key, so adding, removing or editing the list never rebuilds a dependency layer, and findings replayed from a cached closure plan are filtered exactly like freshly projected ones. Under `off` nothing is scanned, so neither line appears.
+Targets sharing one closure contribute the union of their lists. Acknowledgement adds no reporting-policy input to cache or plan keys, and findings replayed from a cached closure plan are filtered exactly like freshly projected ones. Normal source and layer identities still cover file bytes: editing package.json can invalidate application caching, and changes to a workspace package actually included in a dependency layer still change that layer. Stored closure-plan findings remain unfiltered for replay and auditing. Under `off` nothing is scanned, so neither line appears.
 
 ## Bun runtime arguments
 
