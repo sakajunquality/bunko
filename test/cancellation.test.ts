@@ -70,8 +70,7 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
     const pid = Number(await Bun.file(ready).text());
     const grandchild = Number(await Bun.file(childReady).text());
     child.kill("SIGTERM");
-    expect(await child.exited).toBe(143);
-    expect(await new Response(child.stderr).text()).toBe("");
+    expect({ code: await child.exited, stderr: await new Response(child.stderr).text() }).toEqual({ code: 143, stderr: "" });
     expect(() => process.kill(pid, 0)).toThrow();
     if (process.platform !== "win32") expect(() => process.kill(grandchild, 0)).toThrow();
     expect(await readdir(scratch)).toEqual([]);
@@ -133,8 +132,7 @@ test.skipIf(process.platform === "win32")("a helper cannot outlive a leader that
     await waitFor(() => Bun.file(ready).exists(), child);
     const pid = Number(await Bun.file(ready).text());
     child.kill("SIGTERM");
-    expect(await child.exited).toBe(143);
-    expect(await new Response(child.stderr).text()).toBe("");
+    expect({ code: await child.exited, stderr: await new Response(child.stderr).text() }).toEqual({ code: 143, stderr: "" });
     expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
