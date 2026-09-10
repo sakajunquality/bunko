@@ -65,3 +65,6 @@ The CLI container publication workflow builds the amd64/arm64 index once and pus
 All container publication runs share one concurrency group, including version inputs with and without the `v` prefix. Promotion refuses existing version tags and checks the published digest. The existence check is not a registry compare-and-swap operation: restrict other writers to the release repository. Release tags and existing releases must not be overwritten.
 
 The Dockerfile pins its Bun base and installs Debian packages from the signed snapshot in `container/debian.sources`. Advance both pins together for security updates. Only the snapshot's expiry check is disabled; Debian signature/package verification and HTTPS remain enabled. Fixed package inputs avoid drifting dependencies but do not by themselves promise bit-for-bit Dockerfile rebuilds. The revision label identifies the container recipe checkout; CLI release provenance independently identifies the downloaded CLI payload source.
+
+
+The build Action accepts newline-separated `cache-from` and `cache-to` locations, including `type=registry,repo=...` and `type=local,src=...` / `type=local,dest=...`. Set `cache-export-error: fail` when cache export failure must fail the job. See [cache distribution](CACHE_RETENTION.md) for ordering, trust, offline and retention behavior.

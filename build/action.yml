@@ -41,10 +41,16 @@ inputs:
     description: 'Registry cache repository'
     default: ''
   cache-from:
-    description: 'Registry cache read repositories, one per line'
+    description: 'Cache read locations, one per line'
     default: ''
+  cache-to:
+    description: 'Explicit cache write locations, one per line'
+    default: ''
+  cache-export-error:
+    description: 'Cache export error policy: warn or fail'
+    default: 'warn'
   cache-write:
-    description: 'Allow registry cache writes'
+    description: 'Allow explicit exports and registry cache writes'
     default: 'true'
   asset-contexts:
     description: 'Named asset bindings, NAME=DIR, one per line'
@@ -110,6 +116,8 @@ runs:
         BUNKO_INPUT_CACHE_DIR: ${{ inputs.cache-dir }}
         BUNKO_INPUT_CACHE_REPO: ${{ inputs.cache-repo }}
         BUNKO_INPUT_CACHE_FROM: ${{ inputs.cache-from }}
+        BUNKO_INPUT_CACHE_TO: ${{ inputs.cache-to }}
+        BUNKO_INPUT_CACHE_EXPORT_ERROR: ${{ inputs.cache-export-error }}
         BUNKO_INPUT_CACHE_WRITE: ${{ inputs.cache-write }}
         BUNKO_INPUT_ASSET_CONTEXTS: ${{ inputs.asset-contexts }}
         BUNKO_INPUT_INSTALL_CACHE: ${{ inputs.install-cache }}

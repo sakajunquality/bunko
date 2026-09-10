@@ -60,6 +60,7 @@ export interface BuildOptions {
   localCache?: boolean;
   cacheRepo?: string;
   cacheFrom?: string[];
+  cacheTo?: string[];
   cacheWrite?: boolean;
   cacheExportError?: "warn" | "fail";
   registryCache?: boolean;
