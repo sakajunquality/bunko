@@ -95,7 +95,6 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 
 [Container workflow 34477435941](https://github.com/sakajunquality/bunko/actions/runs/34477435941) validated, attested and promoted index `sha256:4d48a39f82b4df14fe71236a047ef977cb3c733a95d00431e8890ab1687f53c1` from recipe source `0492630c520d4d9608e1fa41494568c00b09a7d9`. Independent exact-source attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and CLI hash comparison passed on Linux amd64 and arm64. See [0.4.0 evidence](validation/v0.4.0.md).
 
-
 ## Published 0.5.0 validation
 
 [Container workflow 34497997417](https://github.com/sakajunquality/bunko/actions/runs/34497997417) validated, attested and promoted index `sha256:822568df340c3491ab69635bdf7d63b8a315a75443c16fed7a62e62e2425581f` from recipe source `45f2daab119ed5d378f315c75afb73b322014086`. Independent exact-source attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and CLI hash comparison passed on Linux amd64 and arm64. See [0.5.0 evidence](validation/v0.5.0.md).
