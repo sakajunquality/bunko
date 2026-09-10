@@ -16,6 +16,13 @@ spec:
           image: bunko://services/api
           ports:
             - containerPort: 3000
+          # bunko images default to the nonroot 65532:65532 user, so these
+          # hardening defaults hold without an explicit bunko.user.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,3 +41,8 @@ spec:
           image: bunko://services/worker
           ports:
             - containerPort: 3000
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
