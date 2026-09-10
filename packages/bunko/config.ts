@@ -82,6 +82,12 @@ export interface BuildOptions {
   log?: (message: string) => void;
 }
 
+/**
+ * One acknowledged undeclared/optional import: the importing package, the name it fails to declare, and optionally the exact importer version the
+ * acknowledgement is pinned to. `reason` is documentation only. Acknowledgements are a reporting-time filter and never enter a cache or plan key.
+ */
+export interface AcknowledgedImport { package: string; name: string; version?: string; reason?: string }
+
 export interface Project {
   inheritedDefaults: string[];
   runtimeCAs: string[];
@@ -114,6 +120,7 @@ export interface Project {
   inheritBaseOciLabels?: boolean;
   allowIgnoredScripts?: string[];
   undeclaredImports: "warn" | "error" | "off" | "strict";
+  acknowledgedImports: AcknowledgedImport[];
   annotations: Record<string, string>;
   dataPath?: string;
   ports?: number[];
@@ -138,6 +145,53 @@ function stringMap(value: unknown, name: string): Record<string, string> {
   const result = object(value, name);
   if (!Object.values(result).every((item) => typeof item === "string" && !item.includes("\0"))) throw new Error(`${name} values must be strings without NUL characters`);
   return result as Record<string, string>;
+}
+
+/** The exactness rule deps.allowIgnoredScripts uses: one package name, never a subpath, a range or an empty string. */
+function exactPackageName(value: unknown): value is string {
+  if (typeof value !== "string" || !value) return false;
+  try { return packageRoot(value) === value; } catch { return false; }
+}
+
+/** Code-unit ordering, like every other sorted configuration list here: locale collation would make the parsed order depend on the host's ICU data. */
+export function byAcknowledgement(a: AcknowledgedImport, b: AcknowledgedImport): number {
+  const keys = (entry: AcknowledgedImport) => [entry.package, entry.name, entry.version ?? ""];
+  const [left, right] = [keys(a), keys(b)];
+  for (let index = 0; index < left.length; index++) if (left[index] !== right[index]) return left[index]! < right[index]! ? -1 : 1;
+  return 0;
+}
+
+/** An acknowledgement pins one resolved importer version, never a range: findings carry the exact version an instance's manifest declares. */
+function exactVersion(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim() !== value) return false;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  return Boolean(match && !match[4]?.split(".").some((identifier) => /^0\d+$/.test(identifier)));
+}
+
+/**
+ * `deps.acknowledgedImports`: known findings the scan should stop reporting. Entries are validated strictly — an unknown key, a loose package name
+ * or a duplicate is a typo that would silently keep warning — and sorted so the parsed configuration is deterministic.
+ */
+function acknowledgedImports(value: unknown): AcknowledgedImport[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("deps.acknowledgedImports must be an array of {package, name} entries");
+  const entries = value.map((raw, index) => {
+    const name = `deps.acknowledgedImports[${index}]`;
+    const entry = object(raw, name);
+    knownKeys(entry, ["package", "name", "version", "reason"], name);
+    if (!exactPackageName(entry.package)) throw new Error(`${name}.package must be an exact package name`);
+    if (!exactPackageName(entry.name)) throw new Error(`${name}.name must be an exact package name`);
+    if (entry.version !== undefined && !exactVersion(entry.version)) throw new Error(`${name}.version must be an exact version string`);
+    if (entry.reason !== undefined && (typeof entry.reason !== "string" || entry.reason.includes("\0"))) throw new Error(`${name}.reason must be a string`);
+    return { package: entry.package, name: entry.name, ...(entry.version === undefined ? {} : { version: entry.version as string }), ...(entry.reason === undefined ? {} : { reason: entry.reason as string }) } satisfies AcknowledgedImport;
+  });
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const key = JSON.stringify([entry.package, entry.name, entry.version ?? null]);
+    if (seen.has(key)) throw new Error(`deps.acknowledgedImports has a duplicate entry for ${entry.package}${entry.version ? `@${entry.version}` : ""} -> ${entry.name}`);
+    seen.add(key);
+  }
+  return entries.sort(byAcknowledgement);
 }
 
 function optionalString(value: unknown, name: string): string | undefined {
@@ -215,11 +269,12 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   for (const name of external) if (!(name in production)) throw new Error(`External ${name} must be a declared production dependency`);
   if (mode === "source") external = Object.keys(production).sort();
   const deps = object(config.deps ?? {}, "deps");
-  knownKeys(deps, ["strategy", "allowIgnoredScripts", "undeclaredImports"], "deps");
+  knownKeys(deps, ["strategy", "allowIgnoredScripts", "undeclaredImports", "acknowledgedImports"], "deps");
   const allowIgnoredScripts = [...new Set(strings(deps.allowIgnoredScripts, "deps.allowIgnoredScripts"))].sort();
   if (allowIgnoredScripts.some((name) => packageRoot(name) !== name)) throw new Error("deps.allowIgnoredScripts requires exact package names");
   const undeclaredImports = deps.undeclaredImports ?? "warn";
   if (undeclaredImports !== "warn" && undeclaredImports !== "error" && undeclaredImports !== "strict" && undeclaredImports !== "off") throw new Error("deps.undeclaredImports must be warn, error, strict or off");
+  const acknowledged = acknowledgedImports(deps.acknowledgedImports);
   if (config.inheritBaseOciLabels !== undefined && typeof config.inheritBaseOciLabels !== "boolean") throw new Error("inheritBaseOciLabels must be boolean");
   if (config.sharedDeps !== undefined && typeof config.sharedDeps !== "boolean") throw new Error("sharedDeps must be boolean");
   const depsStrategy = options.depsStrategy ?? deps.strategy ?? (options.sharedDeps ? "closure" : "production");
@@ -322,7 +377,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const runtimePath = absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath");
   if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
-    inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts, undeclaredImports,
+    inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts, undeclaredImports, acknowledgedImports: acknowledged,
     runtimeCAs, runtimeSystemCaTrust: runtime.systemCaTrust === true,
     assetExcludes: strings(config.assetExcludes, "assetExcludes").map((pattern) => relativePath(pattern, "asset exclusion")), assetMode: assetMode(config.assetMode),
     inheritedDefaults, runtimeArgs, toolchainRequirements: toolchainRequirements([...workspace ? [workspace.packages[0]!.manifest] : [], manifest], config.toolchain, workspace ? ["package.json", join(relative(workspace.directory, directory), "package.json")] : []),

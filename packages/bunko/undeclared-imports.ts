@@ -1,7 +1,8 @@
 import { isBuiltin } from "node:module";
 import { posix } from "node:path";
 import { object } from "../oci/digest.ts";
-import type { Project } from "./config.ts";
+import { byAcknowledgement } from "./config.ts";
+import type { AcknowledgedImport, Project } from "./config.ts";
 
 export type UndeclaredImportPolicy = "warn" | "error" | "off" | "strict";
 export interface UndeclaredImport { code: "BUNKO_UNDECLARED_IMPORT" | "BUNKO_OPTIONAL_IMPORT"; package: string; version: string; path: string; name: string; file: string }
@@ -19,6 +20,56 @@ const testFile = /(?:^|\.)(?:test|spec|bench)\.[cm]?js$/;
 /** The strictest selected policy governs a shared closure, so one target cannot silence another's findings. */
 export function undeclaredImportPolicy(projects: Pick<Project, "undeclaredImports">[]): UndeclaredImportPolicy {
   return projects.reduce<UndeclaredImportPolicy>((strictest, p) => policyRank[p.undeclaredImports] > policyRank[strictest] ? p.undeclaredImports : strictest, "off");
+}
+
+/** Acknowledgements are additive across a shared closure: one target's list can silence a finding for the whole closure, but none of them narrows another's. */
+export function acknowledgedImports(projects: Pick<Project, "acknowledgedImports">[]): AcknowledgedImport[] {
+  const merged = new Map<string, AcknowledgedImport>();
+  for (const project of projects) for (const entry of project.acknowledgedImports ?? []) merged.set(acknowledgementKey(entry), entry);
+  return [...merged.values()].sort(byAcknowledgement);
+}
+
+function acknowledgementKey(entry: AcknowledgedImport): string {
+  return JSON.stringify([entry.package, entry.name, entry.version ?? null]);
+}
+
+/** How many acknowledged pairs the one-line summary names before it falls back to a count. */
+export const acknowledgedImportSummaryLimit = 5;
+export interface AcknowledgementReport { undeclared: UndeclaredImport[]; optionalUndeclared: UndeclaredImport[]; acknowledged: UndeclaredImport[]; acknowledgedOptional: UndeclaredImport[]; unused: AcknowledgedImport[] }
+
+/**
+ * Splits the closure's findings into the ones still to report and the ones an entry acknowledges, and returns the entries that matched nothing.
+ * A finding matches when the importing package and the imported name are equal and, for a pinned entry, the importer version is too. Every matching
+ * entry is marked used, so a broad entry never makes a pinned one look stale. This runs on the findings a closure carries, projected or replayed,
+ * and therefore changes no cache or plan key.
+ */
+export function applyAcknowledgements(undeclared: UndeclaredImport[], optionalUndeclared: UndeclaredImport[], entries: AcknowledgedImport[]): AcknowledgementReport {
+  if (!entries.length) return { undeclared, optionalUndeclared, acknowledged: [], acknowledgedOptional: [], unused: [] };
+  const used = new Set<string>();
+  const matched = (item: UndeclaredImport): boolean => {
+    let hit = false;
+    for (const entry of entries) if (entry.package === item.package && entry.name === item.name && (entry.version === undefined || entry.version === item.version)) { used.add(acknowledgementKey(entry)); hit = true; }
+    return hit;
+  };
+  const split = (findings: UndeclaredImport[]): [UndeclaredImport[], UndeclaredImport[]] => {
+    const kept: UndeclaredImport[] = [], acknowledged: UndeclaredImport[] = [];
+    for (const item of findings) (matched(item) ? acknowledged : kept).push(item);
+    return [kept, acknowledged];
+  };
+  const [keptUndeclared, acknowledged] = split(undeclared), [keptOptional, acknowledgedOptional] = split(optionalUndeclared);
+  return { undeclared: keptUndeclared, optionalUndeclared: keptOptional, acknowledged, acknowledgedOptional, unused: entries.filter((entry) => !used.has(acknowledgementKey(entry))) };
+}
+
+/** One line per closure, so an acknowledgement stays visible without restoring the noise it removes. */
+export function acknowledgedImportSummary(acknowledged: UndeclaredImport[]): string {
+  const pairs = [...new Set(acknowledged.map((item) => `${item.package}@${item.version} -> ${item.name}`))].sort();
+  const shown = pairs.slice(0, acknowledgedImportSummaryLimit);
+  return `Acknowledged ${pairs.length} undeclared import(s): ${shown.join(", ")}${pairs.length > shown.length ? ` and ${pairs.length - shown.length} more` : ""}`;
+}
+
+/** A stale acknowledgement is reported but never fatal: configuration rot must be visible without failing a build that is otherwise clean. */
+export function unusedAcknowledgementMessage(entry: AcknowledgedImport): string {
+  return `BUNKO_UNUSED_ACKNOWLEDGEMENT deps.acknowledgedImports: ${entry.package}${entry.version ? `@${entry.version}` : ""} -> ${entry.name} matched no finding`;
 }
 
 export function undeclaredImportMessage(item: UndeclaredImport): string {
