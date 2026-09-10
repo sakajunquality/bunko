@@ -65,7 +65,7 @@ test("a registry cache build publishes the closure plan as its own validated art
   const named = validateClosurePlan({ ...record, aliases: JSON.parse('{"__proto__":[],"constructor":[]}') }, record.planKey, { destination: record.destination, platform });
   expect(Object.hasOwn(named.aliases, "__proto__")).toBe(true);
   expect(named.aliases.__proto__).toEqual([]);
-  expect(named.aliases.constructor).toEqual([]);
+  expect(Reflect.get(named.aliases, "constructor")).toEqual([]);
   expect(named.aliases.toString).toBeUndefined();
   expect(JSON.parse(Buffer.from(canonicalJSON(named)).toString()).aliases).toEqual(JSON.parse('{"__proto__":[],"constructor":[]}'));
   // The plan is an index: the deps artifact it names is in the same repository.
