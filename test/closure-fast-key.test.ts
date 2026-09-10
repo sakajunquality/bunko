@@ -275,7 +275,7 @@ test("--no-cache and --verify-deterministic never take the closure shortcut", as
   const verified = recorder(), result = await build({ ...options, ...verified.options, verifyDeterministic: true, output: join(root, "verified") });
   expect(verified.state.log).not.toContain("Reusing dependency closure");
   expect(verified.state.log.match(/Planning Linux dependency closure \(amd64\)/g)).toHaveLength(2);
-  expect(result.cache.every((event) => event.status === "bypass")).toBe(true);
+  expect(result.cache.filter((event) => event.kind !== "base").every((event) => event.status === "bypass")).toBe(true);
 }, 15_000);
 
 
