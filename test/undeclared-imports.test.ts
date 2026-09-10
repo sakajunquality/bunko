@@ -447,3 +447,16 @@ test("the retained-text budget is charged in bytes, so a wide instance reads aga
   expect(reads.filter((file) => file === "one.js")).toEqual(["one.js"]);
   expect(reads.filter((file) => file === "two.js")).toEqual(["two.js", "two.js"]);
 });
+
+
+test("comment scanning does not share line-terminator cursor state with whitespace checks", () => {
+  const guard = 'try { require("x"); } catch {}\n// previous line comment\n';
+  for (const gap of ["/*\n*/", "\u2028", "\u2029"])
+    expect(scanGuards(`${guard}const n = count ${gap}/re/.test(s);`, new Set(["x"])).certain).toBe(false);
+});
+
+test("reading a package manifest does not prevent optional classification", async () => {
+  const pkg = { main: "index.js" };
+  const input = memory({ "index.js": 'require("./package.json"); try { require("x"); } catch {}', "package.json": JSON.stringify(pkg) });
+  expect(await reachableUndeclaredImports(pkg, input.files, input.read)).toEqual([{ name: "x", file: "index.js", optional: true }]);
+});

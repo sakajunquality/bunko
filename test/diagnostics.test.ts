@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { readFile, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkConfig, doctor } from "../packages/bunko/diagnostics.ts";
 import { closureReport, formatClosureInfo, formatWhy, whyPackage } from "../packages/bunko/closure-report.ts";
@@ -130,6 +130,12 @@ test("closure diagnostics apply the build's source, sharing and platform policie
   expect(report.targets[0]!.duplicates.map((item) => item.name)).toEqual(["fixture-msg"]);
   const shared = report.targets[0]!.packages.find((pkg) => pkg.name === "@fixture/shared")!;
   expect(shared.files).toBe(2); expect(shared.bytes).toBeLessThan(1024);
+  const workerFile = join(f.source, "services/worker/package.json");
+  const worker = JSON.parse(await readFile(workerFile, "utf8"));
+  await writeFile(workerFile, JSON.stringify({ ...worker, bunko: { ...worker.bunko, external: [] } }));
+  const union = await closureReport({ path: f.source, installCache: f.cache });
+  expect(union.targets.every((target) => target.packages.length > 0)).toBe(true);
+  expect(union.notes.some((note) => note.includes("runtime closure is empty"))).toBe(false);
   await expect(closureReport({ path: f.source, installCache: f.cache, platform: "linux/amd64,linux/arm64" })).rejects.toThrow("report one platform");
   await symlink("/etc/passwd", join(f.source, "packages/shared/escape"));
   await expect(closureReport({ path: f.source, installCache: f.cache })).rejects.toThrow("Source symlinks are not supported");

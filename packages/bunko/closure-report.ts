@@ -39,7 +39,7 @@ export async function closureReport(options: BuildOptions): Promise<ClosureRepor
   for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
   const notes: string[] = [];
   for (const project of projects.filter((p) => p.depsStrategy === "production")) notes.push(`${project.name} uses deps.strategy production: the image ships the whole Linux production install, and the closure reported here is what deps.strategy closure would package instead.`);
-  for (const project of projects.filter((p) => !p.external.length)) notes.push(`${project.name} declares no bunko.external packages, so its runtime closure is empty; dependencies are bundled into the application layer.`);
+  for (const project of projects.filter((p) => sharedDeps ? !projects.some((member) => member.external.length) : !p.external.length)) notes.push(`${project.name} declares no bunko.external packages, so its runtime closure is empty; dependencies are bundled into the application layer.`);
   const installCache = await installCachePath(options);
   const temporary = await mkdtemp(join(await realpath(tmpdir()), "bunko-closure-"));
   try {
