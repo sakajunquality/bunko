@@ -76,6 +76,17 @@ inputs:
   otel:
     description: 'Opt in to OpenTelemetry export configured by workflow environment'
     default: 'false'
+  # --- GitHub Actions cache integration (begin) ---
+  cache:
+    description: 'Persist the managed bunko cache directory with the GitHub Actions cache: github or none'
+    default: 'none'
+  cache-key:
+    description: 'Exact GitHub Actions cache key, replacing the default bunko-<os>-<arch>-<version>-<hash>'
+    default: ''
+  cache-restore-keys:
+    description: 'GitHub Actions cache restore-key prefixes, one per line, replacing the default prefix'
+    default: ''
+  # --- GitHub Actions cache integration (end) ---
 outputs:
   images:
     description: 'JSON array with every target digest and optional published reference'
@@ -95,9 +106,57 @@ outputs:
   image-refs:
     description: 'Published immutable reference file; empty for local-only builds'
     value: ${{ steps.build.outputs.image-refs }}
+  # --- GitHub Actions cache integration (begin) ---
+  cache-hit:
+    description: 'true when cache: github restored the exact key; false on a prefix or complete miss, empty for cache: none'
+    value: ${{ steps.cache-report.outputs.cache-hit }}
+  cache-key:
+    description: 'GitHub Actions cache key used to restore and save; empty for cache: none'
+    value: ${{ steps.cache-plan.outputs.key }}
+  cache-matched-key:
+    description: 'Key actually restored, the cache key itself or a restore-key prefix match; empty when nothing was restored'
+    value: ${{ steps.cache-report.outputs.cache-matched-key }}
+  # --- GitHub Actions cache integration (end) ---
 runs:
   using: composite
   steps:
+    # --- GitHub Actions cache integration, restore half (begin) ---
+    - id: cache-plan
+      shell: bash
+      env:
+        BUNKO_ACTION_PATH: ${{ github.action_path }}
+        BUNKO_CACHE_MODE: ${{ inputs.cache }}
+        BUNKO_CACHE_DIR_INPUT: ${{ inputs.cache-dir }}
+        BUNKO_CACHE_INSTALL_INPUT: ${{ inputs.install-cache }}
+        BUNKO_CACHE_KEY_INPUT: ${{ inputs.cache-key }}
+        BUNKO_CACHE_RESTORE_KEYS_INPUT: ${{ inputs.cache-restore-keys }}
+        BUNKO_CACHE_OS: ${{ runner.os }}
+        BUNKO_CACHE_ARCH: ${{ runner.arch }}
+        # Expressions short-circuit, so hashFiles never runs (and never fails or times out) unless its result is used.
+        BUNKO_CACHE_HASH: ${{ inputs.cache == 'github' && inputs.cache-key == '' && hashFiles(format('{0}/bun.lock', inputs.path), format('{0}/bun.lockb', inputs.path), format('{0}/**/package.json', inputs.path), '!**/node_modules/**') || '' }}
+      run: bun "$BUNKO_ACTION_PATH/cache.ts"
+    - id: cache-restore
+      if: steps.cache-plan.outputs.enabled == 'true'
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ${{ steps.cache-plan.outputs.path }}
+        key: ${{ steps.cache-plan.outputs.key }}
+        restore-keys: ${{ steps.cache-plan.outputs.restore-keys }}
+    # actions/cache/restore leaves cache-hit unset on a complete miss; normalise it so callers can test == 'false'.
+    - name: Report the bunko cache result
+      id: cache-report
+      if: steps.cache-plan.outputs.enabled == 'true'
+      shell: bash
+      env:
+        BUNKO_CACHE_HIT: ${{ steps.cache-restore.outputs.cache-hit }}
+        BUNKO_CACHE_KEY: ${{ steps.cache-plan.outputs.key }}
+        BUNKO_CACHE_MATCHED_KEY: ${{ steps.cache-restore.outputs.cache-matched-key }}
+      run: |
+        if [[ "$BUNKO_CACHE_HIT" == "true" ]]; then hit=true; else hit=false; fi
+        printf 'bunko cache: hit=%s key=%s restored-from=%s\n' "$hit" "$BUNKO_CACHE_KEY" "${BUNKO_CACHE_MATCHED_KEY:-none}"
+        printf 'cache-hit=%s\n' "$hit" >> "$GITHUB_OUTPUT"
+        printf 'cache-matched-key=%s\n' "$BUNKO_CACHE_MATCHED_KEY" >> "$GITHUB_OUTPUT"
+    # --- GitHub Actions cache integration, restore half (end) ---
     - id: build
       shell: bash
       env:
@@ -128,3 +187,12 @@ runs:
         BUNKO_INPUT_REGISTRY_CONFIG: ${{ inputs.registry-config }}
         BUNKO_INPUT_OTEL: ${{ inputs.otel }}
       run: bun "$BUNKO_ACTION_PATH/run.ts"
+    # --- GitHub Actions cache integration, save half (begin) ---
+    # A failed build still persists the package download and asset caches; an exact restore already stores this immutable key.
+    - name: Save the bunko cache
+      if: always() && steps.cache-plan.outputs.enabled == 'true' && steps.cache-report.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ${{ steps.cache-plan.outputs.path }}
+        key: ${{ steps.cache-plan.outputs.key }}
+    # --- GitHub Actions cache integration, save half (end) ---

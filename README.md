@@ -114,6 +114,8 @@ Layer order is `base → deps (if needed) → assets (if present) → app`. The 
 
 The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Without explicit export destinations, Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache read failures are diagnostic and recoverable. Export failures warn by default; `--cache-export-error=fail` makes them fatal while preserving publication evidence. Image publication failures are errors.
 
+On GitHub Actions the build Action can persist that directory itself: `cache: github` restores it before the build and saves it afterwards, keyed by runner, architecture, bunko version and the lockfile and manifests under `path`, so no workflow needs its own `actions/cache` step. The `cache-hit`, `cache-key` and `cache-matched-key` outputs report what happened, `cache-key` and `cache-restore-keys` override the defaults, and the default `cache: none` leaves caching to the workflow. It composes with a registry cache: `cache: github` carries plan records and download/asset caches within one repository, while `cache-repo` carries built layers across runners and repositories. See [building in CI](docs/CI.md#the-github-actions-cache).
+
 ```sh
 # Export a single-platform Docker archive.
 bun run dev build examples/hello --push=false --tarball .bunko-output/hello.tar
