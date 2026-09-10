@@ -1,3 +1,5 @@
+import { applyLayers } from "../packages/bunko/runtime-layer.ts";
+import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { writeAssetBytes } from "../packages/bunko/asset-write.ts";
 import { MockRegistry } from "./mock-registry.ts";
 import { afterEach, expect, test } from "bun:test";
@@ -555,4 +557,53 @@ test("image asset directories omit incidental Finder metadata and reject explici
   const result = await stageAssetMappings([{ image: image.reference, from: "/opt/data", to: "/app/data" }], {}, join(root, "stage"), [], { platform: amd64, registry: { fetcher: registry.fetch, credentials: async () => undefined } });
   expect(result.entries.map((entry) => entry.path)).toEqual(["app/data", "app/data/keep.txt"]);
   expect(() => assetMappings([{ image: image.reference, from: "/opt/data/.DS_Store", to: "/app/data" }])).toThrow("Excluded image asset input");
+});
+
+
+test("implied directories outside an asset selection still count toward the base inspection bound", async () => {
+  const root = await temporary(); roots.push(root);
+  const registry = new MockRegistry(), image = toolImage(registry, "tools/bounded", "v1", [{ platform: amd64, layers: [await layer([
+    { name: "unselected/a/b/c/d/e/f/g/h/i/file", content: "payload" },
+  ])] }]);
+  const store = new BlobStore(join(root, "store"));
+  const base = await resolveBase(new RegistrySource(image.reference, { fetcher: registry.fetch, credentials: async () => undefined }), amd64, store, true);
+  await expect(applyLayers(store, base, root, undefined, 5)).rejects.toThrow("too many entries");
+});
+
+test("mixed image and local mappings freeze local bytes once across platforms", async () => {
+  const f = await fixture(), local = join(f.root, "local");
+  await mkdir(local); await writeFile(join(local, "data.txt"), "captured");
+  const source = await project(join(f.root, "app"), { bunko: { assetMappings: [
+    { context: "data", from: "data.txt", to: "/tools/data.txt" },
+    { image: f.image.reference, from: "/usr/local/bin/spannerdef", to: "/tools/spannerdef" },
+  ] } });
+  let changed = false;
+  const result = await build({ path: source, baseLayout: await dualBase(join(f.root, "base")), platform: "linux/amd64,linux/arm64", output: join(f.root, "out"), gitMetadata: false,
+    cacheDir: join(f.root, "cache"), assetCache: join(f.root, "asset-cache"), assetContexts: { data: local }, registry: { credentials: async () => undefined, fetcher: async (url, init) => {
+      if (!changed) { changed = true; await writeFile(join(local, "data.txt"), "changed between platforms"); }
+      return f.registry.fetch(url, init);
+    } } });
+  for (const image of result.images) {
+    const assets = image.layers.find((item) => item.kind === "assets")!;
+    const entries = await inspectTar(new BlobStore(result.layout!).path(assets.descriptor.digest));
+    expect(entries.find((item) => item.name === "tools/data.txt")?.content).toBe("captured");
+  }
+  const localMaterials = result.assetMaterials!.filter((item) => "context" in item);
+  expect(localMaterials).toHaveLength(1);
+  expect(localMaterials[0]!.platforms).toEqual(["linux/amd64", "linux/arm64"]);
+});
+
+
+test("nested files populated without replacement fail with a structural diagnostic", async () => {
+  const f = await layeredImage("nested-file-populated", [
+    [{ name: "opt/z", content: "file" }], [{ name: "opt/z/inner", content: "child" }],
+  ]);
+  await expect(stageAssetMappings([{ image: f.image.reference, from: "/opt", to: "/tools/opt" }], {}, join(f.root, "stage"), [], f.external())).rejects.toThrow("is a file with entries beneath it: /opt/z");
+});
+
+
+test("untrusted layer traversal paths are rejected before asset capture", async () => {
+  const f = await layeredImage("traversal", [[{ name: "opt/tool/../../../escape", content: "untrusted" }]]);
+  await expect(stageAssetMappings([{ image: f.image.reference, from: "/opt/tool", to: "/tools/tool" }], {}, join(f.root, "stage"), [], f.external())).rejects.toThrow("Unsupported path in runtime base filesystem");
+  expect(await Bun.file(join(f.root, "escape")).exists()).toBe(false);
 });

@@ -34,7 +34,8 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
 
 /** Apply every layer in order, resolving whiteouts, and optionally capture selected entry bodies.
  * Captured nodes record their winning layer index so callers can materialize the merged result. */
-export async function applyLayers(store: BlobStore, base: BaseImage, temporary: string, capture?: LayerCapture): Promise<BaseFilesystem> {
+export async function applyLayers(store: BlobStore, base: BaseImage, temporary: string, capture?: LayerCapture, entryLimit = 200_000): Promise<BaseFilesystem> {
+  if (!Number.isSafeInteger(entryLimit) || entryLimit < 1 || entryLimit > 200_000) throw new Error("Invalid base filesystem entry limit");
   const tree: BaseFilesystem = new Map(); let count = 0;
   const directory = await mkdtemp(join(temporary, "base-inspect-"));
   try {
@@ -48,7 +49,7 @@ export async function applyLayers(store: BlobStore, base: BaseImage, temporary: 
           stream.on("error", (error) => tar.destroy(error));
           const body = stream as unknown as Readable;
           (async () => {
-            if (++count > 200_000) throw new Error("Runtime base has too many entries");
+            if (++count > entryLimit) throw new Error("Runtime base has too many entries");
             const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);
             if (path) {
               if (leaf === ".wh..wh..opq") opaque.add(parent === "." ? "" : parent);
@@ -74,6 +75,7 @@ export async function applyLayers(store: BlobStore, base: BaseImage, temporary: 
         // reject it instead of resolving through it. Only an explicit header or whiteout can displace it.
         for (const path of overlay.keys()) for (const parent of ancestors(path).slice(0, -1)) {
           if (tree.has(parent)) continue;
+          if (++count > entryLimit) throw new Error("Runtime base has too many entries");
           const node: BaseNode = { type: "directory", mode: 0o755, size: 0, ...(capture ? { layer: index } : {}) };
           tree.set(parent, node);
           await capture?.(index, parent, node);

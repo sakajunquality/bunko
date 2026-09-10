@@ -679,13 +679,22 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
     const mapped = new Map<string, Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>>();
     for (const [index, project] of projects.entries()) {
-      // Only image sources differ per platform; every other mapping is staged once and shared.
-      const shared = !project.assetMappings.some(imageMapping);
+      // Capture platform-independent inputs once even when image mappings are present.
+      const shared = new Map<number, Awaited<ReturnType<typeof stageAssetMappings>>>();
       const staged = new Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>();
       for (const [order, target] of project.platforms.entries()) {
-        if (shared && order) { staged.set(platformKey(target), staged.get(platformKey(project.platforms[0]!))!); continue; }
-        staged.set(platformKey(target), await stageAssetMappings(project.assetMappings, options.assetContexts ?? {}, join(temporary, "assets", String(index), String(order)), [...exclusions, temporary],
-          { platform: target, registry, cache: assetCache, offline: options.offline, reproducible: options.reproducible, temporary: join(temporary, "asset-work", String(index), String(order)), log: options.log }));
+        const combined: Awaited<ReturnType<typeof stageAssetMappings>> = { entries: [], materials: [] };
+        for (const [mappingIndex, mapping] of project.assetMappings.entries()) {
+          let selection = shared.get(mappingIndex);
+          if (!selection) {
+            selection = await stageAssetMappings([mapping], options.assetContexts ?? {}, join(temporary, "assets", String(index), String(order), String(mappingIndex)), [...exclusions, temporary],
+              { platform: target, registry, cache: assetCache, offline: options.offline, reproducible: options.reproducible, temporary: join(temporary, "asset-work", String(index), String(order), String(mappingIndex)), log: options.log });
+            if (!imageMapping(mapping)) shared.set(mappingIndex, selection);
+          }
+          combined.entries.push(...selection.entries); combined.materials.push(...selection.materials);
+        }
+        assertNoLayerCollision([combined.entries]);
+        staged.set(platformKey(target), combined);
       }
       mapped.set(project.directory, staged);
     }

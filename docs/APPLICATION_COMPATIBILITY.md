@@ -234,3 +234,5 @@ Follow [application validation](APPLICATION_VALIDATION.md) for a disposable func
 Strict undeclared-import checks enforce the importing package's manifest, not the availability of an application-level fallback. Adding an application dependency and external does not repair that declaration; use the advisory policy for this workaround and test the runtime. Probes the package guards itself are reported only under `"strict"`; unused shipped files can still produce findings.
 
 Build reports include closure sizes only when bunko projects the dependency closure. Prepared dependency artifacts do not carry closure accounting and omit that field, even if the selected strategy is closure.
+
+Offline diagnostics validate remote mapping syntax and destinations. They cannot inspect image/URL contents or determine collisions involving remote entries; a build performs those checks. Local and URL mappings are captured once per build target and shared across its platforms, including when image mappings are present.
