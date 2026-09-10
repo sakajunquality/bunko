@@ -149,7 +149,16 @@ export function validateLock(manifest: Record<string, unknown>, input: unknown, 
   return lock;
 }
 
-export async function dependencyPlan(project: Project, root: string, validateCredentials = true, certificate?: NpmCertificate): Promise<DependencyPlan> {
+/**
+ * `workspaceSourceDigests` hashes the referenced workspace members under `root`,
+ * which every build and closure report needs as a cache input. It requires `root`
+ * to be a source snapshot: only a snapshot has already applied the exclusions that
+ * decide which member files reach the image, and reproducing them over a working
+ * tree is impossible before the required inputs and explicitly selected assets are
+ * known. Offline diagnostics use the plan for its lock and npm policy alone, so
+ * they turn the hashing off rather than walk a tree a build would never package.
+ */
+export async function dependencyPlan(project: Project, root: string, validateCredentials = true, certificate?: NpmCertificate, workspaceSourceDigests = true): Promise<DependencyPlan> {
   const workspace = project.workspace;
   const manifest = workspace?.packages[0]!.manifest ?? object(JSON.parse(project.manifestText), "package.json");
   const hasDependencies = dependencyFields.some((field) => Object.keys(object(manifest[field] ?? {}, field)).length);
@@ -194,12 +203,14 @@ export async function dependencyPlan(project: Project, root: string, validateCre
   }
   const workspaceSources: Record<string, string> = {};
   if (workspace) {
+    // Collecting the references validates every manifest and lock dependency map, which
+    // is a contract check on the plan itself: it runs at every depth, hashed or not.
     const referenced = new Set<string>();
     const references = [...workspace.packages.map((p) => p.manifest), ...Object.values(object(lock!.packages, "packages")).filter(Array.isArray).map((r) => r[2] ?? {})];
     for (const value of references) for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
       for (const name of Object.keys(object(object(value, "Package metadata")[field] ?? {}, field))) referenced.add(name);
     }
-    for (const pkg of workspace.packages.filter((p) => p.path && referenced.has(String(p.manifest.name)))) {
+    for (const pkg of workspaceSourceDigests ? workspace.packages.filter((p) => p.path && referenced.has(String(p.manifest.name))) : []) {
       const entries = await fileEntries(join(root, pkg.path), pkg.path);
       workspaceSources[pkg.path] = sha256(canonicalJSON(await mapFiles(entries, async (entry) => entry.type === "file" ? { path: entry.path, executable: entry.executable, digest: "source" in entry ? await hashFile(entry.source) : sha256(entry.content) } : entry)));
     }
