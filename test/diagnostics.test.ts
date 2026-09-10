@@ -1,3 +1,4 @@
+import { VERSION } from "../packages/bunko/config.ts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -55,7 +56,7 @@ test("check-config renders an aligned summary of the object it also serializes a
     "api (services/api)",
     "  Entrypoint          src/server.ts · bundle mode",
     "  Entrypoints         server = src/server.ts, worker = src/worker.ts · default server",
-    "  Platforms           linux/amd64, linux/arm64",
+    "  Platforms           linux/amd64, linux/arm64/v8",
     "  Base                oven/bun:1.4.2-distroless",
     "  Dependencies        closure · bun.lock version 1",
     "  External            sharp",
@@ -123,7 +124,7 @@ test("the CLI decides the diagnostics format from stdout alone and keeps errors 
   const source = await project(join(root, "app"));
   // A terminal reader gets the summary; --format json still wins there.
   const terminal = await withStdout(["check-config", source], { stdout: true });
-  expect(terminal.code).toBe(0); expect(terminal.stdout).toStartWith("bunko 0.1.2 · check-config · valid · single project\n");
+  expect(terminal.code).toBe(0); expect(terminal.stdout).toStartWith(`bunko ${VERSION} · check-config · valid · single project\n`);
   const forced = await withStdout(["doctor", source, "--format", "json"], { stdout: true });
   expect(forced.code).toBe(0); expect(JSON.parse(forced.stdout).toolchain.version).toMatch(/^1\.[34]\./);
   // A terminal stderr and a CI environment never change what stdout receives.
@@ -132,7 +133,7 @@ test("the CLI decides the diagnostics format from stdout alone and keeps errors 
   const redirected = await runCLI(["check-config", source]), automated = await runCLI(["check-config", source], { CI: "1" });
   expect(redirected.stdout).toBe(automated.stdout); expect(JSON.parse(automated.stdout).status).toBe("valid");
   const readable = await runCLI(["check-config", source, "--format", "text"]);
-  expect(readable.code).toBe(0); expect(readable.stderr).toBe(""); expect(readable.stdout).toStartWith("bunko 0.1.2 · check-config · valid · single project\n");
+  expect(readable.code).toBe(0); expect(readable.stderr).toBe(""); expect(readable.stdout).toStartWith(`bunko ${VERSION} · check-config · valid · single project\n`);
   const invalid = await runCLI(["check-config", source, "--format", "yaml"]);
   expect(invalid.code).toBe(1); expect(invalid.stdout).toBe(""); expect(invalid.stderr).toBe("bunko: --format must be json or text\n");
   // --progress is rejected by check-config, and rejecting it keeps the JSON error line it selected.
@@ -216,4 +217,11 @@ test("diagnostics check named entries and external bindings without staging or e
   }
   await rm(join(inputs,"config.json")); await symlink("/nonexistent",join(inputs,"config.json"));
   await expect(checkConfig({path:source,assetContexts:{data:inputs}})).rejects.toThrow("symlinks");
+});
+
+
+test("text diagnostics escape terminal controls in project metadata", () => {
+  const report = { schemaVersion: 1 as const, bunko: VERSION, status: "valid" as const, workspace: false, targets: [], unchecked: ["name\u001b[2J\r\tvalue"] };
+  expect(renderDiagnostics(report)).toContain("name\\u001b[2J\\u000d\\u0009value");
+  expect(renderDiagnostics(report)).not.toContain("\u001b");
 });

@@ -10,7 +10,7 @@ const join = (parts: (string | undefined)[]) => parts.filter(Boolean).join(DOT) 
 const list = (items: readonly (string | number)[]) => items.length ? items.join(", ") : undefined;
 const count = (value: number, singular: string) => value ? `${value} ${singular}${value === 1 ? "" : "s"}` : undefined;
 const octal = (mode: number) => `0${mode.toString(8).padStart(3, "0")}`;
-const platforms = (items: Platform[]) => items.map((item) => `${item.os}/${item.architecture}`).join(", ");
+const platforms = (items: Platform[]) => items.map((item) => `${item.os}/${item.architecture}${item.variant ? `/${item.variant}` : ""}`).join(", ");
 
 interface Row { label: string; keys: (keyof DiagnosticTarget)[]; value: (target: DiagnosticTarget) => string | undefined }
 
@@ -75,7 +75,8 @@ export function renderDiagnostics(report: DiagnosticsReport): string {
   }
   lines.push("", "Not checked offline:", ...report.unchecked.map((item) => `  - ${item}`));
   if (health) lines.push("", "Next steps:", ...health.advice.map((item) => `  - ${item}`));
-  return `${lines.join("\n")}\n`;
+  // Configuration and filesystem names can contain terminal control characters.
+  return `${lines.join("\n")}\n`.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 /** Text for a terminal reader, JSON for scripts; an explicit --format wins either way. */
