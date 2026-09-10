@@ -112,7 +112,7 @@ Layer order is `base → deps (if needed) → assets (if present) → app`. The 
 
 ## Cache and local execution
 
-The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache access failures are diagnostic and recoverable; image publication failures are errors.
+The local layer cache defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/v1`. Registry caches use reserved tags in the publication repository. Override these with `--cache-dir` and `--cache-repo`, or disable both with `--no-cache`. Bun's package download cache is separate: it defaults to `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`, `--install-cache` overrides it, and `--no-cache` or `--no-local-cache` uses per-build temporary staging instead. Cache read failures are diagnostic and recoverable. Export failures warn by default; `--cache-export-error=fail` makes them fatal while preserving publication evidence. Image publication failures are errors.
 
 ```sh
 # Export a single-platform Docker archive.
@@ -168,7 +168,7 @@ Use `--image-label`, `--image-annotation` and `--image-user` for per-invocation 
 
 Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`. Use `apply --kind` with the matching kind context; ordinary `apply --local` is rejected because a Docker daemon does not identify a Kubernetes cluster. See [Local development](docs/LOCAL_DEVELOPMENT.md).
 
-Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted read repositories, `--cache-write=false` disables Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
+Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted registry/local read locations, `--cache-to` selects explicit write destinations, `--cache-write=false` suppresses explicit exports and Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
 
 `metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.
 

@@ -11,7 +11,7 @@ Bunko builds Linux OCI images directly from Bun applications. It runs Bun depend
 | Local Docker/kind manifests and prepared dependencies | [Local development](LOCAL_DEVELOPMENT.md) |
 | Registry authentication, private CA and mTLS | [Registries](REGISTRIES.md) |
 | SPDX, provenance, signing and producer policy | [Metadata](METADATA.md), [Supply chain](SUPPLY_CHAIN.md) |
-| Cache read sources, usage and retention | [Cache retention](CACHE_RETENTION.md) |
+| Registry/local cache imports, exports, usage and retention | [Cache retention](CACHE_RETENTION.md) |
 | Apply, prepared artifacts and layout publication | [Operations](OPERATIONS.md) |
 | Distribution, setup/build Actions and CLI container | [Releasing](RELEASING.md), [CI](CI.md), [CLI container](CLI_CONTAINER.md) |
 | Release artifact identity | [Release provenance](RELEASE_PROVENANCE.md) |

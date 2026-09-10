@@ -25,7 +25,7 @@ bunko version
 | `--target NAME/PATH` | Select workspace members from the root; repeatable. |
 | `--repo PREFIX` / `--bare` | Default destination is PREFIX/project-name; bare uses the exact repository. |
 | `--tag TAG` | Repeatable; defaults to latest and Git revision, with a dirty suffix when appropriate. |
-| `--push=false` | Disable publication. CLI defaults to push=true and requires a destination. |
+| `--push=false` | Disable image publication. Explicit cache exports remain available. CLI defaults to push=true and requires a destination. |
 | `--oci-layout DIR` | Complete OCI layout; reject existing nonempty directories. |
 | `--tarball FILE` | Single-platform Docker archive; reject existing files. |
 | `--local` | Docker load and image inspection; disables push. |
@@ -33,7 +33,9 @@ bunko version
 | `--base REF` / `--base-layout DIR` | Registry reference or local OCI layout; mutually exclusive. |
 | `--platform LIST` | Comma-separated platforms; default linux/amd64. |
 | `--bun-path FILE` | Bun executable for bundling and installation. |
-| `--cache-dir DIR` / `--cache-repo REPO` | Local and Registry layer-cache destinations. |
+| `--cache-dir DIR` / `--cache-repo REPO` | Managed local and legacy Registry layer-cache destinations. |
+| `--cache-from LOCATION` / `--cache-to LOCATION` | Ordered typed registry/local imports and independent exports; repeatable. |
+| `--cache-export-error warn\|fail` | Cache export failure policy; default warn. |
 | `--no-cache` | Disable persistent reuse of both layer caches. |
 | `--no-local-cache` / `--no-registry-cache` | Disable the respective cache. |
 | `--install-cache DIR` | Bun package download cache, separate from the layer cache (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`). |
@@ -267,7 +269,9 @@ Builder identity is an input to application caching and runnable image labels. D
 
 ## Cache distribution and managed retention
 
-`--cache-from` supplies ordered additional Registry read sources; `--cache-repo` remains the single write destination. `--cache-write=false` disables Registry cache writes independently of reads. `cache-info` reports validated local metadata and referenced blob bytes. `prune --keep-bytes N` previews oldest-metadata-first removal within that managed scope; `--execute` is required for deletion. Unknown and unreferenced files are untouched. See [CACHE_RETENTION.md](CACHE_RETENTION.md).
+`--cache-from` supplies up to 32 ordered registry/local read locations after the managed local cache. `--cache-to` supplies up to eight write-only explicit destinations. Use `type=registry,repo=REPO`, `type=local,src=DIR` for reads and `type=local,dest=DIR` for writes. Bare read repositories and `--cache-repo` remain supported. Explicit destinations replace implicit image-repository writes while retaining its reads; an explicit legacy repository remains an additional destination. `--cache-write=false` suppresses explicit exports and Registry cache writes independently of reads.
+
+All targets are prepared before export. Explicit exports follow the target’s requested image publication and also work with `--push=false`. Dry-run and offline builds skip exports; strict `--cache-export-error=fail` rejects these modes, collects per-destination failures, and preserves already-published image evidence. Matching immutable cache writes reconcile using verified metadata and layer content; conflicting results are never accepted. Local caches use locked atomic writes, share the record validation rules, and are excluded from snapshots after canonical path checks. Offline local imports are supported. GHA/S3 and BuildKit cache formats are outside this contract. `cache-info` reports validated local metadata and referenced blob bytes. `prune --keep-bytes N` previews oldest-metadata-first removal within that managed scope; `--execute` is required for deletion. Unknown and unreferenced files are untouched. See [CACHE_RETENTION.md](CACHE_RETENTION.md).
 
 ### Named asset contexts
 
