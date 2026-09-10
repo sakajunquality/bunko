@@ -87,7 +87,7 @@ const unicodeIdentifier = new RegExp(`(?:[$_\\p{ID_Start}]|${escapedPart})(?:[$\
 /** Numeric literals are tokenised whole, so a trailing `.` or an exponent cannot be mistaken for the token before a `/`. */
 const numeric = /0[xX][0-9a-fA-F][0-9a-fA-F_]*n?|0[oO][0-7][0-7_]*n?|0[bB][01][01_]*n?|(?:\d[\d_]*)?\.\d[\d_]*(?:[eE][+-]?\d[\d_]*)?|\d[\d_]*\.?(?:[eE][+-]?\d[\d_]*)?n?/y;
 /** A line comment ends at any line terminator; a string literal may not contain a raw LF or CR, but U+2028 and U+2029 are allowed in it. */
-const lineEnd = /[\n\r\u2028\u2029]/g;
+const lineEnd = /[\n\r\u2028\u2029]/g, lineTerminator = /[\n\r\u2028\u2029]/;
 /** Reserved words after which a `/` opens a regular expression rather than dividing. None of them can name a value, so the reading is certain. */
 const regexKeywords = new Set(["return", "typeof", "instanceof", "in", "case", "new", "delete", "void", "do", "else", "throw"]);
 /** Words that read as keywords in some positions and as plain identifiers in others; a `/` after one is ambiguous. */
@@ -204,7 +204,7 @@ export function scanGuards(code: string, candidates: Set<string>): GuardScan {
     if (c === "/" && code[i + 1] === "*") {
       const end = code.indexOf("*/", i + 2);
       if (end < 0) return abandoned();
-      if (lineEnd.test(code.slice(i + 2, end))) newline = true;
+      if (lineTerminator.test(code.slice(i + 2, end))) newline = true;
       lineEnd.lastIndex = 0; i = end + 2; continue;
     }
     if (c === '"' || c === "'") {
@@ -274,7 +274,7 @@ export function scanGuards(code: string, candidates: Set<string>): GuardScan {
       if (full) { i = unicodeIdentifier.lastIndex; mark(full[0]!.includes("\\") ? '"' : full[0]!); continue; }
     }
     blank.lastIndex = i;
-    if (blank.exec(code)) { if (lineEnd.test(code.slice(i, blank.lastIndex))) newline = true; lineEnd.lastIndex = 0; i = blank.lastIndex; continue; }
+    if (blank.exec(code)) { if (lineTerminator.test(code.slice(i, blank.lastIndex))) newline = true; lineEnd.lastIndex = 0; i = blank.lastIndex; continue; }
     // Outside literals, comments and regular expressions, valid source holds only ASCII punctuation here.
     if (c === "\\" || code.charCodeAt(i) >= 128) return abandoned();
     i++; mark(c);
