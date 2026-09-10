@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, buildTargets } from "../packages/bunko/build.ts";
 import { loadProject } from "../packages/bunko/config.ts";
-import { bareSpecifierPackage, candidateRuntimeFile, declaredNames, importSpecifiers, manifestEntryPoints, reachableUndeclaredImports, scannableRuntimeFile, testLocation, undeclaredImportPolicy, undeclaredImportSizeLimit, undeclaredImports } from "../packages/bunko/undeclared-imports.ts";
+import { bareSpecifierPackage, candidateRuntimeFile, cookedLiteral, declaredNames, guardedImports, importSpecifiers, manifestEntryPoints, reachableUndeclaredImports, scanGuards, scannableRuntimeFile, testLocation, undeclaredImportPolicy, undeclaredImportSizeLimit, undeclaredImports } from "../packages/bunko/undeclared-imports.ts";
 import { baseLayout, project, temporary } from "./helpers.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { workspaceFixture } from "./workspace-fixture.ts";
@@ -40,6 +40,8 @@ test("scan skips unparseable and import-free files and respects the file filter"
   expect(undeclaredImportPolicy([{ undeclaredImports: "off" }, { undeclaredImports: "warn" }])).toBe("warn");
   expect(undeclaredImportPolicy([{ undeclaredImports: "off" }, { undeclaredImports: "error" }])).toBe("error");
   expect(undeclaredImportPolicy([{ undeclaredImports: "off" }])).toBe("off");
+  expect(undeclaredImportPolicy([{ undeclaredImports: "error" }, { undeclaredImports: "strict" }])).toBe("strict");
+  expect(undeclaredImportPolicy([{ undeclaredImports: "strict" }, { undeclaredImports: "warn" }])).toBe("strict");
   expect(importSpecifiers('#!/usr/bin/env node\nrequire("./cli-impl"); import("x");')).toEqual(["./cli-impl", "x"]);
   for (const path of ["index.js", "lib/a.cjs", "lib/b.mjs", "package.json", "lib/package.json"]) expect(candidateRuntimeFile(path)).toBe(true);
   for (const path of ["index.d.ts", "README.md", "lib/data.json", "native.node", "packages.json"]) expect(candidateRuntimeFile(path)).toBe(false);
@@ -133,7 +135,8 @@ test("deps.undeclaredImports defaults to warn and rejects unknown values", async
   const root = await temporary(); directories.push(root);
   expect((await loadProject({ path: await project(join(root, "default")) })).undeclaredImports).toBe("warn");
   expect((await loadProject({ path: await project(join(root, "error"), { bunko: { deps: { undeclaredImports: "error" } } }) })).undeclaredImports).toBe("error");
-  await expect(loadProject({ path: await project(join(root, "invalid"), { bunko: { deps: { undeclaredImports: "loud" } } }) })).rejects.toThrow("deps.undeclaredImports must be warn, error or off");
+  expect((await loadProject({ path: await project(join(root, "strict"), { bunko: { deps: { undeclaredImports: "strict" } } }) })).undeclaredImports).toBe("strict");
+  await expect(loadProject({ path: await project(join(root, "invalid"), { bunko: { deps: { undeclaredImports: "loud" } } }) })).rejects.toThrow("deps.undeclaredImports must be warn, error, strict or off");
 });
 
 test("closure builds warn about undeclared runtime imports once per package and name, fail on error and stay silent when off", async () => {
@@ -152,7 +155,7 @@ test("closure builds warn about undeclared runtime imports once per package and 
   await build({ ...options, output: join(root, "warn"), log: (text) => { logs += text; } });
   const lines = logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT"));
   expect(lines).toEqual([
-    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "supports-color" without declaring it (index.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.',
+    'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "supports-color" without declaring it (lib/impl.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.',
     'BUNKO_UNDECLARED_IMPORT fixture-msg@1.0.0 imports "@scope/undeclared" without declaring it (lib.mjs); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.',
   ]);
   const manifest = JSON.parse(await Bun.file(join(f.source, "package.json")).text());
@@ -167,7 +170,7 @@ test("closure builds warn about undeclared runtime imports once per package and 
 test("sharedDeps scans the union closure and collapses identical findings across peer contexts", async () => {
   const root = await temporary(); directories.push(root);
   const f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
-  await writeFile(join(f.cache, "fixture-adapter@1.0.0@@@1/index.js"), 'module.exports=require("fixture-msg"); try { require("undeclared-helper") } catch {}');
+  await writeFile(join(f.cache, "fixture-adapter@1.0.0@@@1/index.js"), 'module.exports=require("fixture-msg"); require("undeclared-helper");');
   let logs = "";
   await buildTargets({ path: f.source, baseLayout: base, push: false, localCache: false, gitMetadata: false, installCache: f.cache, sharedDeps: true, output: join(root, "out"), log: (text) => { logs += text; } });
   expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_UNDECLARED_IMPORT"))).toEqual(['BUNKO_UNDECLARED_IMPORT fixture-adapter@1.0.0 imports "undeclared-helper" without declaring it (index.js); strict declaration policy requires fixing the importing package manifest. As a runtime workaround, declare it in the application\'s dependencies and bunko.external and use deps.undeclaredImports=warn; verify runtime resolution in the image.']);
@@ -212,4 +215,235 @@ test("repeated stars in an exports target use the same substitution", async () =
   const { files, read } = memory({ "lib/a/copy-a.js": 'require("missing-a")', "lib/a/copy-b.js": 'require("not-exported")' });
   expect(manifestEntryPoints(manifest, files.keys())).toEqual(["lib/a/copy-a.js"]);
   expect(await reachableUndeclaredImports(manifest, files, read)).toEqual([{ name: "missing-a", file: "lib/a/copy-a.js" }]);
+});
+
+test("only try-wrapped requires, dynamic imports and require.resolve probes are guarded", () => {
+  const all = (...names: string[]) => new Set(names);
+  // Shaped like debug@4.4.3 src/node.js.
+  expect([...guardedImports('try {\n  const supportsColor = require("supports-color");\n  if (supportsColor && (supportsColor.stderr || supportsColor).level >= 2) exports.colors = [20];\n} catch (error) { /* swallowed */ }\n', all("supports-color"))]).toEqual(["supports-color"]);
+  expect([...guardedImports('try { const m = await import("dynamic-optional"); } catch {}', all("dynamic-optional"))]).toEqual(["dynamic-optional"]);
+  expect([...guardedImports('module.exports = require.resolve("optional-plugin/package.json");', all("optional-plugin"))]).toEqual(["optional-plugin"]);
+  // A require inside a function body, or one that only some occurrence guards, is not guarded.
+  expect([...guardedImports('function load() { return require("lazy-dep"); }', all("lazy-dep"))]).toEqual([]);
+  expect([...guardedImports('try { require("supports-color"); } catch {}\nconst color = require("supports-color");', all("supports-color"))]).toEqual([]);
+  expect([...guardedImports('try { require("subpath/deep"); } catch {}\nrequire("subpath");', all("subpath"))]).toEqual([]);
+  // A catch or finally handler is not a guarded position: @babel/core@7.27.7 requires @babel/preset-typescript/package.json from one.
+  expect([...guardedImports('try { compile(); } catch (error) { const pkg = require("@babel/preset-typescript/package.json"); throw error; }', all("@babel/preset-typescript"))]).toEqual([]);
+  expect([...guardedImports('try { compile(); } finally { require("cleanup-dep"); }', all("cleanup-dep"))]).toEqual([]);
+  // Every literal naming a candidate counts, so a computed require next to a plain mention of the name keeps it reported.
+  expect([...guardedImports('const name = "supports-color"; require(name);', all("supports-color"))]).toEqual([]);
+  expect([...guardedImports('try { require("guarded") } catch {}', all("guarded", "never-mentioned"))]).toEqual(["guarded"]);
+});
+
+test("static import and export sources are never guarded, even next to try blocks", () => {
+  const code = 'import color from "supports-color";\nexport * from "@scope/re-exported";\ntry { require("supports-color"); require("@scope/re-exported"); } catch {}\n';
+  expect([...guardedImports(code, new Set(["supports-color", "@scope/re-exported"]))]).toEqual([]);
+  expect([...guardedImports('import("guarded-only");', new Set(["guarded-only"]))]).toEqual([]);
+});
+
+test("braces in strings, template literals, regex literals and comments do not confuse the try matcher", () => {
+  const code = 'const brace = "}{", other = \'{\';\nconst tpl = `${"}"}${`inner ${ "{" } end`}`;\nconst re = /[}{]\\/x/g, div = brace.length / 2 / 1;\n// } { unbalanced in a line comment\n/* } { unbalanced in a block comment */\ntry { require("guarded-one"); } catch (error) { }\nrequire("plain-one");\n';
+  expect([...guardedImports(code, new Set(["guarded-one", "plain-one"]))]).toEqual(["guarded-one"]);
+  // Nested try blocks at any depth still guard.
+  expect([...guardedImports('try { if (a) { for (;;) { try { require("deep"); } catch {} } } } catch {}', new Set(["deep"]))]).toEqual(["deep"]);
+  // An unsure pass guards nothing: unbalanced braces, an unterminated comment or string, or template substitutions nested too deeply.
+  expect([...guardedImports('function f() { try { require("x"); } catch {}', new Set(["x"]))]).toEqual([]);
+  expect([...guardedImports('try { require("x"); } catch {} /* unterminated', new Set(["x"]))]).toEqual([]);
+  const nested = (depth: number) => 'try { require("x"); } catch {} const t = ' + "`${".repeat(depth) + "}`".repeat(depth) + ";";
+  expect([...guardedImports(nested(8), new Set(["x"]))]).toEqual(["x"]);
+  expect([...guardedImports(nested(9), new Set(["x"]))]).toEqual([]);
+});
+
+test("a name is optional only when every reached file guards it", async () => {
+  const pkg = { name: "debug-like", version: "4.4.3", main: "src/node.js" };
+  // src/node.js probes like debug, lib/module-types.js like @babel/core, and gce.js requires plainly like the real finding.
+  const { files, read } = memory({ "package.json": JSON.stringify(pkg),
+    "src/node.js": 'try { module.exports.colors = require("supports-color").level; } catch (error) { /* optional */ }\nrequire("./module-types.js"); require("./gce.js");',
+    "src/module-types.js": 'let ts;\ntry { ts = require("@babel/preset-typescript"); } catch { ts = require.resolve("@babel/preset-typescript"); }\nmodule.exports = ts;',
+    "src/gce.js": 'const api = require("@opentelemetry/api");\ntry { require("supports-color"); } catch {}\nmodule.exports = api;' });
+  expect(await reachableUndeclaredImports(pkg, files, read)).toEqual([
+    { name: "supports-color", file: "src/node.js", optional: true },
+    { name: "@babel/preset-typescript", file: "src/module-types.js", optional: true },
+    { name: "@opentelemetry/api", file: "src/gce.js" },
+  ]);
+  // One unguarded use anywhere in the instance moves the witness to that file and drops the optional flag.
+  const mixed = memory({ "package.json": JSON.stringify(pkg), "src/node.js": 'try { require("supports-color"); } catch {}\nrequire("./gce.js");', "src/gce.js": 'module.exports = require("supports-color");' });
+  expect(await reachableUndeclaredImports(pkg, mixed.files, mixed.read)).toEqual([{ name: "supports-color", file: "src/gce.js" }]);
+});
+
+test("optional probes stay silent under warn and error but are reported and fatal under strict", async () => {
+  const root = await temporary(); directories.push(root);
+  const f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  const pkg = join(f.cache, "fixture-msg@1.0.0@@@1");
+  await writeFile(join(pkg, "package.json"), JSON.stringify({ name: "fixture-msg", version: "1.0.0", main: "index.js" }));
+  await writeFile(join(pkg, "index.js"), 'try { require("supports-color"); } catch (error) { /* optional */ }\nfunction hasTypeScript() { try { require("@babel/preset-typescript"); return true; } catch { return false; } }\nmodule.exports = hasTypeScript() ? "fixture-msg works" : "fixture-msg works";\n');
+  const options = { path: f.source, baseLayout: base, push: false, localCache: false, gitMetadata: false, installCache: f.cache, depsStrategy: "closure" };
+  let logs = "";
+  await build({ ...options, output: join(root, "warn"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(logs).not.toContain("BUNKO_OPTIONAL_IMPORT");
+  const manifest = JSON.parse(await Bun.file(join(f.source, "package.json")).text());
+  // A closure whose only findings are optional passes the error policy, which is the point of the classification.
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ ...manifest, bunko: { ...manifest.bunko, deps: { undeclaredImports: "error" } } }));
+  logs = "";
+  await build({ ...options, output: join(root, "error"), log: (text) => { logs += text; } });
+  expect(logs).not.toContain("BUNKO_UNDECLARED_IMPORT");
+  expect(logs).not.toContain("BUNKO_OPTIONAL_IMPORT");
+  await writeFile(join(f.source, "package.json"), JSON.stringify({ ...manifest, bunko: { ...manifest.bunko, deps: { undeclaredImports: "strict" } } }));
+  logs = "";
+  await expect(build({ ...options, output: join(root, "strict"), log: (text) => { logs += text; } })).rejects.toThrow("BUNKO_UNDECLARED_IMPORT: 2 undeclared runtime import(s)");
+  expect(logs.split("\n").filter((line) => line.startsWith("BUNKO_OPTIONAL_IMPORT"))).toEqual([
+    'BUNKO_OPTIONAL_IMPORT fixture-msg@1.0.0 imports "@babel/preset-typescript" only inside try/catch (index.js); treated as optional',
+    'BUNKO_OPTIONAL_IMPORT fixture-msg@1.0.0 imports "supports-color" only inside try/catch (index.js); treated as optional',
+  ]);
+});
+
+test("call forms are read from significant tokens, not from the raw text before the literal", () => {
+  const one = new Set(["x"]);
+  const after = (code: string) => [...guardedImports(`try { require("x"); } catch {}\n${code}`, one)];
+  // Comments and long runs of whitespace between require( and its argument must not hide the second occurrence.
+  expect(after('require(/* lazily */ "x");')).toEqual([]);
+  expect(after(`require(${" ".repeat(70)}"x");`)).toEqual([]);
+  expect(after('require(\n  // the optional implementation\n  "x",\n);')).toEqual([]);
+  expect(after('const m = await import(\n  "x"\n);')).toEqual([]);
+  // A member call is not the require this pass can reason about, so the occurrence keeps the name reported.
+  expect(after('foo.require("x");')).toEqual([]);
+  expect(after('foo.require.resolve("x");')).toEqual([]);
+  expect(after('(0, require)("x");')).toEqual([]);
+  expect(after('console.log("x");')).toEqual([]);
+});
+
+test("literal arguments are decoded before they are matched", () => {
+  const one = new Set(["x"]);
+  const after = (code: string) => [...guardedImports(`try { require("x"); } catch {}\n${code}`, one)];
+  expect(after("require(`x`);")).toEqual([]);
+  expect(after('require("\\x78");')).toEqual([]);
+  expect(after('require("\\u0078/sub");')).toEqual([]);
+  expect(after('require("\\u{78}");')).toEqual([]);
+  expect(after(`require("x/${"a".repeat(220)}");`)).toEqual([]);
+  expect(after('require("x\\\n");')).toEqual([]);
+  // A substitution-free template argument inside a try block is guarded like a string, and escaped delimiters do not end a literal early.
+  expect([...guardedImports("try { require(`x`); } catch {}", one)]).toEqual(["x"]);
+  expect([...guardedImports('try { require("x"); } catch {}\nconsole.log("a\\"b", `c\\`d`);', one)]).toEqual(["x"]);
+  // An escape this pass does not decode could name any candidate, so it abandons the file.
+  expect([...guardedImports('try { require("x"); } catch {}\nconst legacy = "\\101";', one)]).toEqual([]);
+  expect([...guardedImports('try { require("x"); } catch {}\nconst malformed = "\\xZZ";', one)]).toEqual([]);
+  expect(cookedLiteral('a\\x78\\u0079\\u{7a}\\n\\\nb')).toBe("axyz\nb");
+  expect(cookedLiteral("\\101")).toBeUndefined();
+});
+
+test("an ambiguous slash abandons the file instead of guessing between division and a regular expression", () => {
+  const one = new Set(["x"]), guard = 'try { require("x"); } catch {}\n';
+  // Reading this division as a regular expression would swallow the unguarded require in it.
+  expect([...guardedImports(`${guard}const v = {} / require("x") / 2;`, one)]).toEqual([]);
+  // Reading this regular expression as division would open a try scope over the statements after it.
+  expect([...guardedImports('if (ok) /try {/.test(s); require("x"); /}/.test(s);', one)]).toEqual([]);
+  // A word spelling a keyword after a dot is a property name, a contextual keyword may be a value, and a numeric literal is one token.
+  expect([...guardedImports(`${guard}obj.if() / require("x") / 2;`, one)]).toEqual([]);
+  expect([...guardedImports(`${guard}obj.return / require("x") / 2;`, one)]).toEqual([]);
+  expect([...guardedImports(`${guard}const of = 1; of / require("x") / 2;`, one)]).toEqual([]);
+  for (const literal of ["1.", "1.e5", "0x1f", "10n", "1_000", ".5", "0b1010", "0o17"]) expect([...guardedImports(`${guard}${literal} / require("x") / 2;`, one)], literal).toEqual([]);
+  // Identifiers are tokenised whole, non-ASCII and escaped ones included, so their spelling cannot leak into the slash context.
+  expect([...guardedImports(`${guard}π / require("x") / 2;`, one)]).toEqual([]);
+  expect([...guardedImports(`${guard}const caféreturn = 1; caféreturn / require("x") / 2;`, one)]).toEqual([]);
+  expect([...guardedImports(`${guard}\\u0072equire / require("x") / 2;`, one)]).toEqual([]);
+  // A non-ASCII identifier that ends in a keyword must not open a try scope, and an escaped identifier is not a call form.
+  expect([...guardedImports(`${guard}class πtry { load() { require("x"); } }`, one)]).toEqual([]);
+  expect([...guardedImports(`${guard}\\u0072equire("x");`, one)]).toEqual([]);
+  // Anything else non-ASCII outside a literal, comment or regular expression abandons the file.
+  expect([...guardedImports(`${guard}const a = b ✓ c;`, one)]).toEqual([]);
+  // Unicode identifiers still lex where the reading is unambiguous.
+  expect([...guardedImports('const π = 1; try { require("x"); } catch {}\nif (π) /re/.test(s);', one)]).toEqual(["x"]);
+  // A line terminator between a value and a slash can be an inserted semicolon.
+  expect([...guardedImports(`${guard}const n = count\n/re/.test(s);`, one)]).toEqual([]);
+  // Unambiguous readings still lex: a control header is followed by a statement, any other parenthesis and a subscript by an operator.
+  expect([...guardedImports(`${guard}if (a) /re/.test(b);\nwhile (b) /re/.test(c);\nconst half = (a + b) / 2, m = list[0] / 3, r = /[/{]/g, q = 1.5 / 2;`, one)]).toEqual(["x"]);
+});
+
+test("line comments end at every line terminator", () => {
+  const one = new Set(["x"]), guard = 'try { require("x"); } catch {}\n';
+  for (const terminator of ["\n", "\r", "\r\n", "\u2028", "\u2029"]) expect([...guardedImports(`${guard}// note${terminator}require("x");`, one)], JSON.stringify(terminator)).toEqual([]);
+  expect([...guardedImports(`${guard}// note require("x");`, one)]).toEqual(["x"]);
+});
+
+test("guarding follows lexical try scopes, and only a catch handler protects one", () => {
+  const one = new Set(["x"]);
+  expect([...guardedImports('try { require("x"); } finally { done(); }', one)]).toEqual([]);
+  expect([...guardedImports('try { try { require("x"); } finally { done(); } } catch {}', one)]).toEqual(["x"]);
+  expect([...guardedImports('try { attempt(); } catch (error) { require("x"); }', one)]).toEqual([]);
+  expect([...guardedImports('try { try { attempt(); } catch (error) { require("x"); } } catch {}', one)]).toEqual(["x"]);
+  // Blocks that are not try blocks never guard, whatever encloses them.
+  expect([...guardedImports('outer: { require("x"); }', one)]).toEqual([]);
+  expect([...guardedImports('class A { load() { return require("x"); } }', one)]).toEqual([]);
+  expect([...guardedImports('const load = () => require("x");', one)]).toEqual([]);
+  // Requires inside template substitutions, nested one inside another.
+  expect([...guardedImports('try { const s = `a${ `b${ require("x") }c` }d`; } catch {}', one)]).toEqual(["x"]);
+  expect([...guardedImports('try { require("x"); } catch {}\nconst s = `a${ require("x") }b`;', one)]).toEqual([]);
+  // Execution order is not modelled: a require a try block only defers still counts as guarded.
+  expect([...guardedImports('try { const f = () => require("x"); } catch {}', one)]).toEqual(["x"]);
+});
+
+test("the pass abandons a file it cannot lex with certainty", () => {
+  const one = new Set(["x"]), guard = 'try { require("x"); } catch {}\n';
+  for (const tail of ['const s = "oops;', "const s = `oops;", "/* oops", "const r = /oops;", "function f() {", "}", "const t = (1;", "1);"])
+    expect([...guardedImports(guard + tail, one)], tail).toEqual([]);
+});
+
+test("candidates are collected package-wide, so any file can unguard a name another file only probes", async () => {
+  const pkg = { name: "cross", version: "1.0.0", main: "index.js" };
+  const probe = 'try { require("x"); } catch {}\n', computed = 'const name = "x"; module.exports = require(name);';
+  // The specifier scan reports nothing for a computed require, so only the literal mention in the second file keeps the name reported.
+  const first = memory({ "package.json": JSON.stringify(pkg), "index.js": `${probe}require("./other.js");`, "other.js": computed });
+  expect(await reachableUndeclaredImports(pkg, first.files, first.read)).toEqual([{ name: "x", file: "other.js" }]);
+  // The visit order must not matter.
+  const second = memory({ "package.json": JSON.stringify(pkg), "index.js": `require("./other.js");\n${probe}`, "other.js": computed });
+  expect(await reachableUndeclaredImports(pkg, second.files, second.read)).toEqual([{ name: "x", file: "other.js" }]);
+  // Bun's scanner reads an escaped identifier, so no textual prefilter may decide a file has no specifiers.
+  expect(importSpecifiers('\\u0072equire("escaped-dep");')).toEqual(["escaped-dep"]);
+  const escaped = memory({ "package.json": JSON.stringify(pkg), "index.js": `${probe}require("./other.js");`, "other.js": '\\u0072equire("x");' });
+  expect(await reachableUndeclaredImports(pkg, escaped.files, escaped.read)).toEqual([{ name: "x", file: "other.js" }]);
+  // A file the pass cannot lex leaves the instance uncertain, and nothing in it stays optional.
+  const unsure = memory({ "package.json": JSON.stringify(pkg), "index.js": `${probe}require("./other.js");`, "other.js": 'const legacy = "\\101"; module.exports = 1;' });
+  expect(await reachableUndeclaredImports(pkg, unsure.files, unsure.read)).toEqual([{ name: "x", file: "index.js" }]);
+});
+
+test("a reached file the pass cannot lex or read leaves the instance uncertain", async () => {
+  const pkg = { name: "oversized", version: "1.0.0", main: "index.js" };
+  const big = memory({ "package.json": JSON.stringify(pkg), "index.js": 'try { require("x"); } catch {}\nrequire("./other.js");', "other.js": 'require("x");' });
+  big.files.set("other.js", undeclaredImportSizeLimit + 1);
+  const reads: string[] = [];
+  // The oversized file is never read, and it still stops the instance from calling anything optional.
+  expect(await reachableUndeclaredImports(pkg, big.files, async (file) => { reads.push(file); return big.read(file); })).toEqual([{ name: "x", file: "index.js" }]);
+  expect(reads).toEqual(["index.js"]);
+  expect(scanGuards("a".repeat(undeclaredImportSizeLimit + 1), new Set(["x"])).certain).toBe(false);
+  expect(scanGuards('try { require("x"); } catch {}', new Set(["x"])).certain).toBe(true);
+  // A reader that fails is not an error either: the scan is advisory, so the instance is only left uncertain.
+  const denied = memory({ "package.json": JSON.stringify(pkg), "index.js": 'try { require("x"); } catch {}\nrequire("./other.js");', "other.js": 'require("x");' });
+  expect(await reachableUndeclaredImports(pkg, denied.files, async (file) => {
+    if (file === "other.js") throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    return denied.read(file);
+  })).toEqual([{ name: "x", file: "index.js" }]);
+});
+
+test("a reached file that cannot hold an occurrence is never lexed, so only files mentioning a candidate can leave doubt", async () => {
+  // Without a backslash a literal's cooked value is its raw text, so a file holding neither the name nor a backslash cannot name it.
+  expect(scanGuards("const a = b ✓ c;", new Set(["x"])).certain).toBe(true);
+  expect(scanGuards('const a = b ✓ c; const name = "x";', new Set(["x"])).certain).toBe(false);
+  const pkg = { name: "quiet", version: "1.0.0", main: "index.js" };
+  const probe = 'try { require("x"); } catch {}\nrequire("./other.js");';
+  const silent = memory({ "package.json": JSON.stringify(pkg), "index.js": probe, "other.js": "const a = b ✓ c;" });
+  expect(await reachableUndeclaredImports(pkg, silent.files, silent.read)).toEqual([{ name: "x", file: "index.js", optional: true }]);
+  const mentions = memory({ "package.json": JSON.stringify(pkg), "index.js": probe, "other.js": 'const a = b ✓ c; const name = "x";' });
+  expect(await reachableUndeclaredImports(pkg, mentions.files, mentions.read)).toEqual([{ name: "x", file: "index.js" }]);
+});
+
+test("the retained-text budget is charged in bytes, so a wide instance reads again instead of holding everything", async () => {
+  const pkg = { name: "wide", version: "1.0.0", main: "index.js" };
+  // Two 3 MiB files: the first fits the 8 MiB budget as UTF-16 storage, the second does not and is read once more by the second pass.
+  const filler = `// ${"a".repeat(3 * 1024 * 1024)}\nconst value = 1;`;
+  const wide = memory({ "package.json": JSON.stringify(pkg), "index.js": 'try { require("x"); } catch {}\nrequire("./one.js"); require("./two.js");', "one.js": filler, "two.js": filler });
+  const reads: string[] = [];
+  expect(await reachableUndeclaredImports(pkg, wide.files, async (file) => { reads.push(file); return wide.read(file); })).toEqual([{ name: "x", file: "index.js", optional: true }]);
+  expect(reads.filter((file) => file === "one.js")).toEqual(["one.js"]);
+  expect(reads.filter((file) => file === "two.js")).toEqual(["two.js", "two.js"]);
 });

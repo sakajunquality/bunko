@@ -130,7 +130,7 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
     }
   }
   const destination = (path: string) => `${prefix}/${closureDirectory}/${path}`;
-  const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [], undeclared: UndeclaredImport[] = [], packages: ClosurePackage[] = [];
+  const entries: TarEntry[] = [], inventory: InventoryEntry[] = [], native: NativeBinary[] = [], undeclared: UndeclaredImport[] = [], optionalUndeclared: UndeclaredImport[] = [], packages: ClosurePackage[] = [];
   const ledger = new AddonLedger(platform, root);
   // Each instance resolves only what it declares, so an undeclared bare import that hoisting masks elsewhere fails at runtime here.
   const scan = undeclaredImportPolicy(projects) !== "off";
@@ -157,7 +157,8 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   }
   async function scanInstance(instance: Instance) {
     const findings = await reachableUndeclaredImports(instance.manifest, instance.files, (file) => readFile(join(root, instance.path, file), "utf8"));
-    for (const { name, file } of findings) undeclared.push({ code: "BUNKO_UNDECLARED_IMPORT", package: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), path: instance.path, name, file });
+    // Names the package guards itself are carried separately: only the strict policy reports them.
+    for (const { name, file, optional } of findings) (optional ? optionalUndeclared : undeclared).push({ code: optional ? "BUNKO_OPTIONAL_IMPORT" : "BUNKO_UNDECLARED_IMPORT", package: String(instance.manifest.name ?? ""), version: String(instance.manifest.version ?? ""), path: instance.path, name, file });
     instance.files.clear();
   }
   function aliases(edges: Map<string, string>, modules: string): TarEntry[] {
@@ -194,5 +195,5 @@ export async function dependencyClosure(root: string, prefix: string, platform: 
   }
   entries.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   native.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  return { entries, inventory, native, undeclared, packages, duplicates: closureDuplicates(packages), omitted: ledger.finish(), aliases: new Map([...roots].map(([path, edges]) => [path, aliases(edges, `${prefix}/node_modules`)])) };
+  return { entries, inventory, native, undeclared, optionalUndeclared, packages, duplicates: closureDuplicates(packages), omitted: ledger.finish(), aliases: new Map([...roots].map(([path, edges]) => [path, aliases(edges, `${prefix}/node_modules`)])) };
 }

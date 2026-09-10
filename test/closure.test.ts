@@ -81,8 +81,12 @@ test("closure follows optional edges, preserves bins/data and rejects missing re
   const pkgFile = join(stage, "services/api/node_modules/fixture-msg/package.json");
   const pkg = JSON.parse(await readFile(pkgFile, "utf8"));
   await writeFile(pkgFile, canonicalJSON({ ...pkg, optionalDependencies: { "absent-optional": "1" }, bin: { msg: "index.js" } }));
+  await writeFile(join(stage, "services/api/node_modules/fixture-msg/index.js"), 'try { require("supports-color"); } catch {}\nmodule.exports="one";');
   const closure = await dependencyClosure(stage, "app", platform, [project]);
   expect(closure.aliases.get(project.targetPath)!.some((e) => e.path === "app/node_modules/.bin/msg")).toBe(true);
+  // The closure report carries guarded probes separately from real findings, so warn and error policies can ignore them without losing them.
+  expect(closure.undeclared).toEqual([]);
+  expect(closure.optionalUndeclared).toEqual([{ code: "BUNKO_OPTIONAL_IMPORT", package: "fixture-msg", version: "1.0.0", path: closure.inventory.find((p) => p.name === "fixture-msg")!.path, name: "supports-color", file: "index.js" }]);
   await writeFile(pkgFile, canonicalJSON({ ...pkg, dependencies: { "absent-required": "1" } }));
   await expect(dependencyClosure(stage, "app", platform, [project])).rejects.toThrow("Missing runtime dependency");
   await writeFile(pkgFile, canonicalJSON(pkg));

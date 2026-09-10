@@ -43,7 +43,7 @@ import { assertLockToolchain, dependencyInputs, dependencyPlan, installDependenc
 import { discover, workspaceAt } from "./workspace.ts";
 import { assertSharedClosure, byteSize, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
-import { undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
+import { optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, type UndeclaredImport } from "./undeclared-imports.ts";
 import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type ClosurePlanRecord } from "./cache.ts";
 
 import { mapJobs } from "./concurrency.ts";
@@ -154,16 +154,19 @@ export async function writeFailureReport(path: string, value: unknown, original:
 }
 
 /** Reports undeclared-import findings once per closure and platform, and applies the strictest selected policy. */
-function reportUndeclaredImports(undeclared: UndeclaredImport[], projects: Project[], notice: string, announced: Set<string>, iteration: number, log: (message: string) => void): void {
+function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndeclared: UndeclaredImport[], projects: Project[], notice: string, announced: Set<string>, iteration: number, log: (message: string) => void): void {
   const policy = undeclaredImportPolicy(projects);
   // Peer contexts repeat one package version as several instances; identical findings are reported once.
   const messages = [...new Set(undeclared.map(undeclaredImportMessage))];
-  if (messages.length && policy !== "off" && iteration === 1 && !announced.has(notice)) {
+  const optional = [...new Set(optionalUndeclared.map(optionalImportMessage))];
+  const lines = policy === "strict" ? [...messages, ...optional] : messages;
+  if (lines.length && policy !== "off" && iteration === 1 && !announced.has(notice)) {
     announced.add(notice);
-    for (const message of messages.slice(0, undeclaredImportLimit)) log(`${message}\n`);
-    if (messages.length > undeclaredImportLimit) log(`BUNKO_UNDECLARED_IMPORT: ${messages.length - undeclaredImportLimit} additional warnings omitted\n`);
+    for (const message of lines.slice(0, undeclaredImportLimit)) log(`${message}\n`);
+    if (lines.length > undeclaredImportLimit) log(`BUNKO_UNDECLARED_IMPORT: ${lines.length - undeclaredImportLimit} additional warnings omitted\n`);
   }
-  if (messages.length && policy === "error") throw new Error(`BUNKO_UNDECLARED_IMPORT: ${messages.length} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
+  const failures = policy === "strict" ? lines.length : policy === "error" ? messages.length : 0;
+  if (failures) throw new Error(`BUNKO_UNDECLARED_IMPORT: ${failures} undeclared runtime import(s) in the dependency closure; set deps.undeclaredImports to warn to continue`);
 }
 
 interface BuildContext {
@@ -345,7 +348,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             aliases = planned.aliases[project.targetPath] ?? [];
             inventory = reused.inventory; native = reused.native; depsLayer = reused.layer;
             noteOmittedAddons(planned.omitted);
-            reportUndeclaredImports(planned.undeclared, context.closureProjects, notice, context.closureNotices, iteration, log);
+            reportUndeclaredImports(planned.undeclared, planned.optionalUndeclared, context.closureProjects, notice, context.closureNotices, iteration, log);
             log(`Reusing dependency closure (${platform.architecture})\n`);
           } else {
             const content = await context.closure(context.closureProjects, platform, iteration, notice);
@@ -669,7 +672,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
         await cp(source, runtime, { recursive: true });
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
-        reportUndeclaredImports(content.undeclared, selected, notice, closureNotices, iteration, (message) => options.log?.(message));
+        reportUndeclaredImports(content.undeclared, content.optionalUndeclared, selected, notice, closureNotices, iteration, (message) => options.log?.(message));
         return content;
       })());
       return closures.get(key)!;
