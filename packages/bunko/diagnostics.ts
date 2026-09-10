@@ -1,3 +1,6 @@
+import { lstat } from "node:fs/promises";
+import { snapshot } from "./files.ts";
+import { requiredInputs } from "./ignore.ts";
 import { assertToolchain, type ToolchainRequirements } from "./toolchain-policy.ts";
 import { assertAssetRuntime, inspectAssetMappings, normalizeAssetContexts, type AssetMapping } from "./asset-contexts.ts";
 import { join } from "node:path";
@@ -51,7 +54,17 @@ export async function checkConfig(options: BuildOptions) {
     const project = await loadProject({ ...options, path: join(discovery.directory, target.path) }, discovery.workspace);
     const plan = await dependencyPlan(project, discovery.directory, false);
     assertAssetRuntime(project.assetMappings, project.bunPath);
-    const assetInputs = await inspectAssetMappings(project.assetMappings, contexts);
+    const assetInputs = await inspectAssetMappings(project.assetMappings, contexts, options.deep);
+    if (options.deep) {
+      const assetExclusions: string[] = [], explicitAssets = new Set<string>();
+      const required = await requiredInputs(discovery.directory, [project], [], assetExclusions, explicitAssets);
+      for (const entry of Object.values(project.entrypoints ?? { default: project.entrypoint })) {
+        const file = join(project.directory, entry);
+        const info = await lstat(file).catch(() => undefined);
+        if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Entrypoint must be a regular file: ${entry}`);
+      }
+      await snapshot(discovery.directory, "", [], undefined, project.dataPath ? [join(project.targetPath, "bunkodata")] : [], required, assetExclusions, project.mode === "source", explicitAssets, true);
+    }
     const locked = lockedPackageNames(plan.lock), unmatchedAllowances = (project.allowIgnoredScripts ?? []).filter((name) => !locked.has(name));
     projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,
@@ -60,8 +73,8 @@ export async function checkConfig(options: BuildOptions) {
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
   }
   if (new Set(projects.map((project) => project.name)).size !== projects.length) throw new Error("Selected targets have an image name collision");
-  return { schemaVersion: 1, status: "valid", bunko: VERSION, workspace: Boolean(discovery.workspace), targets: projects,
-    unchecked: ["project asset availability and generated build outputs", "asset collisions with bundled output and runtime dependencies", "source syntax, bundling and module-relative runtime file access", "dependency installation and native compatibility", "base image runtime", "registry credentials and connectivity"] };
+  return { schemaVersion: 1, status: "valid", depth: options.deep ? "deep" : "configuration", bunko: VERSION, workspace: Boolean(discovery.workspace), targets: projects,
+    unchecked: [...(options.deep ? ["remote image/URL asset contents (not fetched); future generated outputs"] : ["project asset availability and generated build outputs"]), "asset collisions with bundled output and runtime dependencies", "source syntax, bundling and module-relative runtime file access", "dependency installation and native compatibility", "base image runtime", "registry credentials and connectivity"] };
 }
 
 /** Resolved package names in a validated bun.lock; an allowance naming none of them is probably a typo. */

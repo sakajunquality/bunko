@@ -19,7 +19,7 @@ describe("build and cache build/cache/export integration", () => {
     const root = await dir(), fixture = await dependencyFixture(root), base = await baseLayout(join(root, "base")), remote = new MockRegistry();
     const options = { path: fixture.source, baseLayout: base, repo: "registry.example/team", push: true, gitMetadata: false, localCache: false,
       registry: { fetcher: remote.fetch, credentials: async () => undefined }, installCache: fixture.cache };
-    const first = await build(options);
+    const first = await build({ ...options, cacheRepo: "registry.example/team/hello" });
     expect(first.publication?.published).toBe(true);
     expect(first.publication?.reference).toBe(`registry.example/team/hello@${first.root.digest}`);
     expect(first.cache.filter((c) => c.kind !== "app").map((c) => c.status)).toEqual(["miss", "miss"]);

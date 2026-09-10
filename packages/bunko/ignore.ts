@@ -38,7 +38,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
     }
     for (const pattern of project.assets) {
       let matched = false;
-      for await (const path of new Bun.Glob(pattern).scan({ cwd: join(root, project.targetPath), dot: true, onlyFiles: false, followSymlinks: false })) { matched = true; await asset(join(project.targetPath, path)); }
+      for await (const path of new Bun.Glob(pattern).scan({ cwd: join(root, project.targetPath), dot: true, onlyFiles: false, followSymlinks: false })) { if (filesystemMetadata(path)) continue; matched = true; await asset(join(project.targetPath, path)); }
       if (!matched) throw new Error(`Asset pattern matched no files: ${pattern}`);
     }
     for (const pkg of project.workspace?.packages ?? [{ manifest: JSON.parse(project.manifestText) }]) {

@@ -106,7 +106,7 @@ export async function registryConformance(options: ConformanceOptions) {
     const original = await readFile(app, "utf8");
     await writeFile(app, original.replace("Hello from bunko dependencies!", `bunko conformance ${runId} first`));
     const common = { path: source, base, platform: "linux/amd64,linux/arm64", push: true, repo: options.repo, bare: true,
-      cacheRepo: options.cacheRepo, gitMetadata: false, localCache: false, registryCache: true, installCache,
+      cacheRepo: options.cacheRepo ?? (options.requireCache ? options.repo : undefined), gitMetadata: false, localCache: false, registryCache: true, installCache,
       registry: { insecure: options.insecure }, log: (message: string) => process.stderr.write(message) };
     const runBuild = async (tag: string, deterministic = false): Promise<BuildResult> => {
       if (!process.env.BUNKO_TEST_CLI) return build({ ...common, tags: [tag], verifyDeterministic: deterministic });
