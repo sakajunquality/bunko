@@ -21,7 +21,7 @@ bun ./bunko.js version
 bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
 ```
 
-See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.4.0 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
+See [the setup Action and installation guide](docs/RELEASING.md) for CI installation and private repository authentication. The [build Action](docs/CI.md) runs the installed CLI from a workflow, exposes the digests, report and layout as outputs, and appends a job summary with per-phase timings, cache status, layer sizes and publication details; pass `summary: 'false'` to that step to write nothing to `$GITHUB_STEP_SUMMARY`. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.4.0 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
 
 Compile mode and runtime injection additionally require `gpgv` and a pinned official Bun revision. Version 0.4.0 supports 1.3.13 and 1.4.0–1.4.2; published 0.1.4 also supports 1.3.11/1.3.12.
 
