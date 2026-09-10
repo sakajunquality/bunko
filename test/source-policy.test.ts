@@ -64,9 +64,10 @@ test("ignore rule files and scopes reject symlinks and bounded-size violations",
   await expect(gitSourceIgnore(directory)("app.ts")).rejects.toThrow("256 KiB");
 });
 
-test("explicit source assets override gitignore without including ignored siblings", async () => {
+test.each(["generated/", "generated"])("explicit source assets override %s without including ignored siblings", async (pattern) => {
   const directory = await root(), source = await project(join(directory, "source"));
-  await file(source, ".gitignore", "generated/\n");
+  await file(source, ".gitignore", pattern + "\n");
+  await file(source, "generated/.gitignore", "!other.txt\n");
   await file(source, "generated/dist/build.json", '{"built":true}');
   await file(source, "generated/dist/private.txt", "excluded");
   await file(source, "generated/dist/.DS_Store", "metadata");
