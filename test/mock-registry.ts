@@ -5,7 +5,8 @@ import type { Fetcher } from "../packages/oci/registry.ts";
 export class MockRegistry {
   readonly blobs = new Map<string, Uint8Array>();
   readonly manifests = new Map<string, { bytes: Uint8Array; type: string }>();
-  readonly requests: { method: string; url: URL; headers: Headers }[] = [];
+  /** started/finished let tests assert that a batch completed before the next write began. */
+  readonly requests: { method: string; url: URL; headers: Headers; started: number; finished?: number }[] = [];
   private readonly sessions = new Map<string, { key: string; bytes: Uint8Array }>();
   mount: "success" | "upload" | "unsupported" = "success";
   disconnectPatch = false;
@@ -15,10 +16,22 @@ export class MockRegistry {
   failTag?: string;
   acknowledgeSubjects = false;
   cacheWritable = true;
+  /** Simulated per-request round-trip time, for concurrency and timing measurements. */
+  latencyMs = 0;
+  inFlight = 0;
+  maxInFlight = 0;
   private counter = 0;
   fetch: Fetcher = async (input, init = {}) => {
+    const entry: MockRegistry["requests"][number] = { method: init.method ?? "GET", url: new URL(input), headers: new Headers(init.headers), started: performance.now() };
+    this.requests.push(entry);
+    this.maxInFlight = Math.max(this.maxInFlight, ++this.inFlight);
+    try {
+      if (this.latencyMs) await Bun.sleep(this.latencyMs);
+      return await this.respond(input, init);
+    } finally { this.inFlight--; entry.finished = performance.now(); }
+  };
+  private respond = async (input: string | URL, init: RequestInit): Promise<Response> => {
     const url = new URL(input), method = init.method ?? "GET", headers = new Headers(init.headers);
-    this.requests.push({ method, url, headers });
     const match = /^\/v2\/(.+)\/(blobs|manifests)\/(.*)$/.exec(url.pathname);
     if (!match) return new Response(null, { status: 404 });
     const repo = match[1]!, kind = match[2]!, ref = match[3]!;

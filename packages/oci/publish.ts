@@ -1,4 +1,5 @@
 import { BlobStore } from "./blob-store.ts";
+import { boundedMap } from "./concurrency.ts";
 import { descriptor, object, sha256 } from "./digest.ts";
 import { RegistryClient, registryClient, RegistryError, responseBytes, type RegistryOptions } from "./registry.ts";
 import { parseReference, type RegistryReference } from "./source.ts";
@@ -15,21 +16,50 @@ export function repositoryName(ref: RegistryReference): string {
 
 export interface Transfer { digest: Digest; kind: string; size: number; uploaded: number; action: "reused" | "mounted" | "uploaded" | "would-upload" }
 export type TagConflict = "fail" | "skip";
-export interface Publication { existingTags?: string[]; skippedTags?: { tag: string; digest: Digest; status: number }[]; reference: string; published: boolean; tags: string[]; pendingTags: string[]; transfers: Transfer[] }
+export interface BlobCounts { reused: number; mounted: number; uploaded: number; wouldUpload: number }
+export interface Publication { existingTags?: string[]; skippedTags?: { tag: string; digest: Digest; status: number }[]; reference: string; published: boolean; tags: string[]; pendingTags: string[]; transfers: Transfer[]; blobs: BlobCounts; elapsedMs: number }
 export class PublicationError extends Error {
   constructor(message: string, readonly result: Publication, cause?: unknown) { super(message, { cause }); }
+}
+
+export function blobCounts(transfers: readonly Transfer[]): BlobCounts {
+  const counts: BlobCounts = { reused: 0, mounted: 0, uploaded: 0, wouldUpload: 0 };
+  for (const transfer of transfers) counts[transfer.action === "would-upload" ? "wouldUpload" : transfer.action]++;
+  return counts;
+}
+
+/** Fold an attachment publication into the reported one so a report keeps one elapsed time
+ * and one blob summary for the whole publication phase, not one per artifact. `elapsedMs`
+ * defaults to the attachment's own publication, and a caller that also paid for referrers
+ * probing or a fallback index write passes the cost of that complete operation instead. */
+export function accumulate(target: Publication, source: Publication, elapsedMs = source.elapsedMs): void {
+  target.transfers.push(...source.transfers);
+  target.elapsedMs += elapsedMs;
+  target.blobs = blobCounts(target.transfers);
+}
+
+/** Blobs of one manifest are placed in parallel, so the default balances a distant registry's
+ * round-trip cost against per-account request metering. Docker Hub answers bursts with 429
+ * (retried with Retry-After), so it starts lower; override with RegistryOptions. */
+export function publishConcurrency(registry: string, requested?: number): number {
+  if (requested === undefined) return registry === "registry-1.docker.io" ? 3 : 6;
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > 32) throw new Error("Publication concurrency must be an integer from 1 to 32");
+  return requested;
 }
 
 export class Publisher {
   readonly ref: RegistryReference;
   readonly client: RegistryClient;
   readonly scope: string;
+  /** Parallel per-blob work (HEAD, mount, upload) within one manifest. */
+  readonly concurrency: number;
   private readonly acknowledgedSubjects = new Map<string, string>();
   acceptsSubject(manifest: Descriptor, subject: Descriptor): boolean { return this.acknowledgedSubjects.get(manifest.digest) === subject.digest; }
   constructor(value: string, options: RegistryOptions = {}) {
     this.ref = repository(value);
     this.client = registryClient(this.ref.registry, options);
     this.scope = `repository:${this.ref.repository}:pull,push`;
+    this.concurrency = publishConcurrency(this.ref.registry, options.publishConcurrency);
   }
 
   async exists(d: Descriptor): Promise<boolean> {
@@ -117,7 +147,7 @@ export class Publisher {
           if (++failures > 3) throw new Error(`${error instanceof Error ? error.message : "Upload failed"}; blob ${d.digest}, offset ${offset}/${d.size}`);
           // A disconnected PATCH can already have committed bytes. Query its
           // offset before replaying; never append the same bytes blindly.
-          await this.client.backoff(failures - 1);
+          await this.client.backoff(failures - 1, retryTiming(error));
           const status = await this.client.request(location, {}, [this.scope], [404, 410]);
           await status.body?.cancel();
           if (status.status === 404 || status.status === 410) {
@@ -160,6 +190,8 @@ export class Publisher {
           if (monolithic && !retryableUpload(error)) throw error;
           if (await this.exists(d)) break;
           if (attempt >= 2) throw error;
+          // A refused finalization is often a rate limit; wait as long as it asked for.
+          await this.client.backoff(attempt, retryTiming(error));
           if (monolithic) {
             // A failed full-body PUT can consume its session. Reconcile the
             // digest, then replay the whole file only in a fresh session.
@@ -193,7 +225,7 @@ export class Publisher {
         // A lost POST response can leave an empty session for registry GC.
         // Only upload-session creation is replayed, never arbitrary POSTs.
         if (attempt >= 2 || !retryableUpload(error) || error instanceof RegistryError && error.status === 404) throw error;
-        await this.client.backoff(attempt);
+        await this.client.backoff(attempt, retryTiming(error));
       }
     }
   }
@@ -261,10 +293,13 @@ export class Publisher {
     return digest;
   }
 
-  async publish(store: BlobStore, root: Descriptor, tags: string[], kinds = new Map<Digest, string>(), dryRun = false, tagConflict: TagConflict = "fail"): Promise<Publication> {
+  /** `jobs` overrides the parallel blob work for one publication; a caller that already runs
+   * several publications in parallel passes a smaller share so the totals stay bounded. */
+  async publish(store: BlobStore, root: Descriptor, tags: string[], kinds = new Map<Digest, string>(), dryRun = false, tagConflict: TagConflict = "fail", jobs = this.concurrency): Promise<Publication> {
     if (!["fail", "skip"].includes(tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
     for (const tag of tags) if (!/^[\w][\w.-]{0,127}$/.test(tag)) throw new Error(`Invalid image tag: ${tag}`);
-    const result: Publication = { reference: `${repositoryName(this.ref)}@${root.digest}`, published: false, tags: [], pendingTags: [...tags], transfers: [] };
+    const started = performance.now();
+    const result: Publication = { reference: `${repositoryName(this.ref)}@${root.digest}`, published: false, tags: [], pendingTags: [...tags], transfers: [], blobs: blobCounts([]), elapsedMs: 0 };
     const visited = new Set<Digest>();
     const visit = async (d: Descriptor) => {
       if (visited.has(d.digest)) return;
@@ -272,16 +307,29 @@ export class Publisher {
       if (d.mediaType === media.index) {
         const index = object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Image index");
         if (!Array.isArray(index.manifests)) throw new Error("Invalid image index");
+        // Manifests stay ordered: each child is complete, and published, before the next one
+        // claims shared blobs, and the index below is written only after all of them.
         for (const child of index.manifests) await visit(descriptor(child));
       } else if (d.mediaType === media.manifest) {
         const manifest = object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Image manifest");
         if (!Array.isArray(manifest.layers)) throw new Error("Invalid image layers");
+        const children: Descriptor[] = [];
         for (const value of [...manifest.layers, manifest.config]) {
           const child = descriptor(value);
           if (visited.has(child.digest)) continue;
           visited.add(child.digest);
-          result.transfers.push(await this.blob(store, child, kinds.get(child.digest) ?? (child.mediaType === media.config ? "config" : "base"), dryRun));
+          children.push(child);
         }
+        // Layers and the config are independent, so their round trips overlap; the manifest
+        // below is written only once every one of them is present in the repository.
+        const { results, failure } = await boundedMap(children, jobs, (child) =>
+          this.blob(store, child, kinds.get(child.digest) ?? (child.mediaType === media.config ? "config" : "base"), dryRun));
+        // Report in manifest order, whichever order the registry answered in. A failed batch
+        // still reports the blobs it did place, so a partial publication stays auditable.
+        for (const transfer of results) if (transfer) result.transfers.push(transfer);
+        // The failure is reported separately from its reason: a rejection value can be falsy,
+        // and the manifest below must never be written on one.
+        if (failure) throw failure.reason;
       } else throw new Error("Publication root must be an OCI manifest or index");
       if (!dryRun) await this.manifest(store, d);
     };
@@ -310,7 +358,14 @@ export class Publisher {
       }
       return result;
     } catch (error) { throw new PublicationError(error instanceof Error ? error.message : "Image publication failed", result, error); }
+    finally { result.elapsedMs = Math.round(performance.now() - started); result.blobs = blobCounts(result.transfers); }
   }
+}
+
+/** Uploads are not replayed by RegistryClient, so their recovery reads the refusal's own
+ * Retry-After instead of guessing a delay a rate-limited registry did not ask for. */
+function retryTiming(error: unknown): string | undefined {
+  return error instanceof RegistryError ? error.retryAfter : undefined;
 }
 
 function retryableUpload(error: unknown): boolean {

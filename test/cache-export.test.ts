@@ -41,6 +41,20 @@ test.each([false, true])("immutable write races reconcile only identical verifie
   expect((await consumer.get(winner.key, "assets"))!.layer).toEqual(winner.layer);
 });
 
+test("registry cache artifacts publish in parallel and report in record order", async () => {
+  const root = await fixture(), store = new BlobStore(join(root, "store")), mock = new MockRegistry();
+  mock.latencyMs = 10;
+  const registry = { credentials: async () => undefined, fetcher: mock.fetch, publishConcurrency: 3 };
+  const cache = new LayerCache(store, { repository: "registry.test/cache", registry, log: () => {} });
+  const kinds = ["deps", "assets", "app", "runtime"] as const;
+  for (const kind of kinds) await cache.remember({ ...await record(store, `payload ${kind}`), kind, key: cacheKey(`inputs ${kind}`) });
+  await cache.publish();
+  expect(cache.exports.map((entry) => entry.kind)).toEqual([...kinds]);
+  expect(cache.exports.every((entry) => entry.status === "written")).toBe(true);
+  expect(mock.maxInFlight).toBe(3);
+  expect(mock.inFlight).toBe(0);
+});
+
 test("existing cache metadata does not conceal corrupt or conflicting outputs", async () => {
   const root = await fixture(), store = new BlobStore(join(root, "store")), mock = new MockRegistry();
   const registry = { credentials: async () => undefined, fetcher: mock.fetch }, item = await record(store, "same");

@@ -34,7 +34,7 @@ import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/ar
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { assembleImage, isRootUser, nonrootUser } from "../oci/image.ts";
 import { assertOutputAvailable, canonicalOutput, exportLayout, exportLayouts } from "../oci/layout.ts";
-import { Publisher, PublicationError, repository, repositoryName, type Publication } from "../oci/publish.ts";
+import { accumulate, Publisher, PublicationError, repository, repositoryName, type Publication } from "../oci/publish.ts";
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { packLayer } from "../oci/tar.ts";
 import { media, type BaseImage, type Descriptor, type Digest, type Layer, type Platform } from "../oci/types.ts";
@@ -529,12 +529,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             for (const skipped of result.publication.skippedTags ?? []) log(`Registry kept immutable tag ${skipped.tag} at ${skipped.digest}\n`);
             if (options.dryRun) {
               for (const item of attestations) {
-                const estimate = await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true);
-                result.publication.transfers.push(...estimate.transfers);
+                accumulate(result.publication, await publisher.publish(store, item.manifest, [], new Map(item.blobs.map((d) => [d.digest, "attestation"])), true));
               }
             } else {
               if (result.supplyChain) result.supplyChain.status = "attaching";
-              await publishArtifacts(publisher, store, attestations, (transfers) => result.publication!.transfers.push(...transfers));
+              await publishArtifacts(publisher, store, attestations, (publication, elapsedMs) => accumulate(result.publication!, publication, elapsedMs));
               if (options.signKey && result.supplyChain) result.supplyChain.status = "signing";
               if (options.signKey) await signImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), options.signKey, options.cosignPath, options.registry?.insecure);
               if (result.supplyChain) result.supplyChain.status = "complete";
@@ -554,7 +553,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         if (report && !context.multiple && !options.imageRefs) await writeReport(report, result, context.reports);
         if (output && !options.dryRun) log(`OCI layout: ${output}\n`);
         log(`Image: ${root.digest}\n`);
-        if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)}\n`);
+        if (result.publication) log(`Layer/config bytes ${options.dryRun ? "estimated" : "uploaded"}: ${result.publication.transfers.reduce((sum, t) => sum + t.uploaded, 0)} (${result.publication.blobs.reused} reused, ${result.publication.blobs.mounted} mounted, ${options.dryRun ? result.publication.blobs.wouldUpload : result.publication.blobs.uploaded} ${options.dryRun ? "pending" : "uploaded"}, ${result.publication.elapsedMs} ms)\n`);
         return result;
       },
     };

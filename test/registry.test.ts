@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { dockerCredentials } from "../packages/oci/credentials.ts";
 import { canonicalJSON, sha256 } from "../packages/oci/digest.ts";
+import { boundedMap } from "../packages/oci/concurrency.ts";
 import { Publisher, PublicationError } from "../packages/oci/publish.ts";
 import { RegistryClient, webStream } from "../packages/oci/registry.ts";
 import { media } from "../packages/oci/types.ts";
@@ -92,6 +93,33 @@ describe("Docker-compatible authentication", () => {
       return new Headers(init?.headers).has("Authorization") ? new Response("ok") : new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
     } });
     await client.request("/v2/");
+  });
+
+  test("a Retry-After pause is shared and extended by the longest wait", async () => {
+    const waits: number[] = [], gates: (() => void)[] = [];
+    const sleep = (ms: number) => new Promise<void>((resolve) => { waits.push(ms); gates.push(resolve); });
+    let issued = 0, settled = 0;
+    const client = new RegistryClient("registry.example", { credentials: anonymous, sleep, fetcher: async () => {
+      const status = ++issued <= 2 ? 429 : 200;
+      return status === 429 ? new Response(null, { status, headers: { "Retry-After": issued === 1 ? "1" : "30" } }) : new Response("data");
+    } });
+    const first = client.request("/v2/app/blobs/first").then(() => { settled++; });
+    await Bun.sleep(5);
+    const second = client.request("/v2/app/blobs/second").then(() => { settled++; });
+    await Bun.sleep(5);
+    expect(waits).toEqual([1000]);
+    // The second worker joins the running pause instead of starting its own.
+    expect(issued).toBe(2);
+    gates[0]!();
+    await Bun.sleep(5);
+    // Its longer Retry-After extends the pause for both, so neither retries after one second.
+    expect(waits).toEqual([1000, 29000]);
+    expect(issued).toBe(2);
+    expect(settled).toBe(0);
+    gates[1]!();
+    await Promise.all([first, second]);
+    expect(issued).toBe(4);
+    expect(settled).toBe(2);
   });
 
   test("bounded retries honor Retry-After and never send credentials to redirected storage", async () => {
@@ -208,6 +236,165 @@ describe("Distribution publication", () => {
     expect(registry.requests.some((r) => r.method === "GET" && r.url.pathname.includes("/uploads/"))).toBe(true);
   });
 
+  const layered = async (store: BlobStore, count: number) => {
+    const layers = [];
+    for (let index = 0; index < count; index++) layers.push(await store.put(Buffer.from(`layer ${index}`), media.gzip));
+    const config = await store.put(canonicalJSON({ architecture: "amd64", os: "linux" }), media.config);
+    return { layers, config, manifest: await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.manifest, config, layers }), media.manifest) };
+  };
+
+  test("places every blob before the manifest and the manifest before the tag", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    registry.latencyMs = 5;
+    const { layers, config, manifest } = await layered(store, 8);
+    const result = await new Publisher("registry.example/app", { fetcher: registry.fetch, credentials: anonymous }).publish(store, manifest, ["latest"]);
+    // Transfers stay in manifest order (layers, then config) whatever order the registry answered in.
+    expect(result.transfers.map((transfer) => transfer.digest)).toEqual([...layers, config].map((d) => d.digest));
+    expect(result.blobs).toEqual({ reused: 0, mounted: 0, uploaded: 9, wouldUpload: 0 });
+    expect(result.elapsedMs).toBeGreaterThan(0);
+    const request = (method: string, suffix: string) => registry.requests.find((r) => r.method === method && r.url.pathname.endsWith(suffix))!;
+    const manifestPut = request("PUT", `/manifests/${manifest.digest}`), tagPut = request("PUT", "/manifests/latest");
+    expect(registry.requests.filter((r) => r.url.pathname.includes("/blobs/")).every((r) => r.finished! <= manifestPut.started)).toBe(true);
+    expect(manifestPut.finished!).toBeLessThanOrEqual(tagPut.started);
+  });
+
+  test.each([1, 4])("bounds parallel blob work to %i in-flight requests", async (limit) => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    registry.latencyMs = 25;
+    const { manifest } = await layered(store, 11);
+    const publisher = new Publisher("registry.example/app", { fetcher: registry.fetch, credentials: anonymous, publishConcurrency: limit });
+    expect(publisher.concurrency).toBe(limit);
+    await publisher.publish(store, manifest, ["latest"]);
+    expect(registry.maxInFlight).toBe(limit);
+    expect(registry.inFlight).toBe(0);
+  });
+
+  test("defaults stay per registry and reject an out-of-range override", async () => {
+    expect(new Publisher("registry.example/app").concurrency).toBe(6);
+    expect(new Publisher("asia-northeast1-docker.pkg.dev/project/repository/image").concurrency).toBe(6);
+    // Docker Hub meters requests per account, so its default stays lower.
+    expect(new Publisher("docker.io/owner/app").concurrency).toBe(3);
+    expect(() => new Publisher("registry.example/app", { publishConcurrency: 0 })).toThrow("Publication concurrency must be an integer from 1 to 32");
+    expect(() => new Publisher("registry.example/app", { publishConcurrency: 33 })).toThrow("Publication concurrency must be an integer from 1 to 32");
+  });
+
+  test("one scoped token serves a parallel batch", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    registry.latencyMs = 5;
+    let tokens = 0;
+    const { manifest } = await layered(store, 8);
+    const publisher = new Publisher("registry.example/app", { credentials: async () => ({ username: "user", password: "secret" }), fetcher: async (input, init) => {
+      const url = new URL(input);
+      if (url.host === "auth.example") { tokens++; return Response.json({ access_token: "scoped", expires_in: 3600 }); }
+      if (new Headers(init?.headers).get("Authorization") !== "Bearer scoped") return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
+      return registry.fetch(input, init);
+    } });
+    await publisher.publish(store, manifest, ["latest"]);
+    expect(tokens).toBe(1);
+  });
+
+  test("a refused blob upload fails the publication and writes no manifest", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const { layers, config, manifest } = await layered(store, 5);
+    const refused = layers[2]!;
+    const publisher = new Publisher("registry.example/app", { credentials: anonymous, fetcher: async (input, init) => {
+      if (init?.method === "PUT" && new URL(input).searchParams.get("digest") === refused.digest) return new Response(null, { status: 403 });
+      return registry.fetch(input, init);
+    } });
+    try { await publisher.publish(store, manifest, ["latest"]); throw new Error("expected failure"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(PublicationError);
+      expect((error as Error).message).toBe("Registry PUT failed (403): registry.example");
+      const result = (error as PublicationError).result;
+      expect(result.published).toBe(false);
+      // The batch that started alongside the refusal is still reported, in manifest order.
+      expect(result.transfers.map((transfer) => transfer.digest)).toEqual([...layers.filter((d) => d !== refused), config].map((d) => d.digest));
+      expect(result.blobs.uploaded).toBe(5);
+      expect(result.elapsedMs).toBeGreaterThan(0);
+    }
+    expect(registry.manifests.size).toBe(0);
+    expect(registry.inFlight).toBe(0);
+    expect(registry.blobs.has(`registry.example/app/${refused.digest}`)).toBe(false);
+  });
+
+  test("a falsy rejection fails the publication before any manifest is written", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const { manifest } = await layered(store, 4);
+    let challenges = 0;
+    // A credential provider that rejects with undefined: the batch must still stop.
+    const publisher = new Publisher("registry.example/app", { credentials: async () => { throw undefined; }, fetcher: async (input, init) => {
+      if (init?.method === "HEAD" && ++challenges === 1) return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
+      return registry.fetch(input, init);
+    } });
+    try { await publisher.publish(store, manifest, ["latest"]); throw new Error("expected failure"); }
+    catch (error) {
+      expect(error).toBeInstanceOf(PublicationError);
+      expect((error as Error).message).toBe("Image publication failed");
+      expect((error as PublicationError).result.published).toBe(false);
+    }
+    expect(registry.manifests.size).toBe(0);
+  });
+
+  // Provider hosts stream a full-file PUT; other registries finalize a chunked session.
+  test.each([["chunked", "registry.example/app"], ["monolithic", "us-docker.pkg.dev/project/repository/image"]])("a failure waits for the %s upload already in flight", async (mode, repo) => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const { layers, manifest } = await layered(store, 3);
+    const held = layers[0]!, refused = layers[1]!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let holding = false, finished = false;
+    const publisher = new Publisher(repo!, { credentials: anonymous, fetcher: async (input, init) => {
+      const url = new URL(input);
+      // The refusal is immediate; the upload it races only completes well after it.
+      if (init?.method === "HEAD" && url.pathname.endsWith(refused.digest)) { setTimeout(release, 30); return new Response(null, { status: 403 }); }
+      if (init?.method === "PUT" && url.searchParams.get("digest") === held.digest) {
+        holding = true; await gate;
+        const response = await registry.fetch(input, init); finished = true; return response;
+      }
+      return registry.fetch(input, init);
+    } });
+    await expect(publisher.publish(store, manifest, ["latest"])).rejects.toThrow("Registry HEAD failed (403)");
+    expect(holding).toBe(true);
+    expect(finished).toBe(true);
+    expect(registry.requests.some((r) => r.method === "PATCH")).toBe(mode === "chunked");
+    expect(registry.inFlight).toBe(0);
+    expect(registry.manifests.size).toBe(0);
+  });
+
+  test("a rejected shared token exchange does not poison the next attempt", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const { manifest } = await layered(store, 5);
+    let attempts = 0;
+    const publisher = new Publisher("registry.example/app", {
+      credentials: async () => { if (++attempts === 1) throw new Error("credential helper failed"); return { username: "user", password: "secret" }; },
+      fetcher: async (input, init) => {
+        if (new URL(input).host === "auth.example") return Response.json({ access_token: "scoped", expires_in: 3600 });
+        if (new Headers(init?.headers).get("Authorization") !== "Bearer scoped") return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
+        return registry.fetch(input, init);
+      },
+    });
+    await expect(publisher.publish(store, manifest, ["latest"])).rejects.toThrow("credential helper failed");
+    expect(attempts).toBe(1);
+    expect(registry.manifests.size).toBe(0);
+    expect((await publisher.publish(store, manifest, ["latest"])).published).toBe(true);
+  });
+
+  test("a throttled parallel upload waits for the registry's Retry-After", async () => {
+    const store = new BlobStore(await dir()), registry = new MockRegistry();
+    const { manifest } = await layered(store, 5);
+    const delays: number[] = [];
+    let limited = 0;
+    const publisher = new Publisher("registry.example/app", { credentials: anonymous, sleep: async (ms) => { delays.push(ms); }, fetcher: async (input, init) => {
+      // Rate-limit the first upload sessions; recovery must honour Retry-After, not guess.
+      if (init?.method === "POST" && limited < 3) { limited++; return new Response(null, { status: 429, headers: { "Retry-After": "2" } }); }
+      return registry.fetch(input, init);
+    } });
+    const result = await publisher.publish(store, manifest, ["latest"]);
+    expect(result.blobs.uploaded).toBe(6);
+    expect(delays.length).toBeGreaterThan(0);
+    expect(delays.every((ms) => ms === 2000)).toBe(true);
+  });
+
   test("dry-run only reads, and partial tag publication is reported without rollback", async () => {
     const root = await dir(), store = new BlobStore(root), registry = new MockRegistry();
     const config = await store.put(canonicalJSON({}), media.config);
@@ -224,5 +411,49 @@ describe("Distribution publication", () => {
       expect(result.published).toBe(true); expect(result.tags).toEqual(["first"]); expect(result.pendingTags).toEqual(["second"]);
       expect(registry.manifests.has(`registry.example/app/${manifest.digest}`)).toBe(true);
     }
+  });
+});
+
+describe("Bounded publication fan-out", () => {
+  const deferred = <T>() => {
+    let resolve!: (value: T) => void, reject!: (reason?: unknown) => void;
+    return { promise: new Promise<T>((done, fail) => { resolve = done; reject = fail; }), resolve, reject };
+  };
+
+  test("reports the lowest-index failure even when a later job rejects first", async () => {
+    const gates = [deferred<string>(), deferred<string>()];
+    const work = boundedMap([0, 1], 2, async (index) => gates[index]!.promise);
+    gates[1]!.reject(new Error("second failed"));
+    await Bun.sleep(1);
+    gates[0]!.reject(new Error("first failed"));
+    const { results, failure } = await work;
+    expect(failure!.index).toBe(0);
+    expect((failure!.reason as Error).message).toBe("first failed");
+    expect(results).toEqual([undefined, undefined]);
+  });
+
+  test("starts no job after a failure", async () => {
+    const started: number[] = [];
+    const { results, failure } = await boundedMap([0, 1, 2, 3, 4, 5], 2, async (index) => {
+      started.push(index);
+      if (index === 0) throw new Error("stop");
+      return index;
+    });
+    expect(started).toEqual([0, 1]);
+    expect(failure!.index).toBe(0);
+    expect(results.slice(2).every((value) => value === undefined)).toBe(true);
+  });
+
+  test("reports a falsy rejection as a failure", async () => {
+    const { results, failure } = await boundedMap([0, 1], 2, async (index) => { if (index === 1) throw undefined; return index; });
+    expect(failure).toBeDefined();
+    expect(failure!.index).toBe(1);
+    expect(failure!.reason).toBeUndefined();
+    expect(results[0]).toBe(0);
+  });
+
+  test("rejects an out-of-range bound and accepts an empty batch", async () => {
+    await expect(boundedMap([1], 0, async (value) => value)).rejects.toThrow("Concurrency must be an integer from 1 to 32");
+    expect(await boundedMap([], 4, async (value) => value)).toEqual({ results: [] });
   });
 });
