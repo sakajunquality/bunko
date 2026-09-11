@@ -14,7 +14,7 @@ on:
       version:
         description: Existing attested GitHub release to package
         required: true
-        default: v0.6.0
+        default: v0.6.1
       publish:
         description: Publish the verified tarball using npm trusted publishing
         type: boolean
@@ -47,7 +47,7 @@ jobs:
           package-manager-cache: false
       - name: Select a release from main history
         env:
-          SELECTED_VERSION: ${{ inputs.version || 'v0.6.0' }}
+          SELECTED_VERSION: ${{ inputs.version || 'v0.6.1' }}
         run: |
           bun -e 'import {releaseTag} from "./scripts/distribution.ts"; import {appendFileSync} from "node:fs"; appendFileSync(process.env.GITHUB_ENV!, "RELEASE_TAG="+releaseTag(process.env.SELECTED_VERSION!)+"\n");'
       - name: Verify the published release before executing it
