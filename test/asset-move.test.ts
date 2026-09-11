@@ -1,3 +1,4 @@
+import { crossDeviceAvailable } from "./cross-device.ts";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ test("asset moves preserve bytes and executable mode on one filesystem", async (
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test.skipIf(process.platform !== "linux")("failed cross-device asset commits retain the source and remove partial copies", async () => {
+test.skipIf(!await crossDeviceAvailable())("failed cross-device asset commits retain the source and remove partial copies", async () => {
   const root = await mkdtemp(join(tmpdir(), "bunko-move-")), cache = await mkdtemp("/dev/shm/bunko-move-");
   try {
     expect((await stat(root)).dev).not.toBe((await stat(cache)).dev);

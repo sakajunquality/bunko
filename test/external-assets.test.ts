@@ -1,3 +1,4 @@
+import { crossDeviceAvailable } from "./cross-device.ts";
 import { applyLayers } from "../packages/bunko/runtime-layer.ts";
 import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { writeAssetBytes } from "../packages/bunko/asset-write.ts";
@@ -641,7 +642,7 @@ test("disabled asset caching does not exclude the configured cache path", async 
 });
 
 
-test.skipIf(process.platform !== "linux")("image asset caches support separate filesystems for files and directories", async () => {
+test.skipIf(!await crossDeviceAvailable())("image asset caches support separate filesystems for files and directories", async () => {
   const { mkdtemp, stat, readFile } = await import("node:fs/promises");
   const f = await fixture(false), cache = await mkdtemp("/dev/shm/bunko-image-cache-"); roots.push(cache);
   expect((await stat(f.root)).dev).not.toBe((await stat(cache)).dev);
