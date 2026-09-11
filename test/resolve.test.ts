@@ -217,3 +217,37 @@ test.each(["build", "resolve"])("CLI %s accepts and forwards the asset cache pat
   expect(result.stderr).toContain("Output/cache paths must not contain the source project");
   expect(result.stderr).not.toContain("not supported");
 });
+
+
+test("CLI warns once per insecure origin across multiple projects on every invocation", async () => {
+  const f = await fixture();
+  await project(join(f.root, "later"), { name: "later" });
+  const secret = "synthetic-registry-password";
+  const authorization = `Basic ${Buffer.from(`test:${secret}`).toString("base64")}`;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
+    if (request.headers.get("Authorization") !== authorization) {
+      return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Basic realm="test"' } });
+    }
+    return f.registry.fetch(request.url, { method: request.method, headers: request.headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer() });
+  } });
+  const host = `127.0.0.1:${server.port}`, config = join(f.root, "docker.json");
+  await writeFile(config, JSON.stringify({ auths: { [host]: { auth: authorization.slice(6) } } }));
+  try {
+    for (let invocation = 0; invocation < 2; invocation++) {
+      const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "resolve", "-f", "-", "--context", f.root,
+        "--repo", `${host}/team`, "--insecure-registry", host, "--base-layout", f.options.baseLayout, "--no-cache", "--git-metadata=false"],
+      { stdin: new Blob(["images: [bunko://app, bunko://later]\n"]), stdout: "pipe", stderr: "pipe", env: { ...process.env, BUNKO_DOCKER_CONFIG: config } });
+      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(exit, stderr).toBe(0);
+      const images = parseAllDocuments(stdout)[0]!.toJS().images;
+      expect(images).toHaveLength(2);
+      expect(images[0]).toStartWith(`${host}/team/hello@sha256:`);
+      expect(images[1]).toStartWith(`${host}/team/later@sha256:`);
+      expect(stderr.split("\n").filter((line) => line.startsWith("Sending registry credentials in cleartext"))).toEqual([
+        `Sending registry credentials in cleartext to http://${host}; --insecure-registry permits HTTP but does not protect them`,
+      ]);
+      expect(stderr).not.toContain(secret);
+      expect(stderr).not.toContain(authorization);
+    }
+  } finally { await server.stop(true); }
+});
