@@ -1,3 +1,4 @@
+import { assertBaseLibc, assertNativeLibc } from "./libc.ts";
 import { configurationPlan } from "./configuration-plan.ts";
 import { mkdtemp, cleanupMkdtemp } from "../runtime/invocation.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
@@ -14,7 +15,7 @@ import { offlineOptions } from "./offline.ts";
 import { installNetworkEnvironment, npmCertificate } from "./install-network.ts";
 import { installCachePath } from "./install-cache.ts";
 import { downloadRuntime, runtimeCachePath, type InjectedRuntime } from "./runtime-download.ts";
-import { baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
+import { assertRuntimeBase, baseFilesystem, injectedLayer, type BaseFilesystem } from "./runtime-layer.ts";
 import { locationHint, locationMessage, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { imageMapping, normalizeAssetContexts, stageAssetMappings, type AssetMaterial } from "./asset-contexts.ts";
 import { assetCachePath } from "./asset-cache.ts";
@@ -239,7 +240,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const installCache = await installCachePath(options);
   const toolchain = context.toolchain;
-  const baseRef = project.base ?? `oven/bun:${toolchain.version}-distroless`;
+  const baseRef = project.base ?? `oven/bun:${toolchain.version}-${project.runtimeLibc === "musl" ? "alpine" : "distroless"}`;
   if (options.reproducible && !options.baseLayout && !/@sha256:[a-f0-9]{64}$/.test(baseRef)) throw new Error("--reproducible requires --base with a sha256 digest, or --base-layout");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-")));
   try {
@@ -298,13 +299,19 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       bases.push(base);
       for (const layer of base.manifest.layers) if (!basePlatforms.has(layer.digest)) basePlatforms.set(layer.digest, platform);
     }
-    for (const base of bases) assertBaseWorkdir(await filesystem(base), project.workdir);
+    for (const [index, base] of bases.entries()) {
+      const tree = await filesystem(base);
+      assertBaseWorkdir(tree, project.workdir);
+      assertBaseLibc(tree, project.runtimeLibc, project.platforms[index]!);
+    }
+    const libraryPath = (base: BaseImage) => project.env.LD_LIBRARY_PATH ?? base.config.config?.Env?.findLast((value) => value.startsWith("LD_LIBRARY_PATH="))?.slice(16) ?? "";
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
-    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
+    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
+    for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!), libraryPath(bases[index]!));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
-        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform);
+        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform);
         runtime.metadata.path = project.bunPath;
         const tree = await filesystem(bases[index]!);
         runtimes.push({ ...runtime, tree });
@@ -362,7 +369,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const tree = await filesystem(base);
         if (assets.length) assertBaseDataPaths(tree, assets);
         const inputRuntime = runtimes[index];
-        const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
+        const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp, libraryPath(base)), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {
           const key = cacheKey({ kind: "runtime", packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
@@ -427,7 +434,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             noteOmittedAddons(content.omitted.length);
             const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination,
               strategy: closureStrategy, entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
-              toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: "glibc", scripts: false });
+              toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: project.runtimeLibc, scripts: false });
             // A plan candidate that already resolved this exact key needs no second lookup or event.
             const hit = attemptedDeps.has(key) ? attemptedDeps.get(key) : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
             depsEntries = content.entries;
@@ -531,14 +538,15 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const baseUser = base.config.config?.User;
         if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
+        const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
+        assertNativeLibc(project.runtimeLibc, native, new Set(capabilities.inactiveNativeVariants.map((item) => item.path)));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...caEnvironment }, ports: project.ports,
-          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode,
+          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode, "org.bunko.runtime.libc": project.runtimeLibc,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
         if (iteration === 1) for (const missing of capabilities.missingFromBase) log(`BUNKO_MISSING_BASE_LIBRARY: base lacks ${missing.name}, required by ${missing.requiredBy}; application libraries and runtime loader compatibility remain unchecked\n`);
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;

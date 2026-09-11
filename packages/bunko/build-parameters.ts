@@ -5,7 +5,7 @@ import type { Project } from "./config.ts";
 export function buildParameters(project: Project) {
   return {
     defineKeys: Object.keys(project.build.define).sort(),
-    runtime: { argumentCount: project.runtimeArgs.length, argumentsDigest: sha256(canonicalJSON(project.runtimeArgs)),
+    runtime: { libc: project.runtimeLibc, argumentCount: project.runtimeArgs.length, argumentsDigest: sha256(canonicalJSON(project.runtimeArgs)),
       path: project.bunPath, injection: project.runtimeInject, certificateCount: project.runtimeCAs.length, systemCaTrust: project.runtimeSystemCaTrust },
     assets: { excludes: [...project.assetExcludes], mode: project.assetMode },
   };

@@ -1,5 +1,6 @@
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
+import { libcLoader, runtimeLibc, type Libc } from "./libc.ts";
 import { runtimePins } from "./runtime-pins.ts";
 import { canonicalOutput } from "../oci/layout.ts";
 import { constants } from "node:fs";
@@ -20,13 +21,16 @@ export const runtimePolicy = "bun-release-gpg-pinned-v1";
 export interface InjectedRuntime {
   source: "github-release"; version: string; expectedRevision: string; releaseRevision: string; revisionVerified: false;
   checksumDocumentDigest: Digest; noticeDigest: Digest; archiveDigest: Digest; executableDigest: Digest; url: string; signer: string; policy: string;
-  asset: string; libc: "glibc"; cpu: string; path: string;
+  asset: string; libc: Libc; cpu: string; path: string;
   interpreter: string; needed: string[]; glibcSymbols: string[];
 }
-export function runtimeAsset(toolchain: Toolchain, platform: Platform) {
+export function runtimeAsset(toolchain: Toolchain, platform: Platform, libc: Libc = "glibc") {
   if (!Object.hasOwn(runtimePins, toolchain.version) || !/^[a-f0-9]{7,40}$/.test(toolchain.revision)) throw new Error(`Verified runtime selection supports official Bun releases: ${Object.keys(runtimePins).join(", ")}`);
   if (platform.os !== "linux" || !["amd64", "arm64"].includes(platform.architecture)) throw new Error("Unsupported verified runtime platform");
-  return `bun-linux-${platform.architecture === "amd64" ? "x64-baseline" : "aarch64"}`;
+  const selected = runtimeLibc(libc);
+  const asset = `bun-linux-${platform.architecture === "amd64" ? selected === "musl" ? "x64-musl-baseline" : "x64-baseline" : selected === "musl" ? "aarch64-musl" : "aarch64"}`;
+  if (!runtimePins[toolchain.version]?.[asset]) throw new Error("No verified runtime artifact for selected version, platform and libc");
+  return asset;
 }
 
 export function assertSignatureStatus(status: string, code: number): void {
@@ -148,7 +152,7 @@ export async function extractRuntime(bytes: Buffer, asset: string): Promise<Buff
   return executable;
 }
 
-export function runtimeELF(bytes: Buffer, platform: Platform) {
+export function runtimeELF(bytes: Buffer, platform: Platform, libc: Libc = "glibc") {
   if (bytes.length < 64 || bytes.subarray(0, 4).toString() !== "\x7fELF" || bytes[4] !== 2 || bytes[5] !== 1 || ![0, 3].includes(bytes[7]!) || ![2, 3].includes(bytes.readUInt16LE(16)) || bytes.readUInt16LE(18) !== (platform.architecture === "amd64" ? 62 : 183)) throw new Error("Verified runtime is not a target Linux ELF64 executable");
   const num = (offset: number) => { const n = Number(bytes.readBigUInt64LE(offset)); if (!Number.isSafeInteger(n) || n < 0) throw new Error("Invalid runtime ELF offset"); return n; };
   const phoff = num(32), width = bytes.readUInt16LE(54), count = bytes.readUInt16LE(56);
@@ -162,8 +166,8 @@ export function runtimeELF(bytes: Buffer, platform: Platform) {
   const interp = segments.filter((s) => s.type === 3);
   if (interp.length !== 1) throw new Error("Runtime must declare one ELF interpreter");
   const interpreter = string(interp[0]!.offset, interp[0]!.offset + interp[0]!.size);
-  const expected = platform.architecture === "amd64" ? "/lib64/ld-linux-x86-64.so.2" : "/lib/ld-linux-aarch64.so.1";
-  if (interpreter !== expected) throw new Error("Runtime is not the expected glibc executable");
+  const expected = libcLoader(runtimeLibc(libc), platform);
+  if (interpreter !== expected) throw new Error(`Runtime is not the expected ${libc} executable (requires ${expected})`);
   const dynamic = segments.find((s) => s.type === 2), neededOffsets: number[] = []; let strings = 0, length = 0;
   if (!dynamic || dynamic.size > 1024 * 1024 || dynamic.size % 16) throw new Error("Invalid runtime ELF dynamic table");
   for (let p = dynamic.offset; p < dynamic.offset + dynamic.size; p += 16) {
@@ -179,9 +183,10 @@ export function runtimeELF(bytes: Buffer, platform: Platform) {
   return { interpreter, needed, glibcSymbols };
 }
 
-export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { cache?: string | false; offline?: boolean; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
+export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { libc?: Libc; cache?: string | false; offline?: boolean; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
   if (!Bun.which("gpgv")) throw new Error("Verified runtime selection requires gpgv (install GnuPG); unsigned verification is not supported");
-  const asset = runtimeAsset(toolchain, platform), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
+  const libc = runtimeLibc(options.libc);
+  const asset = runtimeAsset(toolchain, platform, libc), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
   const ephemeral = options.cache === false ? await mkdtemp(join(tmpdir(), "bunko-runtime-cache-")) : undefined;
   const cache = ephemeral ?? await runtimeCachePath(typeof options.cache === "string" ? options.cache : undefined);
   try {
@@ -218,11 +223,11 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
       let digest!: Digest, checksumDocumentDigest!: Digest;
       await cached("SHASUMS256.txt.asc", manifestLimit, async (bytes) => { digest = pinnedArchiveChecksum(toolchain.version, asset, await verifiedChecksums(bytes)); checksumDocumentDigest = sha256(bytes); });
       const archive = await cached(`${asset}.zip`, archiveLimit, async (bytes) => { if (sha256(bytes) !== digest) throw new Error("Runtime archive checksum mismatch"); });
-      const executable = await extractRuntime(archive, asset), elf = runtimeELF(executable, platform);
+      const executable = await extractRuntime(archive, asset), elf = runtimeELF(executable, platform, libc);
       // An authenticated official archive must contain the selected toolchain identity.
       // Actual --revision execution is deliberately left to check-base --run.
       const revision = releaseRevision(executable, toolchain);
-      return { executable, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc: "glibc", cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
+      return { executable, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc, cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
     }, () => true, 35 * 60_000);
   } finally { if (ephemeral) await rm(ephemeral, { recursive: true, force: true }); }
 }

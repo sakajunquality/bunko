@@ -26,6 +26,11 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
     const name = posix.basename(path); libraries.set(name, [...(libraries.get(name) ?? []), "/" + path]);
   }
   const executableLoaders = new Set([...libraries].filter(([, paths]) => paths.some((path) => Boolean((nodeAt(path)?.mode ?? 0) & 0o111))).map(([name]) => name));
+  for (const name of executableLoaders) if (/^ld-musl-(?:x86_64|aarch64)\.so\.1$/.test(name)) {
+    const candidates = libraries.get(name)!;
+    if (!libraries.has(name.replace("ld-", "libc."))) libraries.set(name.replace("ld-", "libc."), candidates);
+    if (!libraries.has("libc.so")) libraries.set("libc.so", candidates);
+  }
   const inactive = inactiveLibcVariants(native, executableLoaders);
   const requirements = native.flatMap((binary) => binary.needed.map((name) => {
     const candidates = name.startsWith("/") ? file(name) ? [name] : [] : name.includes("/") ? [] : libraries.get(name) ?? [];

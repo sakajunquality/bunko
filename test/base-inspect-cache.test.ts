@@ -54,6 +54,34 @@ function options(f: Awaited<ReturnType<typeof fixture>>, extra: Record<string, u
   return { path: f.source, baseLayout: f.base, push: false as const, gitMetadata: false, cacheDir: f.cache, ...extra };
 }
 
+test("musl search configuration survives base inspection and cache replay", async () => {
+  const path = "etc/ld-musl-x86_64.path", text = "/opt/lib\n/usr/lib";
+  const f = await fixture([{ path, type: "file", content: Buffer.from(text) }]);
+  const store = new BlobStore(f.base);
+  const base = await resolveBase(new LayoutSource(f.base), { os: "linux", architecture: "amd64" }, store, true);
+  const tree = await baseFilesystem(store, base, f.root);
+  expect(tree.get(path)?.muslSearchPath).toBe(text);
+  const record = baseInspection(base.descriptor.digest, tree);
+  expect(validateBaseInspection(record, base.descriptor.digest).get(path)?.muslSearchPath).toBe(text);
+  const entry = record.entries.find((entry) => entry.path === path)!;
+  entry.muslSearchPath = "x".repeat(4097); entry.size = 4097;
+  expect(() => validateBaseInspection(record, base.descriptor.digest)).toThrow("musl search path");
+  entry.muslSearchPath = "x".repeat(4096); entry.size = 4096;
+  expect(validateBaseInspection(record, base.descriptor.digest).get(path)?.muslSearchPath).toHaveLength(4096);
+  entry.size = 4097;
+  expect(() => validateBaseInspection(record, base.descriptor.digest)).toThrow("musl search path");
+});
+
+test("invalid UTF-8 search configuration is not expanded into cached replacement characters", async () => {
+  const path = "etc/ld-musl-x86_64.path";
+  const f = await fixture([{ path, type: "file", content: Buffer.alloc(4096, 0xff) }]);
+  const store = new BlobStore(f.base);
+  const base = await resolveBase(new LayoutSource(f.base), { os: "linux", architecture: "amd64" }, store, true);
+  const tree = await baseFilesystem(store, base, f.root);
+  expect(tree.get(path)?.muslSearchPath).toBeUndefined();
+  expect(validateBaseInspection(baseInspection(base.descriptor.digest, tree), base.descriptor.digest).get(path)?.muslSearchPath).toBeUndefined();
+});
+
 test("a warm base inspection replays the same image and is reported as a local cache hit", async () => {
   const f = await fixture();
   const cold = await build(options(f, { output: join(f.root, "cold") }) as any);

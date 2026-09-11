@@ -40,7 +40,7 @@ async function runCLI(argv: string[], environment: Record<string, string> = {}) 
 
 /** Every documented target field, so the rendering snapshot and the coverage check see them all. */
 const fixtureTarget: DiagnosticTarget = {
-  inheritedDefaults: ["user"], lockfileVersion: 1,
+  inheritedDefaults: ["user"], lockfileVersion: 1, runtimeLibc: "glibc",
   entrypoints: { server: "src/server.ts", worker: "src/worker.ts" }, defaultEntrypoint: "server",
   assetMappings: [{ context: "data", from: "config.json", to: "/repo/config.json", mode: "0644", exclude: ["*.tmp"] }],
   assetInputs: { entries: 1, contexts: ["data"], external: 0 },
@@ -75,7 +75,7 @@ test("check-config renders an aligned summary of the object it also serializes a
     "  User                65532:65532",
     "  Workdir             /app",
     "  Ports               8080, 9090",
-    "  Runtime             /usr/local/bin/bun · injected release · 2 runtime arguments · 1 CA certificate",
+    "  Runtime             /usr/local/bin/bun · glibc · injected release · 2 runtime arguments · 1 CA certificate",
     "  Toolchain           version 1.4.2 (package.json#packageManager)",
     "                      range >=1.3.11 <1.5 (package.json#engines.bun)",
     "  Inherited defaults  user",

@@ -213,3 +213,5 @@ An `assetMappings` entry can also take its content from outside the project inst
 Build observability is available through opt-in [OpenTelemetry traces and metrics](docs/TELEMETRY.md) with `--otel`.
 
 For private bases and cloud registries, see the [registry authentication guide](docs/REGISTRY_AUTH.md).
+
+For Alpine-based images, see [musl runtime configuration and compatibility](docs/MUSL.md).
