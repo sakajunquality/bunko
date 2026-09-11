@@ -26,9 +26,11 @@ const toolchain = { path: "bun", version: "1.3.13", revision: "bf2e2cecf" };
 
 test("runtime injection rejects unsupported modes, libc, versions and destinations before work", async () => {
   const root = await temp();
-  for (const config of [{ runtime: { inject: "release" } }, { base: "example/base", mode: "compile", runtime: { inject: "release" } }, { base: "example/base", runtime: { inject: "release", libc: "musl" } }, { base: "example/base", runtime: { inject: "release", bunPath: "/app/node_modules/bun" } }]) {
+  for (const config of [{ runtime: { inject: "release" } }, { base: "example/base", mode: "compile", runtime: { inject: "release" } }, { base: "example/base", runtime: { inject: "release", libc: "unknown" } }, { base: "example/base", runtime: { inject: "release", bunPath: "/app/node_modules/bun" } }]) {
     await project(root, { bunko: config }); await expect(loadProject({ path: root })).rejects.toThrow();
   }
+  await project(root, { bunko: { base: "example/base", runtime: { inject: "release", libc: "musl" } } });
+  expect((await loadProject({ path: root })).runtimeLibc).toBe("musl");
   expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
   for (const version of ["1.3.11", "1.3.12", "1.5.0"]) expect(() => runtimeAsset({ ...toolchain, version }, platform)).toThrow("supports official Bun");
   expect(() => validateCacheOptions({localCache:false,runtimeCache:"cache"})).toThrow("requires local caching");

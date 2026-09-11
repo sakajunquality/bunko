@@ -1,6 +1,6 @@
 import { spawn } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
-import { releaseRevision, type downloadRuntime } from "./runtime-download.ts";
+import { runtimeELF, releaseRevision, type downloadRuntime } from "./runtime-download.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
@@ -162,11 +162,11 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     // Recompiling emitted JavaScript cannot embed Bun's serialized HTML manifest.
     // Additional outputs must not be silently discarded from the runtime image.
     if (Object.keys(outputs).length !== 1) throw new Error("Compile mode requires a single JavaScript output; use bundle mode for HTML, CSS or other emitted assets");
-    if (!compileRuntime || compileRuntime.metadata.version !== toolchain.version || compileRuntime.metadata.expectedRevision !== toolchain.revision || compileRuntime.metadata.cpu !== (project.platform.architecture === "amd64" ? "x64-baseline" : "aarch64")) throw new Error("Compile mode requires a verified matching Bun release runtime");
+    if (!compileRuntime || compileRuntime.metadata.libc !== project.runtimeLibc || compileRuntime.metadata.version !== toolchain.version || compileRuntime.metadata.expectedRevision !== toolchain.revision || compileRuntime.metadata.cpu !== (project.platform.architecture === "amd64" ? "x64-baseline" : "aarch64")) throw new Error("Compile mode requires a verified matching Bun release runtime");
     const runtimePath = join(root, OUTPUT_DIRECTORY, "compile-runtime");
     await writeFile(runtimePath, compileRuntime.executable, { mode: 0o600 });
     const executable = "bunko-app";
-    const target = project.platform.architecture === "amd64" ? "bun-linux-x64-baseline" : "bun-linux-arm64";
+    const target = project.platform.architecture === "amd64" ? project.runtimeLibc === "musl" ? "bun-linux-x64-musl-baseline" : "bun-linux-x64-baseline" : project.runtimeLibc === "musl" ? "bun-linux-arm64-musl" : "bun-linux-arm64";
     try {
       const compiled = spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
         { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
@@ -175,6 +175,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     } finally { await rm(runtimePath, { force: true }); }
     // Bun 1.3.12+ rewrites ELF sections, so the runtime is not a byte-identical prefix.
     if (releaseRevision(await readFile(join(outdir, executable)), toolchain) !== compileRuntime.metadata.releaseRevision) throw new Error("Compiled application runtime revision differs from the authenticated release");
+    runtimeELF(await readFile(join(outdir, executable)), project.platform, project.runtimeLibc);
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });

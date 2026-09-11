@@ -97,7 +97,7 @@ export function assertSharedClosure(projects: Project[], sharedDeps: boolean, wo
   if (!sharedDeps) return;
   if (!workspace || projects.some((project) => project.depsStrategy !== "closure")) throw new Error("sharedDeps requires a workspace and closure strategy for every target");
   if (new Set(projects.map((project) => JSON.stringify(project.allowIgnoredScripts ?? []))).size !== 1) throw new Error("sharedDeps requires matching deps.allowIgnoredScripts policies");
-  if (new Set(projects.map((project) => JSON.stringify([project.workdir, project.base, project.platforms]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, and platforms");
+  if (new Set(projects.map((project) => JSON.stringify([project.workdir, project.base, project.platforms, project.runtimeLibc]))).size !== 1) throw new Error("sharedDeps requires matching workdir, base, platforms, and runtime libc");
 }
 
 /** Project the concrete Linux install, including Bun's peer contexts. No version

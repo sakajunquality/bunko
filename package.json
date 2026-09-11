@@ -46,6 +46,7 @@
     "test:multiple-entrypoints": "bun test/multiple-entrypoints-smoke.ts",
     "test:asset-contexts": "bun test/asset-contexts-smoke.ts",
     "test:application-validation": "bun scripts/validation/run-fixture.ts",
+    "test:musl": "bun scripts/validation/musl-smoke.ts",
     "test:runtime-injection": "bun scripts/validation/runtime-smoke.ts",
     "test:telemetry": "bun scripts/validation/telemetry-smoke.ts",
     "test:fonts": "bun scripts/validation/fonts-smoke.ts"

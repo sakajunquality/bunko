@@ -32,6 +32,7 @@ export interface DiagnosticTarget {
   workdir: string;
   runtimePath: string;
   runtimeInjection?: "release";
+  runtimeLibc: "glibc" | "musl";
   assets: string[];
   runtimeCertificateCount: number;
   runtimeSystemCaTrust: boolean;
@@ -72,7 +73,7 @@ export async function checkConfig(options: BuildOptions) {
     const locked = lockedPackageNames(plan.lock), unmatchedAllowances = (project.allowIgnoredScripts ?? []).filter((name) => !locked.has(name));
     projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings, assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
       platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,
-      workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, assets: project.assets,
+      workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, runtimeLibc: project.runtimeLibc, assets: project.assets,
       runtimeCertificateCount: project.runtimeCAs.length, runtimeSystemCaTrust: project.runtimeSystemCaTrust, explicitAssetsOverrideGitignore: project.mode === "source", assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
   }

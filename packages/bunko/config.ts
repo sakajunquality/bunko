@@ -1,3 +1,4 @@
+import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
 import { platform } from "./platforms.ts";
 export { platform };
@@ -70,6 +71,7 @@ export interface BuildOptions {
   runtimeCache?: string;
   assetCache?: string;
   runtimeInject?: string;
+  runtimeLibc?: string;
   base?: string;
   baseLayout?: string;
   platform?: string;
@@ -114,6 +116,7 @@ export interface Project {
   workdir: string;
   bunPath: string;
   runtimeInject?: "release";
+  runtimeLibc: Libc;
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
@@ -253,7 +256,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const replaced = [
     ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined || process.env.BUNKO_DEFAULT_BASE !== undefined ? ["base"] : []),
     ...(options.platform !== undefined || process.env.BUNKO_DEFAULT_PLATFORMS !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
-    ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
+    ...(options.runtimeLibc !== undefined ? ["runtime.libc"] : []), ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
     ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []), ...(options.moduleLocations !== undefined ? ["build.moduleLocations"] : []),
     ...Object.keys(options.define ?? {}).map((name) => `build.define.${name}`),
     ...Object.keys(options.imageLabels ?? {}).map((name) => `labels.${name}`), ...Object.keys(options.imageAnnotations ?? {}).map((name) => `annotations.${name}`),
@@ -303,7 +306,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
   if (runtimeInject && mode === "compile") throw new Error("Runtime injection requires bundle mode or source mode");
   if (runtimeInject && !(options.base ?? process.env.BUNKO_DEFAULT_BASE ?? config.base) && !options.baseLayout) throw new Error("Runtime injection requires an explicit base or base layout");
-  if (runtime.libc !== undefined && runtime.libc !== "glibc") throw new Error("Only glibc runtime bases are supported");
+  const libc = runtimeLibc(options.runtimeLibc ?? runtime.libc);
   const env = stringMap(config.env, "env");
   if (!Object.keys(env).every((key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid environment variable name");
   const labels = { ...stringMap(config.labels, "labels"), ...stringMap(options.imageLabels, "image labels") };
@@ -384,6 +387,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     mode, moduleLocations, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
+    runtimeLibc: libc,
     runtimeInject: runtimeInject as "release" | undefined,
     bunPath: runtimePath,
     user: optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user"), env, labels, ports,

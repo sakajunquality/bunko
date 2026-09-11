@@ -111,6 +111,17 @@ export function baseNode(tree: BaseFilesystem, absolute: string): BaseNode | und
   throw new Error("Runtime base contains a link cycle");
 }
 
+export function assertRuntimeBase(metadata: InjectedRuntime, tree: BaseFilesystem): void {
+  const loader = baseNode(tree, metadata.interpreter);
+  if (!loader || loader.type !== "file" || !loader.size || !(loader.mode & 0o111)) throw new Error(`Runtime base is missing the executable ${metadata.libc} loader ${metadata.interpreter}; this base cannot run the selected release`);
+  if (metadata.libc === "musl") for (const name of metadata.needed) {
+    // musl's interpreter also provides its libc SONAME, even without a sibling symlink.
+    if (name === "libc.so" || name === posix.basename(metadata.interpreter).replace("ld-", "libc.")) continue;
+    const found = [...tree.keys()].some((candidate) => posix.basename(candidate) === name && (() => { const node = baseNode(tree, candidate); return node?.type === "file" && node.size > 0; })());
+    if (!found) throw new Error(`musl runtime base is missing ${name}; install the runtime libraries (Alpine typically needs libstdc++) before injection`);
+  }
+}
+
 export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem): TarEntry[] {
   const path = pathName(metadata.path.slice(1));
   if (!path || metadata.path !== `/${path}`) throw new Error("Invalid runtime injection destination");
@@ -120,8 +131,7 @@ export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tr
   }
   const existing = tree.get(path);
   if (existing && existing.type !== "file") throw new Error("Runtime destination overlaps a non-regular base entry");
-  const loader = baseNode(tree, metadata.interpreter);
-  if (!loader || loader.type !== "file" || !loader.size || !(loader.mode & 0o111)) throw new Error(`Runtime base is missing the executable glibc loader ${metadata.interpreter}; static/musl bases cannot run this release`);
+  assertRuntimeBase(metadata, tree);
   return [{ path, type: "file", content: executable, executable: true }];
 }
 
