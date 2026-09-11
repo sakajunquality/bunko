@@ -1,3 +1,4 @@
+import { inactiveLibcVariants } from "./native-variants.ts";
 import { posix } from "node:path";
 import { baseNode, type BaseFilesystem } from "./runtime-layer.ts";
 import type { NativeBinary } from "./deps.ts";
@@ -24,9 +25,11 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
   for (const path of paths) if (/\.so(?:\.|$)/.test(posix.basename(path)) && !["ld.so.conf", "ld.so.cache", "ld.so.preload"].includes(posix.basename(path)) && file("/" + path)) {
     const name = posix.basename(path); libraries.set(name, [...(libraries.get(name) ?? []), "/" + path]);
   }
+  const executableLoaders = new Set([...libraries].filter(([, paths]) => paths.some((path) => Boolean((nodeAt(path)?.mode ?? 0) & 0o111))).map(([name]) => name));
+  const inactive = inactiveLibcVariants(native, executableLoaders);
   const requirements = native.flatMap((binary) => binary.needed.map((name) => {
     const candidates = name.startsWith("/") ? file(name) ? [name] : [] : name.includes("/") ? [] : libraries.get(name) ?? [];
-    return { name, requiredBy: binary.path, candidates, status: candidates.length ? "present" : (name.includes("/") && !name.startsWith("/")) || [...unresolvedPaths].some((path) => (name.startsWith("/") ? path === name : posix.basename(path) === name)) ? "unknown" : "missing-from-base" };
+    return { name, requiredBy: binary.path, candidates, status: inactive.has(binary.path) ? "inactive-libc-variant" : candidates.length ? "present" : (name.includes("/") && !name.startsWith("/")) || [...unresolvedPaths].some((path) => (name.startsWith("/") ? path === name : posix.basename(path) === name)) ? "unknown" : "missing-from-base" };
   }));
   const directory = workdir === "/" ? undefined : nodeAt(workdir);
   const prefix = directoryPath(workdir) ?? workdir.replace(/^\/+|\/+$/g, "");
@@ -39,6 +42,7 @@ export function baseCapabilities(tree: BaseFilesystem, config: { Env?: string[];
     sharedLibraryCount: libraries.size, sharedLibrariesTruncated: libraries.size > 1000,
     sharedLibraries: [...libraries].slice(0, 1000).map(([name, paths]) => ({ name, paths: paths.slice(0, 100), truncated: paths.length > 100 })), requirements,
     unresolvedPaths: [...unresolvedPaths].sort(),
+    inactiveNativeVariants: [...inactive.values()],
     missingFromBase: requirements.filter((item) => item.status === "missing-from-base"),
     unchecked: ["dynamic loader search paths, ELF architecture, ABI and symbol versions", "libraries supplied by application layers", "certificate trust contents and font family/glyph coverage"],
   };

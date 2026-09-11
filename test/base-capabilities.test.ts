@@ -86,3 +86,48 @@ test("capability inventories disclose truncation and do not count loader configu
   expect(result.sharedLibrariesTruncated).toBe(true);
   expect(result.sharedLibraries).toHaveLength(1000);
 });
+
+test.each(["amd64", "arm64"])("paired libc addons retain real base findings on %s", (architecture) => {
+  const cpu = architecture === "amd64" ? "x64" : "arm64";
+  const tree: BaseFilesystem = new Map();
+  const file = (path: string, mode = 0o755) => tree.set(path, { type: "file", size: 24, mode });
+  const glibcLoader = architecture === "amd64" ? "ld-linux-x86-64.so.2" : "ld-linux-aarch64.so.1";
+  const muslLoader = architecture === "amd64" ? "ld-musl-x86_64.so.1" : "ld-musl-aarch64.so.1";
+  const binary = (libc: "gnu" | "musl", version = "1.0.0") => ({
+    path: `app/node_modules/.bun/@vendor+addon-linux-${cpu}-${libc}@${version}/node_modules/@vendor/addon-linux-${cpu}-${libc}/addon.linux-${cpu}-${libc}.node`,
+    architecture, needed: [libc === "gnu" ? "libc.so.6" : "libc.so", "libgcc_s.so.1"],
+  });
+  const gnu = binary("gnu"), musl = binary("musl");
+  file(`lib/${glibcLoader}`); file("lib/libc.so.6");
+  let result = baseCapabilities(tree, {}, "/", [musl, gnu]);
+  expect(result.missingFromBase).toMatchObject([{ name: "libgcc_s.so.1", requiredBy: gnu.path }]);
+  expect(result.inactiveNativeVariants).toEqual([{ path: musl.path, libc: "musl", baseLibc: "glibc", alternative: gnu.path }]);
+  expect(result.requirements.filter((item) => item.requiredBy === musl.path).every((item) => item.status === "inactive-libc-variant")).toBe(true);
+  file("lib/libgcc_s.so.1");
+  expect(baseCapabilities(tree, {}, "/", [musl, gnu]).missingFromBase).toEqual([]);
+  // A single incompatible addon, a different package version, or ambiguous ELF evidence stays visible.
+  expect(baseCapabilities(tree, {}, "/", [musl]).missingFromBase.map((item) => item.name)).toEqual(["libc.so"]);
+  expect(baseCapabilities(tree, {}, "/", [musl, binary("gnu", "2.0.0")]).inactiveNativeVariants).toEqual([]);
+  expect(baseCapabilities(tree, {}, "/", [musl, { ...gnu, needed: ["libc.so.6", "libc.so"] }]).inactiveNativeVariants).toEqual([]);
+  expect(baseCapabilities(tree, {}, "/", [musl, { ...gnu, architecture: "other" }]).inactiveNativeVariants).toEqual([]);
+  expect(baseCapabilities(tree, {}, "/", [musl, { ...gnu, path: gnu.path.replace("@vendor", "@unrelated") }]).inactiveNativeVariants).toEqual([]);
+  // Unknown, non-executable and mixed loader bases do not imply a selected libc.
+  file(`lib/${glibcLoader}`, 0o644);
+  expect(baseCapabilities(tree, {}, "/", [musl, gnu]).inactiveNativeVariants).toEqual([]);
+  file(`lib/${glibcLoader}`); file(`lib/${muslLoader}`);
+  expect(baseCapabilities(tree, {}, "/", [musl, gnu]).inactiveNativeVariants).toEqual([]);
+  tree.delete(`lib/${glibcLoader}`); file("lib/libc.so");
+  result = baseCapabilities(tree, {}, "/", [musl, gnu]);
+  expect(result.inactiveNativeVariants[0]).toMatchObject({ path: gnu.path, baseLibc: "musl", alternative: musl.path });
+  tree.delete(`lib/${muslLoader}`);
+  expect(baseCapabilities(tree, {}, "/", [musl, gnu]).inactiveNativeVariants).toEqual([]);
+});
+
+test("libc-looking names without matching ELF and Linux variant evidence are not suppressed", () => {
+  const tree: BaseFilesystem = new Map([["lib/ld-linux-aarch64.so.1", { type: "file", mode: 0o755, size: 24 }]]);
+  for (const suffix of [".node", "-linux-arm64-musl.so", "-musl.node"]) {
+    const musl = { path: "app/addon" + suffix, architecture: "arm64", needed: ["libc.so"] };
+    const gnu = { ...musl, path: musl.path.replace("musl", "gnu"), needed: ["libc.so.6"] };
+    expect(baseCapabilities(tree, {}, "/", [musl, gnu]).inactiveNativeVariants).toEqual([]);
+  }
+});
