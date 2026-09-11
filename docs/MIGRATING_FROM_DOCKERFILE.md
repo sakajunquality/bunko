@@ -148,7 +148,7 @@ Workflow step:
 Workflow steps (pin Action commits as described in [CI.md](CI.md)):
 
 ```yaml
-- uses: sakajunquality/bunko@<commit>
+- uses: sakajunquality/setup-bunko@df07f107af7d41b8476a875b966ee70039fb29ab # v0.1.0
   with:
     version: v0.6.2
     bun-version: 1.4.2
