@@ -10,6 +10,9 @@ export interface RegistryOptions {
   /** Origin-to-mirror hosts; only RegistrySource uses these for digest reads. */
   mirrors?: Record<string, string[]>;
   onMirrorFallback?: (event: { registry: string; mirror: string; reason: string }) => void;
+  /** A credential about to cross a plaintext connection. `--insecure-registry` permits HTTP for a
+   * host; it does not make sending an Authorization header or a refresh token over it private. */
+  onInsecureCredentials?: (event: { registry: string; origin: string }) => void;
   sensitivePaths?: string[];
   tls?: Record<string, import("./tls.ts").RegistryTLS>;
   fetcher?: Fetcher;
@@ -144,6 +147,7 @@ export class RegistryClient {
   private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   private readonly pendingTokens = new Map<string, Promise<{ authorization: string; expires: number }>>();
+  private readonly reportedInsecure = new Set<string>();
   private cooldownUntil = 0;
   private cooldownTime = 0;
   private cooling?: Promise<unknown>;
@@ -169,6 +173,15 @@ export class RegistryClient {
     if (url.username || url.password || url.hash) throw new Error("Registry URLs must not contain credentials or fragments");
     if (url.protocol !== "https:" && !(url.protocol === "http:" && this.insecureOrigins.has(url.origin))) throw new Error("Registry URLs and redirects must use HTTPS; explicitly allow a test registry with --insecure-registry");
     return url;
+  }
+
+  /** Report once per plaintext origin, immediately before a credential is written to the wire.
+   * `safeURL` has already established that only an explicitly allowed host can be reached over
+   * HTTP, so this never fires for a host the operator did not name. */
+  private reportInsecureCredentials(url: URL): void {
+    if (url.protocol !== "http:" || this.reportedInsecure.has(url.origin)) return;
+    this.reportedInsecure.add(url.origin);
+    this.options.onInsecureCredentials?.({ registry: this.registry, origin: url.origin });
   }
 
   private async authenticate(challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
@@ -201,6 +214,9 @@ export class RegistryClient {
       for (const [key, value] of params) realm.searchParams.append(key, value);
       if (credential?.username !== undefined && credential.password !== undefined) headers.set("Authorization", `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`);
     }
+    // The token service is whatever host the challenge's realm named, which is not necessarily the
+    // registry: a refresh token or Basic header reaches it over whatever transport that realm uses.
+    if (body || headers.has("Authorization")) this.reportInsecureCredentials(realm);
     let response: Response;
     try { response = await this.fetcher(realm, { method: body ? "POST" : "GET", headers, body, redirect: "error", signal: AbortSignal.timeout(30_000) }); }
     catch (error) { if (error instanceof RegistryNetworkDisabledError) throw error; throw new Error(`Registry token request failed: ${this.registry}`); }
@@ -251,7 +267,7 @@ export class RegistryClient {
           const headers = new Headers(init.headers);
           headers.delete("Authorization");
           const token = this.tokens.get(key);
-          if (url.origin === this.origin && token && token.expires > Date.now()) headers.set("Authorization", token.authorization);
+          if (url.origin === this.origin && token && token.expires > Date.now()) { this.reportInsecureCredentials(url); headers.set("Authorization", token.authorization); }
           if (!headers.has("Accept")) headers.set("Accept", [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "));
           // A whole-request deadline also aborts Bun's response stream and
           // slow PATCH bodies. Only bound the wait for GET/HEAD headers here.

@@ -308,7 +308,20 @@ export async function main(argv: string[]): Promise<number> {
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
     const concurrencyText = values["publish-concurrency"] ?? process.env.BUNKO_PUBLISH_CONCURRENCY;
     if (concurrencyText !== undefined && (!/^\d+$/.test(concurrencyText) || Number(concurrencyText) < 1 || Number(concurrencyText) > 32)) throw new Error("Publication concurrency must be an integer from 1 to 32");
-    const registry = { publishConcurrency: concurrencyText === undefined ? undefined : Number(concurrencyText), onMirrorFallback: (event: { mirror: string; reason: string }) => { process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`); }, mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors), insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files };
+    const reportedInsecureOrigins = new Set<string>();
+    const registry = {
+      publishConcurrency: concurrencyText === undefined ? undefined : Number(concurrencyText),
+      onMirrorFallback: (event: { mirror: string; reason: string }) => {
+        process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`);
+      },
+      onInsecureCredentials: (event: { origin: string }) => {
+        if (reportedInsecureOrigins.has(event.origin)) return;
+        reportedInsecureOrigins.add(event.origin);
+        process.stderr.write(`Sending registry credentials in cleartext to ${event.origin}; --insecure-registry permits HTTP but does not protect them\n`);
+      },
+      mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors),
+      insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files,
+    };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));

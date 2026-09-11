@@ -28,6 +28,8 @@ Credential precedence is host-specific `credHelpers`, then `credsStore`, then `a
 
 Supported auths include username/password, base64 auth, identitytoken, and registrytoken. Follow HTTP 401 Basic/Bearer challenges, reusing Bearer tokens according to scope and expiry. Do not forward Registry Authorization across storage redirect origins. [Registry authentication](https://docs.docker.com/reference/api/registry/auth/)
 
+A Bearer challenge names its own token service in `realm`, so the registry decides which host receives the Basic header or `identitytoken` exchanged for a token. That host is validated like any other endpoint (HTTPS unless explicitly allowed with `--insecure-registry`, no embedded credentials) but it is not required to be the registry itself, which is how Docker Hub and most hosted registries work. A registry you authenticate to can therefore direct that registry's credential to another host it names.
+
 ## Examples
 
 Replace uppercase placeholders with values for your environment. Log in once through Docker or use an existing credential helper.
@@ -152,7 +154,7 @@ Local validation on 2026-09-08 passed with authenticated Distribution 3, separat
 {"registry.example.com:443":{"ca":"ca.pem","cert":"client.pem","key":"client-key.pem"}}
 ```
 
-Certificates are scoped to exact HTTPS origins, including separately configured token-service origins. Redirects do not forward a client certificate to an unconfigured origin. TLS verification remains enabled. `--insecure-registry HOST:PORT` means explicit HTTP permission, not disabled HTTPS verification. Configuration and certificate files are excluded from application snapshots; keep them outside the project whenever possible.
+Certificates are scoped to exact HTTPS origins, including separately configured token-service origins. Redirects do not forward a client certificate to an unconfigured origin. TLS verification remains enabled. `--insecure-registry HOST:PORT` means explicit HTTP permission, not disabled HTTPS verification. Credentials sent to a host allowed this way travel in cleartext, including to a token service whose realm resolves to that host; Bunko reports each such origin on stderr once. Use it for local test registries, not for hosts that hold real credentials. Configuration and certificate files are excluded from application snapshots; keep them outside the project whenever possible.
 
 This config controls Bunko's OCI client. Combining it with integrated signing is rejected before publication; publish first and sign using a separately configured cosign client. Configure cosign's trust separately (for example with its supported SSL_CERT_FILE environment); it does not consume this JSON file. Pull mirrors are configured separately with `--registry-mirror`.
 

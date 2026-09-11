@@ -40,7 +40,7 @@ bunko version
 | `--no-local-cache` / `--no-registry-cache` | Disable the respective cache. |
 | `--install-cache DIR` | Bun package download cache, separate from the layer cache (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`). |
 | `--asset-cache DIR` | Verified URL downloads and extracted image asset subtrees (default: `${XDG_CACHE_HOME:-~/.cache}/bunko/assets/v1`). |
-| `--insecure-registry HOST:PORT` | Explicitly permit HTTP for a host; repeatable. |
+| `--insecure-registry HOST:PORT` | Explicitly permit HTTP for a host; repeatable. Credentials reaching such a host are sent in cleartext and each origin is reported once on stderr. |
 | `--publish-concurrency N` | Parallel blob placements per manifest during publication, 1-32; default 6, or 3 for Docker Hub. |
 | `--dry-run` | Build and estimate transfers with Registry reads; no Registry writes, export, or loading. |
 | `--reproducible` | Require an explicit base digest or local base layout. |

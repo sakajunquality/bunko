@@ -131,6 +131,55 @@ describe("Docker-compatible authentication", () => {
     expect(delays).toHaveLength(2);
     for (const delay of delays) expect(delay).toBeCloseTo(2000, 0);
   });
+
+  test("reports each plaintext origin a credential reaches exactly once", async () => {
+    const reported: { registry: string; origin: string }[] = [];
+    const client = new RegistryClient("localhost:5000", {
+      insecure: ["localhost:5000", "auth.localhost:6000"],
+      onInsecureCredentials: (event) => { reported.push(event); },
+      credentials: async () => ({ username: "user", password: "secret" }),
+      fetcher: async (input, init) => {
+        const url = new URL(input), auth = new Headers(init?.headers).get("Authorization");
+        if (url.host === "auth.localhost:6000") return Response.json({ token: "scoped", expires_in: 3600 });
+        return auth === "Bearer scoped" ? new Response(null, { status: 202 })
+          : new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="http://auth.localhost:6000/token"' } });
+      },
+    });
+    for (let i = 0; i < 3; i++) await client.request("/v2/app/blobs/uploads/", { method: "POST" }, ["repository:app:pull,push"]);
+    // The Basic header sent to the realm and the Bearer token sent to the registry are separate
+    // disclosures on separate hosts, and neither repeats once its origin has been reported.
+    expect(reported).toEqual([
+      { registry: "localhost:5000", origin: "http://auth.localhost:6000" },
+      { registry: "localhost:5000", origin: "http://localhost:5000" },
+    ]);
+  });
+
+  test("does not report credentials sent over HTTPS", async () => {
+    const reported: unknown[] = [];
+    const client = new RegistryClient("ghcr.io", {
+      onInsecureCredentials: (event) => { reported.push(event); },
+      credentials: async () => ({ username: "user", password: "secret" }),
+      fetcher: async (input, init) => {
+        const url = new URL(input), auth = new Headers(init?.headers).get("Authorization");
+        if (url.host === "auth.example") return Response.json({ token: "scoped", expires_in: 3600 });
+        return auth === "Bearer scoped" ? new Response(null, { status: 202 })
+          : new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
+      },
+    });
+    await client.request("/v2/team/app/blobs/uploads/", { method: "POST" }, ["repository:team/app:pull,push"]);
+    expect(reported).toEqual([]);
+  });
+
+  test("reports an anonymous plaintext registry only once a credential exists", async () => {
+    const reported: unknown[] = [];
+    const client = new RegistryClient("localhost:5000", {
+      insecure: ["localhost:5000"], credentials: anonymous,
+      onInsecureCredentials: (event) => { reported.push(event); },
+      fetcher: async () => new Response("data"),
+    });
+    expect(await (await client.request("/v2/app/blobs/digest")).text()).toBe("data");
+    expect(reported).toEqual([]);
+  });
 });
 
 describe("Distribution publication", () => {
