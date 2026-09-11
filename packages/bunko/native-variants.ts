@@ -11,7 +11,7 @@ function variant(binary: NativeBinary): { libc: Libc; key: string } | undefined 
   if (!binary.path.endsWith(".node")) return;
   const cpu = binary.architecture === "amd64" ? "(?:x64|amd64)" : binary.architecture === "arm64" ? "arm64" : undefined;
   if (!cpu || !new RegExp(`linux[.-]${cpu}[.-](?:gnu|glibc|musl)(?=[@./]|$)`).test(binary.path)) return;
-  const glibc = binary.needed.includes("libc.so.6"), musl = binary.needed.includes("libc.so");
+  const glibc = binary.needed.includes("libc.so.6"), musl = binary.needed.includes("libc.so") || binary.needed.includes(loaders[binary.architecture]!.musl.replace("ld-", "libc."));
   if (glibc === musl) return;
   const libc: Libc = glibc ? "glibc" : "musl";
   const labels = [...binary.path.matchAll(/[.-](gnu|glibc|musl)(?=[@./]|$)/g)].map((match) => match[1] === "musl" ? "musl" : "glibc");

@@ -103,6 +103,9 @@ test.each(["amd64", "arm64"])("paired libc addons retain real base findings on %
   expect(result.missingFromBase).toMatchObject([{ name: "libgcc_s.so.1", requiredBy: gnu.path }]);
   expect(result.inactiveNativeVariants).toEqual([{ path: musl.path, libc: "musl", baseLibc: "glibc", alternative: gnu.path }]);
   expect(result.requirements.filter((item) => item.requiredBy === musl.path).every((item) => item.status === "inactive-libc-variant")).toBe(true);
+  const soname = `libc.musl-${architecture === "amd64" ? "x86_64" : "aarch64"}.so.1`;
+  expect(baseCapabilities(tree, {}, "/", [{ ...musl, needed: [soname] }, gnu]).inactiveNativeVariants).toHaveLength(1);
+  expect(baseCapabilities(tree, {}, "/", [{ ...musl, needed: [architecture === "amd64" ? "libc.musl-aarch64.so.1" : "libc.musl-x86_64.so.1"] }, gnu]).inactiveNativeVariants).toEqual([]);
   file("lib/libgcc_s.so.1");
   expect(baseCapabilities(tree, {}, "/", [musl, gnu]).missingFromBase).toEqual([]);
   // A single incompatible addon, a different package version, or ambiguous ELF evidence stays visible.
