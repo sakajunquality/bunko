@@ -1,6 +1,6 @@
 # Building in CI
 
-Install Bunko, configure registry authentication explicitly, then run the build Action. The build Action lives at `sakajunquality/bunko/build`; pin both Actions to a reviewed commit containing it. The immutable rc.3 tag includes the setup Action but predates the build Action.
+Install bunko with the [Marketplace setup Action](https://github.com/marketplace/actions/setup-bunko), configure registry authentication explicitly, then run the build Action. The build Action lives at `sakajunquality/bunko/build`; pin each Action to a reviewed commit in its own repository. The immutable rc.3 tag includes the setup Action but predates the build Action.
 
 ```yaml
 permissions:
@@ -10,10 +10,10 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/bunko@ab6d35eb7c39369b1c2491c4b94c20e656b4548b
+  - uses: sakajunquality/setup-bunko@df07f107af7d41b8476a875b966ee70039fb29ab # v0.1.0
     with:
+      version: v0.6.2
       bun-version: 1.4.2
-      verify-attestation: 'true'
   - name: Authenticate to GHCR
     env:
       GHCR_TOKEN: ${{ github.token }}
@@ -56,7 +56,7 @@ On GitHub Actions, set `cache: github` and the build Action persists the managed
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-When `version` is omitted, setup uses its own `uses:` ref only if the Action repository matches the configured release repository: a version-shaped ref such as `v0.6.2` installs that CLI version, and any other ref, including a branch or commit pin, installs the release recorded in that checkout's `package.json`, a ref from a different repository also falls back to the checkout version. An explicit `version` always overrides automatic resolution. Branch and commit pins require the checkout version to have a published release; during release preparation, explicitly select an already published version. `bun-version` has no such source and stays explicit. Action commits cut before this resolution existed, including the immutable `v0.1.2` tag, keep their hard-coded CLI default of 0.1.1; keep `version` explicit when pinning those. See [version resolution](RELEASING.md#use-the-setup-action). Attestation verification is opt-in and is available for rc.4 and later; see [release provenance](RELEASE_PROVENANCE.md).
+The dedicated setup-bunko v0.1.0 Action defaults to CLI v0.6.2 and Bun 1.4.2. Its version is independent of the CLI; an explicit `version` selects another published release. It verifies checksums and signed provenance by default and requires `gh`. An optional `source-commit` constrains the attested source; leave it unset when changing CLI versions unless you also select the matching source digest. The existing `sakajunquality/bunko@...` entry point retains its automatic version resolution and opt-in provenance verification. See [setup inputs](RELEASING.md#use-the-setup-action), [compatibility behavior](RELEASING.md#existing-setup-entry-point), and [release provenance](RELEASE_PROVENANCE.md).
 
 ## The GitHub Actions cache
 
