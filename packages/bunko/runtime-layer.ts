@@ -42,7 +42,8 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
       if (size > 4096) throw new Error("musl library search configuration exceeds inspection limits");
       chunks.push(bytes);
     }
-    node.muslSearchPath = Buffer.concat(chunks).toString("utf8");
+    // Invalid UTF-8 cannot be represented faithfully in cached JSON metadata.
+    try { node.muslSearchPath = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)); } catch { /* Leave uninspectable configurations unset so musl preflight rejects them. */ }
   });
   for (const node of tree.values()) delete node.layer;
   return tree;

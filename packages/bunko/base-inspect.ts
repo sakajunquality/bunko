@@ -29,7 +29,7 @@ import { layerPath, type BaseFilesystem, type BaseNode } from "./runtime-layer.t
  * re-inspects — and because the version is a path segment, superseded records are ordinary
  * prune candidates rather than dead weight.
  */
-export const baseInspectVersion = "base-inspect-v2";
+export const baseInspectVersion = "base-inspect-v3";
 /** Managed-cache subdirectory holding `<baseInspectVersion>/<base digest>.json` records. */
 export const baseInspectDirectory = "base-inspect";
 /** Version directories `prune` recognizes; anything else is refused as an unknown namespace. */
@@ -73,7 +73,7 @@ export function validateBaseInspection(input: unknown, digest: Digest): BaseFile
     if (!Number.isSafeInteger(entry.mode) || (entry.mode as number) < 0 || (entry.mode as number) > 0xffff) throw new Error("Invalid base inspection entry mode");
     if (!Number.isSafeInteger(entry.size) || (entry.size as number) < 0) throw new Error("Invalid base inspection entry size");
     if (entry.link !== undefined && (typeof entry.link !== "string" || entry.link.length > 4096)) throw new Error("Invalid base inspection link target");
-    if (entry.muslSearchPath !== undefined && (typeof entry.muslSearchPath !== "string" || Buffer.byteLength(entry.muslSearchPath) > 12288 || entry.type !== "file" || !/^etc\/ld-musl-(?:x86_64|aarch64)\.path$/.test(entry.path))) throw new Error("Invalid musl search path metadata");
+    if (entry.muslSearchPath !== undefined && (typeof entry.muslSearchPath !== "string" || Buffer.byteLength(entry.muslSearchPath) > 4096 || Buffer.byteLength(entry.muslSearchPath) !== entry.size || entry.type !== "file" || !/^etc\/ld-musl-(?:x86_64|aarch64)\.path$/.test(entry.path))) throw new Error("Invalid musl search path metadata");
     if (tree.has(entry.path)) throw new Error("Duplicate path in base inspection");
     // A non-link carries no target; `baseNode` rejects a falsy target the same way for either shape.
     const node: BaseNode = { type: entry.type, link: entry.link as string | undefined, mode: entry.mode as number, size: entry.size as number };

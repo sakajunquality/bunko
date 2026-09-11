@@ -63,8 +63,23 @@ test("musl search configuration survives base inspection and cache replay", asyn
   expect(tree.get(path)?.muslSearchPath).toBe(text);
   const record = baseInspection(base.descriptor.digest, tree);
   expect(validateBaseInspection(record, base.descriptor.digest).get(path)?.muslSearchPath).toBe(text);
-  record.entries.find((entry) => entry.path === path)!.muslSearchPath = "x".repeat(12289);
+  const entry = record.entries.find((entry) => entry.path === path)!;
+  entry.muslSearchPath = "x".repeat(4097); entry.size = 4097;
   expect(() => validateBaseInspection(record, base.descriptor.digest)).toThrow("musl search path");
+  entry.muslSearchPath = "x".repeat(4096); entry.size = 4096;
+  expect(validateBaseInspection(record, base.descriptor.digest).get(path)?.muslSearchPath).toHaveLength(4096);
+  entry.size = 4097;
+  expect(() => validateBaseInspection(record, base.descriptor.digest)).toThrow("musl search path");
+});
+
+test("invalid UTF-8 search configuration is not expanded into cached replacement characters", async () => {
+  const path = "etc/ld-musl-x86_64.path";
+  const f = await fixture([{ path, type: "file", content: Buffer.alloc(4096, 0xff) }]);
+  const store = new BlobStore(f.base);
+  const base = await resolveBase(new LayoutSource(f.base), { os: "linux", architecture: "amd64" }, store, true);
+  const tree = await baseFilesystem(store, base, f.root);
+  expect(tree.get(path)?.muslSearchPath).toBeUndefined();
+  expect(validateBaseInspection(baseInspection(base.descriptor.digest, tree), base.descriptor.digest).get(path)?.muslSearchPath).toBeUndefined();
 });
 
 test("a warm base inspection replays the same image and is reported as a local cache hit", async () => {
