@@ -1,5 +1,6 @@
 import type { BlobStore } from "./blob-store.ts";
 import { canonicalJSON } from "./digest.ts";
+import { rebaseMetadata, rebaseMetadataLabel, type RebaseBuildContext } from "./rebase-metadata.ts";
 import { media, type BaseImage, type Descriptor, type ImageConfig, type Layer, type Platform, type RuntimeConfig } from "./types.ts";
 
 export interface ImageOptions {
@@ -14,6 +15,7 @@ export interface ImageOptions {
   inheritBaseOciLabels?: boolean;
   annotations?: Record<string, string>;
   ports?: number[];
+  rebase?: RebaseBuildContext;
 }
 
 export const nonrootUser = "65532:65532";
@@ -64,7 +66,9 @@ export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOp
 }
 
 export async function assembleImage(store: BlobStore, base: BaseImage, layers: Layer[], options: ImageOptions, noIndex = false): Promise<{ root: Descriptor; manifest: Descriptor; config: Descriptor }> {
-  const config = await store.put(canonicalJSON(imageConfig(base.config, layers, options)), media.config);
+  const composed = imageConfig(base.config, layers, options);
+  if (options.rebase) composed.config!.Labels![rebaseMetadataLabel] = rebaseMetadata(base, layers, options, options.rebase);
+  const config = await store.put(canonicalJSON(composed), media.config);
   const manifest = await store.put(canonicalJSON({
     schemaVersion: 2, mediaType: media.manifest, config,
     ...(options.annotations && Object.keys(options.annotations).length ? { annotations: options.annotations } : {}),
