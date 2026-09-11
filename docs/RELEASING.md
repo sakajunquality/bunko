@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The current published release is **0.6.2**. The dedicated [Marketplace setup Action](https://github.com/marketplace/actions/setup-bunko) is versioned independently: setup-bunko v0.1.0 installs CLI v0.6.2 by default. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. The published 0.6.2 CLI supports Linux/macOS runners and Bun >=1.3.13 <1.5, validated with 1.3.13, 1.4.0 and 1.4.2. Version 0.1.4 remains available for Bun 1.3.11/1.3.12. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
+The current published release is **0.7.0**. The dedicated [Marketplace setup Action](https://github.com/marketplace/actions/setup-bunko) is versioned independently: setup-bunko v0.1.0 installs CLI v0.6.2 by default. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. The published 0.7.0 CLI supports Linux/macOS runners and Bun >=1.3.13 <1.5, validated with 1.3.13, 1.4.0 and 1.4.2. Version 0.1.4 remains available for Bun 1.3.11/1.3.12. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 For maintainers, follow the [release checklist](RELEASE_CHECKLIST.md) for commit/tag guards, publication order, consumer verification and failure recovery.
 
@@ -41,7 +41,7 @@ steps:
       persist-credentials: false
   - uses: sakajunquality/setup-bunko@df07f107af7d41b8476a875b966ee70039fb29ab # v0.1.0
     with:
-      version: v0.6.2
+      version: v0.7.0
       bun-version: 1.4.2
   - run: bunko version
 ```
@@ -71,11 +71,11 @@ A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different pri
 The `version` input is optional starting with v0.1.3. Earlier immutable tags retain their original defaults; v0.1.2 still installs CLI 0.1.1 unless `version` is explicit. Current Actions resolve their version in this order:
 
 1. The `version` input, when it is not empty. An explicit version always wins, and it is the only way to install a release other than the Action's own.
-2. `GITHUB_ACTION_REF`, when the ref is version-shaped, such as `v0.6.2`, and `GITHUB_ACTION_REPOSITORY` still names the release repository. Only the spelling of the ref decides this; the runner reports the requested ref without saying whether it is a tag, so a branch named `v9.9.9` selects release v9.9.9 and fails when no such release exists. Refs that are not version-shaped, including `main`, an alias such as `latest` and a commit SHA, and refs reported for a wrapping Action, fall through to the next step.
+2. `GITHUB_ACTION_REF`, when the ref is version-shaped, such as `v0.7.0`, and `GITHUB_ACTION_REPOSITORY` still names the release repository. Only the spelling of the ref decides this; the runner reports the requested ref without saying whether it is a tag, so a branch named `v9.9.9` selects release v9.9.9 and fails when no such release exists. Refs that are not version-shaped, including `main`, an alias such as `latest` and a commit SHA, and refs reported for a wrapping Action, fall through to the next step.
 3. `package.json` in the Action checkout the ref resolved to, prefixed with `v`. That file is tagged together with the release, so a branch or commit-SHA pin installs the release recorded in the commit it pins.
 4. A literal in `scripts/setup.ts`, reached only outside GitHub Actions, where neither the ref nor an Action checkout exists.
 
-The installation log records the selected version and its source, for example `Selected bunko v0.6.2 from GITHUB_ACTION_REF`. For stronger pinning, select a reviewed Action commit SHA; a commit that includes this resolution installs the release its checkout declares, so `version` stays optional there too. Registry login is separate from installing bunko; configure Docker credentials before a build that publishes an image.
+The installation log records the selected version and its source, for example `Selected bunko v0.7.0 from GITHUB_ACTION_REF`. For stronger pinning, select a reviewed Action commit SHA; a commit that includes this resolution installs the release its checkout declares, so `version` stays optional there too. Registry login is separate from installing bunko; configure Docker credentials before a build that publishes an image.
 
 Action tags cut before this resolution existed retain their preparation-time CLI default, which is the previous release; the immutable v0.1.2 tag defaults to CLI 0.1.1 unless `version` is passed. Starting with v0.1.3 the tag installs its own CLI version and `version` is optional. `bun-version` remains a literal default, so projects requiring an older toolchain should still set it to their supported exact version. For this existing entry point, releasing does not require a follow-up CLI-default bump: the tag and tagged `package.json` carry it. The dedicated setup-bunko repository has its own explicit default and release process.
 

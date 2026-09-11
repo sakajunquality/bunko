@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.6.2 reference is `ghcr.io/sakajunquality/bunko:v0.6.2`, with verified multiarchitecture index `sha256:e597562078a86d7982d0e0578c16f36e0a485c4dfc0c1f078abc8c49fda805c2`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.7.0 reference is `ghcr.io/sakajunquality/bunko:v0.7.0`, with verified multiarchitecture index `sha256:b613415203c9c73bcdc5544fa355d07a059e5725368861672a8b00c0fe46bc79`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:e597562078a86d7982d0e0578c16f36e0a485c4dfc0c1f078abc8c49fda805c2 \
+  ghcr.io/sakajunquality/bunko@sha256:b613415203c9c73bcdc5544fa355d07a059e5725368861672a8b00c0fe46bc79 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
