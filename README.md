@@ -200,7 +200,7 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
 
-Release preparation and GitHub Actions installation are documented in [RELEASING.md](docs/RELEASING.md). The dedicated [`sakajunquality/setup-bunko@v0.1.0`](https://github.com/marketplace/actions/setup-bunko) Action installs bunko v0.6.2 and Bun 1.4.2 by default, with checksum and provenance verification enabled. Its Action version is independent of the CLI version; use `version` to select another published CLI release. The existing `sakajunquality/bunko@...` setup entry point remains supported with its original version resolution and opt-in provenance verification. See [the compatibility entry point](docs/RELEASING.md#existing-setup-entry-point) for those defaults.
+Release preparation and GitHub Actions installation are documented in [RELEASING.md](docs/RELEASING.md). The dedicated [`sakajunquality/setup-bunko@df07f107af7d41b8476a875b966ee70039fb29ab`](https://github.com/marketplace/actions/setup-bunko) Action (v0.1.0) installs bunko v0.6.2 and Bun 1.4.2 by default, with checksum and provenance verification enabled. Its Action version is independent of the CLI version; use `version` to select another published CLI release. The existing `sakajunquality/bunko@...` setup entry point remains supported with its original version resolution and opt-in provenance verification. See [the compatibility entry point](docs/RELEASING.md#existing-setup-entry-point) for those defaults.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
