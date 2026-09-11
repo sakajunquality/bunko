@@ -2,7 +2,7 @@
 
 The accepted bundling toolchain range is Bun >=1.3.13 <1.5. The CI matrix pins Bun 1.3.13, 1.4.0, and 1.4.2 on Linux and macOS; this is the tested subset, not evidence for every accepted patch. Bunko 0.2.0 raises the minimum to 1.3.13. Bunko 0.1.4 remains available for 1.3.11/1.3.12.
 
-Linux images support amd64 and arm64. glibc remains the default; select `runtime.libc: "musl"` for Alpine/musl. musl support requires a release after v0.6.2 or a source checkout containing the feature; v0.6.2 and earlier reject it. See [musl compatibility](MUSL.md). Bundle mode requires the selected Bun runtime in the image, either already in the base or added with opt-in [signed runtime injection](RUNTIME_INJECTION.md). Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
+Linux images support amd64 and arm64. glibc remains the default; select `runtime.libc: "musl"` for Alpine/musl. musl support starts with v0.7.0; v0.6.2 and earlier reject it. See [musl compatibility](MUSL.md). Bundle mode requires the selected Bun runtime in the image, either already in the base or added with opt-in [signed runtime injection](RUNTIME_INJECTION.md). Compile mode emits a Linux executable and still requires a compatible runtime base/system libraries. Use the default version-matched base or verify a custom one:
 
 ```sh
 bunko doctor ./examples/hello
