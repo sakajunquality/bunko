@@ -69,7 +69,7 @@ When the tool is published as a release file rather than an image, fetch it by c
 {
   "bunko": {
     "assetMappings": [
-      { "url": "https://github.com/OWNER/spannerdef/releases/download/v0.6.2/spannerdef-linux-amd64", "sha256": "<64 hex characters>", "to": "/app/bin/spannerdef", "mode": "0755" }
+      { "url": "https://github.com/OWNER/spannerdef/releases/download/v0.6.1/spannerdef-linux-amd64", "sha256": "<64 hex characters>", "to": "/app/bin/spannerdef", "mode": "0755" }
     ]
   }
 }
