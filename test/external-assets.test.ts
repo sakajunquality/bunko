@@ -1,3 +1,4 @@
+import { crossDeviceAvailable } from "./cross-device.ts";
 import { applyLayers } from "../packages/bunko/runtime-layer.ts";
 import { RegistrySource, resolveBase } from "../packages/oci/source.ts";
 import { writeAssetBytes } from "../packages/bunko/asset-write.ts";
@@ -638,4 +639,25 @@ test("disabled asset caching does not exclude the configured cache path", async 
   await expect(build({ ...options, output: join(root, "cached") })).rejects.toThrow("Output/cache paths must not contain the source project");
   const result = await build({ ...options, localCache: false, output: join(root, "uncached") });
   expect(result.images).toHaveLength(1);
+});
+
+
+test.skipIf(!await crossDeviceAvailable())("image asset caches support separate filesystems for files and directories", async () => {
+  const { mkdtemp, stat, readFile } = await import("node:fs/promises");
+  const f = await fixture(false), cache = await mkdtemp("/dev/shm/bunko-image-cache-"); roots.push(cache);
+  expect((await stat(f.root)).dev).not.toBe((await stat(cache)).dev);
+  for (const [index, from] of ["/usr/local/bin/spannerdef", "/opt/tool"].entries()) {
+    const mapping = [{ image: f.image.reference, from, to: "/tools/asset" }];
+    const external = { ...f.external(), cache };
+    const cold = await stageAssetMappings(mapping, {}, join(f.root, `cold-${index}`), [], external);
+    const requests = f.registry.requests.length;
+    const warm = await stageAssetMappings(mapping, {}, join(f.root, `warm-${index}`), [], external);
+    const files = async (entries: typeof cold) => Promise.all(entries.entries.filter((entry) => entry.type === "file").map(async (entry) => {
+      if (!("source" in entry)) throw new Error("Expected a staged image asset file");
+      return { path: entry.path, executable: entry.executable, bytes: await readFile(entry.source), mode: (await stat(entry.source)).mode & 0o777 };
+    }));
+    expect(await files(warm)).toEqual(await files(cold));
+    expect((await files(cold)).length).toBeGreaterThan(0);
+    expect(f.registry.requests.slice(requests).some((request) => request.url.pathname.includes("/blobs/") && !request.url.pathname.endsWith(f.configDigest))).toBe(false);
+  }
 });

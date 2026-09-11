@@ -1,3 +1,4 @@
+import { moveAssetFile } from "./asset-move.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
 import { filesystemMetadata } from "./ignore.ts";
 import { writeAssetBytes } from "./asset-write.ts";
@@ -70,13 +71,13 @@ async function extractImagePath(store: BlobStore, image: BaseImage, from: string
   }
   await mkdir(dirname(content), { recursive: true, mode: 0o700 });
   // Executable classification is the only permission bit carried forward; contents stay owner-only in the cache.
-  if (root.type === "file") { await rename(join(layers, String(root.layer), selected), content); await chmod(content, root.mode & 0o111 ? 0o700 : 0o600); return; }
+  if (root.type === "file") { await moveAssetFile(join(layers, String(root.layer), selected), content); await chmod(content, root.mode & 0o111 ? 0o700 : 0o600); return; }
   await mkdir(content, { recursive: true, mode: 0o700 });
   for (const path of paths.slice(1)) {
     const node = tree.get(path)!, target = join(content, path.slice(selected.length + 1));
     if (node.type === "directory") { await mkdir(target, { recursive: true, mode: 0o700 }); continue; }
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    await rename(join(layers, String(node.layer), path), target);
+    await moveAssetFile(join(layers, String(node.layer), path), target);
     await chmod(target, node.mode & 0o111 ? 0o700 : 0o600);
   }
 }
