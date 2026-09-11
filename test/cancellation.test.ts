@@ -70,8 +70,7 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
     const pid = Number(await Bun.file(ready).text());
     const grandchild = Number(await Bun.file(childReady).text());
     child.kill("SIGTERM");
-    expect(await child.exited).toBe(143);
-    expect(await new Response(child.stderr).text()).toBe("");
+    expect({ code: await child.exited, stderr: await new Response(child.stderr).text() }).toEqual({ code: 143, stderr: "" });
     expect(() => process.kill(pid, 0)).toThrow();
     if (process.platform !== "win32") expect(() => process.kill(grandchild, 0)).toThrow();
     expect(await readdir(scratch)).toEqual([]);
@@ -133,8 +132,7 @@ test.skipIf(process.platform === "win32")("a helper cannot outlive a leader that
     await waitFor(() => Bun.file(ready).exists(), child);
     const pid = Number(await Bun.file(ready).text());
     child.kill("SIGTERM");
-    expect(await child.exited).toBe(143);
-    expect(await new Response(child.stderr).text()).toBe("");
+    expect({ code: await child.exited, stderr: await new Response(child.stderr).text() }).toEqual({ code: 143, stderr: "" });
     expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
@@ -153,3 +151,48 @@ test("the hard cancellation deadline retains scratch when work cannot drain", as
     expect((await readdir(root)).length).toBe(1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+for (const persistent of [false, true]) test.skipIf(process.platform === "win32")(`group probe EPERM ${persistent ? "retains scratch at the deadline" : "waits for confirmed exit before cleanup"}`, async () => {
+  const root = await temporary(), scratch = join(root, "scratch"), denied = join(root, "denied"), release = join(root, "release");
+  await mkdir(scratch);
+  const script = `
+    import {existsSync, writeFileSync} from 'node:fs';
+    import {runInvocation, spawn, mkdtemp} from './packages/runtime/invocation.ts';
+    const kill = process.kill.bind(process);
+    process.kill = (pid, signal) => {
+      if (pid < 0 && signal === 0 && !existsSync(${JSON.stringify(release)})) {
+        writeFileSync(${JSON.stringify(denied)}, 'denied');
+        throw Object.assign(new Error('fixture probe denied'), {code: 'EPERM'});
+      }
+      return kill(pid, signal);
+    };
+    process.exitCode = await runInvocation(async () => {
+      await mkdtemp(${JSON.stringify(join(scratch, "owned-"))});
+      const child = spawn([process.execPath, '--eval', 'setInterval(() => {}, 1000)'], {stdout:'ignore', stderr:'ignore'});
+      process.kill(process.pid, 'SIGTERM');
+      await child.exited;
+      return 0;
+    }, ${persistent ? 500 : 8000});
+  `;
+  const child = Bun.spawn([process.execPath, "--eval", script], { stdout: "ignore", stderr: "pipe" });
+  try {
+    await waitFor(() => Bun.file(denied).exists(), child);
+    expect((await readdir(scratch)).length).toBe(1);
+    if (!persistent) {
+      expect(child.exitCode).toBeNull();
+      await Bun.write(release, "allow probe");
+    }
+    const code = await child.exited, stderr = await new Response(child.stderr).text();
+    expect(code).toBe(143);
+    if (persistent) {
+      expect(stderr).toContain("scratch retained because work has not drained");
+      expect((await readdir(scratch)).length).toBe(1);
+    } else {
+      expect(stderr).toBe("");
+      expect(await readdir(scratch)).toEqual([]);
+    }
+  } finally {
+    if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
