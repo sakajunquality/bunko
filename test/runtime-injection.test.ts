@@ -181,6 +181,6 @@ test.skipIf(!Bun.which("gpgv"))("every supported Linux asset pin matches the off
     expect(runtimeNotices[version]).toContain("MIT License");
     const signed=await readFile(new URL(`./fixtures/runtime/bun-${version}-checksums.asc`,import.meta.url));
     const text=await verifiedChecksums(signed);
-    for(const asset of ["bun-linux-x64-baseline","bun-linux-aarch64"]) expect(pinnedArchiveChecksum(version,asset,text)).toMatch(/^sha256:[a-f0-9]{64}$/);
+    for(const asset of Object.keys(runtimePins[version]!)) expect(pinnedArchiveChecksum(version,asset,text)).toMatch(/^sha256:[a-f0-9]{64}$/);
   }
 });

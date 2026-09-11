@@ -538,6 +538,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         const baseUser = base.config.config?.User;
         if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
+        const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
+        assertNativeLibc(project.runtimeLibc, native, new Set(capabilities.inactiveNativeVariants.map((item) => item.path)));
         const image = await assembleImage(store, base, layers, {
           platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...caEnvironment }, ports: project.ports,
@@ -545,8 +547,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
-        const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
-        assertNativeLibc(project.runtimeLibc, native, new Set(capabilities.inactiveNativeVariants.map((item) => item.path)));
         if (iteration === 1) for (const missing of capabilities.missingFromBase) log(`BUNKO_MISSING_BASE_LIBRARY: base lacks ${missing.name}, required by ${missing.requiredBy}; application libraries and runtime loader compatibility remain unchecked\n`);
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;

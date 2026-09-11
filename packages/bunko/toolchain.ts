@@ -174,8 +174,9 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
       if (code) throw new Error(`Bun compile failed (exit ${code})`);
     } finally { await rm(runtimePath, { force: true }); }
     // Bun 1.3.12+ rewrites ELF sections, so the runtime is not a byte-identical prefix.
-    if (releaseRevision(await readFile(join(outdir, executable)), toolchain) !== compileRuntime.metadata.releaseRevision) throw new Error("Compiled application runtime revision differs from the authenticated release");
-    runtimeELF(await readFile(join(outdir, executable)), project.platform, project.runtimeLibc);
+    const compiledBytes = await readFile(join(outdir, executable));
+    if (releaseRevision(compiledBytes, toolchain) !== compileRuntime.metadata.releaseRevision) throw new Error("Compiled application runtime revision differs from the authenticated release");
+    runtimeELF(compiledBytes, project.platform, project.runtimeLibc);
     if (!await inspectELF(join(outdir, executable), project.platform)) throw new Error("Compiled application is not a target Linux ELF executable");
     await chmod(join(outdir, executable), 0o755);
     for (const path of Object.keys(outputs)) await rm(resolve(outdir, path), { force: true });
