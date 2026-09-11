@@ -1,6 +1,6 @@
 # Alpine and musl runtimes
 
-musl support requires a release after v0.6.2 or a source checkout containing this feature. Earlier releases accept only `runtime.libc: "glibc"`. The default remains glibc.
+musl support is available starting with v0.7.0. Earlier releases accept only `runtime.libc: "glibc"`. The default remains glibc.
 
 ```json
 {
