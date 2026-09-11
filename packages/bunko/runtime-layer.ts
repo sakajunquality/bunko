@@ -13,7 +13,7 @@ import type { BlobStore } from "../oci/blob-store.ts";
 import type { BaseImage } from "../oci/types.ts";
 import type { InjectedRuntime } from "./runtime-download.ts";
 
-export interface BaseNode { type: string; link?: string; mode: number; size: number; layer?: number }
+export interface BaseNode { type: string; link?: string; mode: number; size: number; layer?: number; muslSearchPath?: string }
 /** Receives every non-whiteout entry of one layer; the stream may be consumed, and is drained otherwise.
  * Directories a layer only implies carry no stream and are reported once, when they enter the tree. */
 export type LayerCapture = (index: number, path: string, node: BaseNode, stream?: Readable) => Promise<void>;
@@ -34,7 +34,18 @@ function ancestors(path: string) { const parts = path.split("/"); return parts.m
 
 /** Inspect metadata without extracting or following paths on the build host. */
 export async function baseFilesystem(store: BlobStore, base: BaseImage, temporary: string): Promise<BaseFilesystem> {
-  return applyLayers(store, base, temporary);
+  const tree = await applyLayers(store, base, temporary, async (_index, path, node, stream) => {
+    if (!/^etc\/ld-musl-(?:x86_64|aarch64)\.path$/.test(path) || node.type !== "file" || !stream || node.size > 4096) return;
+    const chunks: Buffer[] = []; let size = 0;
+    for await (const chunk of stream) {
+      const bytes = Buffer.from(chunk); size += bytes.length;
+      if (size > 4096) throw new Error("musl library search configuration exceeds inspection limits");
+      chunks.push(bytes);
+    }
+    node.muslSearchPath = Buffer.concat(chunks).toString("utf8");
+  });
+  for (const node of tree.values()) delete node.layer;
+  return tree;
 }
 
 /** Apply every layer in order, resolving whiteouts, and optionally capture selected entry bodies.
@@ -111,18 +122,24 @@ export function baseNode(tree: BaseFilesystem, absolute: string): BaseNode | und
   throw new Error("Runtime base contains a link cycle");
 }
 
-export function assertRuntimeBase(metadata: InjectedRuntime, tree: BaseFilesystem): void {
+export function assertRuntimeBase(metadata: InjectedRuntime, tree: BaseFilesystem, libraryPath = ""): void {
   const loader = baseNode(tree, metadata.interpreter);
   if (!loader || loader.type !== "file" || !loader.size || !(loader.mode & 0o111)) throw new Error(`Runtime base is missing the executable ${metadata.libc} loader ${metadata.interpreter}; this base cannot run the selected release`);
-  if (metadata.libc === "musl") for (const name of metadata.needed) {
+  if (metadata.libc !== "musl") return;
+  const configPath = `/etc/${posix.basename(metadata.interpreter).replace(".so.1", ".path")}`;
+  const config = baseNode(tree, configPath);
+  if (config && (config.type !== "file" || config.muslSearchPath === undefined)) throw new Error(`Cannot inspect musl library search configuration ${configPath}; use a regular file of at most 4096 bytes at this path`);
+  const paths = `${libraryPath}:${config?.muslSearchPath ?? "/lib:/usr/local/lib:/usr/lib"}`.split(/[:\n]/).filter(Boolean);
+  if (paths.some((path) => !path.startsWith("/") || /[\x00-\x1f\x7f]/.test(path))) throw new Error("musl library search paths must be absolute paths without control characters");
+  for (const name of metadata.needed) {
     // musl's interpreter also provides its libc SONAME, even without a sibling symlink.
     if (name === "libc.so" || name === posix.basename(metadata.interpreter).replace("ld-", "libc.")) continue;
-    const found = [...tree.keys()].some((candidate) => posix.basename(candidate) === name && (() => { const node = baseNode(tree, candidate); return node?.type === "file" && node.size > 0; })());
+    const found = paths.some((directory) => { const node = baseNode(tree, posix.join(directory, name)); return node?.type === "file" && node.size > 0; });
     if (!found) throw new Error(`musl runtime base is missing ${name}; install the runtime libraries (Alpine typically needs libstdc++) before injection`);
   }
 }
 
-export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem): TarEntry[] {
+export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem, libraryPath = ""): TarEntry[] {
   const path = pathName(metadata.path.slice(1));
   if (!path || metadata.path !== `/${path}`) throw new Error("Invalid runtime injection destination");
   for (const parent of ancestors(path).slice(0, -1)) {
@@ -131,16 +148,16 @@ export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tr
   }
   const existing = tree.get(path);
   if (existing && existing.type !== "file") throw new Error("Runtime destination overlaps a non-regular base entry");
-  assertRuntimeBase(metadata, tree);
+  assertRuntimeBase(metadata, tree, libraryPath);
   return [{ path, type: "file", content: executable, executable: true }];
 }
 
-export async function injectedLayer(store: BlobStore, metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem, epoch: number) {
-  const entries = runtimeEntries(metadata, executable, tree);
+export async function injectedLayer(store: BlobStore, metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem, epoch: number, libraryPath = "") {
+  const entries = runtimeEntries(metadata, executable, tree, libraryPath);
   const notice = runtimeNotices[metadata.version];
   if (!notice) throw new Error("Missing injected runtime licensing notices");
   for (const [path, content] of [["/usr/share/licenses/bunko-runtime/LICENSE.md", notice], ["/usr/share/licenses/bunko-runtime/SOURCE.json", canonicalJSON({ version: metadata.version, revision: metadata.releaseRevision, source: `https://github.com/oven-sh/bun/tree/${metadata.releaseRevision}`, archive: metadata.url, archiveDigest: metadata.archiveDigest })]] as const) {
-    const files = runtimeEntries({ ...metadata, path }, Buffer.from(content), tree);
+    const files = runtimeEntries({ ...metadata, path }, Buffer.from(content), tree, libraryPath);
     entries.push(...files.map((entry) => ({ ...entry, executable: false })));
   }
   return { entries, layer: (await packLayer(store, entries, "runtime", epoch, []))! };

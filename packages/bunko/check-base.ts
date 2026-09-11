@@ -48,7 +48,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
         if (options.runtimeInject) {
           const downloaded = await downloadRuntime(toolchain, selected, { libc, cache: options.runtimeCache, log: options.log ?? ((message) => process.stderr.write(message)) });
           runtime = { ...downloaded.metadata, path: options.runtimePath ?? "/usr/local/bin/bun" };
-          const injected = await injectedLayer(store, runtime, downloaded.executable, tree, 0);
+          const injected = await injectedLayer(store, runtime, downloaded.executable, tree, 0, base.config.config?.Env?.findLast((value) => value.startsWith("LD_LIBRARY_PATH="))?.slice(16));
           const image = await assembleImage(store, base, [injected.layer], { platform: selected, epoch: 0, entrypoint: [runtime.path], args: ["--revision"], workdir: "/", env: {}, labels: {}, user: "65532:65532" }, true);
           if (options.run) {
             composed = `bunko.local/runtime-check:${randomUUID()}`;

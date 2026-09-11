@@ -29,7 +29,7 @@ import { layerPath, type BaseFilesystem, type BaseNode } from "./runtime-layer.t
  * re-inspects — and because the version is a path segment, superseded records are ordinary
  * prune candidates rather than dead weight.
  */
-export const baseInspectVersion = "base-inspect-v1";
+export const baseInspectVersion = "base-inspect-v2";
 /** Managed-cache subdirectory holding `<baseInspectVersion>/<base digest>.json` records. */
 export const baseInspectDirectory = "base-inspect";
 /** Version directories `prune` recognizes; anything else is refused as an unknown namespace. */
@@ -41,7 +41,7 @@ const maxEntries = 200_000;
 
 export interface BaseInspection {
   schemaVersion: 1; kind: "base-inspect"; version: string; digest: Digest;
-  entries: { path: string; type: string; mode: number; size: number; link?: string }[];
+  entries: { path: string; type: string; mode: number; size: number; link?: string; muslSearchPath?: string }[];
 }
 
 export function baseInspectPath(directory: string, digest: Digest): string {
@@ -56,7 +56,7 @@ export function baseInspection(digest: Digest, tree: BaseFilesystem): BaseInspec
     schemaVersion: 1, kind: "base-inspect", version: baseInspectVersion, digest,
     entries: [...tree].sort(([a], [b]) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
       // `linkname` is absent (or null) for entries that are not links; only a real target is recorded.
-      .map(([path, node]) => ({ path, type: node.type, mode: node.mode, size: node.size, ...(typeof node.link === "string" && node.link ? { link: node.link } : {}) })),
+      .map(([path, node]) => ({ path, type: node.type, mode: node.mode, size: node.size, ...(node.muslSearchPath !== undefined ? { muslSearchPath: node.muslSearchPath } : {}), ...(typeof node.link === "string" && node.link ? { link: node.link } : {}) })),
   };
 }
 
@@ -73,9 +73,11 @@ export function validateBaseInspection(input: unknown, digest: Digest): BaseFile
     if (!Number.isSafeInteger(entry.mode) || (entry.mode as number) < 0 || (entry.mode as number) > 0xffff) throw new Error("Invalid base inspection entry mode");
     if (!Number.isSafeInteger(entry.size) || (entry.size as number) < 0) throw new Error("Invalid base inspection entry size");
     if (entry.link !== undefined && (typeof entry.link !== "string" || entry.link.length > 4096)) throw new Error("Invalid base inspection link target");
+    if (entry.muslSearchPath !== undefined && (typeof entry.muslSearchPath !== "string" || Buffer.byteLength(entry.muslSearchPath) > 12288 || entry.type !== "file" || !/^etc\/ld-musl-(?:x86_64|aarch64)\.path$/.test(entry.path))) throw new Error("Invalid musl search path metadata");
     if (tree.has(entry.path)) throw new Error("Duplicate path in base inspection");
     // A non-link carries no target; `baseNode` rejects a falsy target the same way for either shape.
     const node: BaseNode = { type: entry.type, link: entry.link as string | undefined, mode: entry.mode as number, size: entry.size as number };
+    if (entry.muslSearchPath !== undefined) node.muslSearchPath = entry.muslSearchPath as string;
     tree.set(entry.path, node);
   }
   return tree;

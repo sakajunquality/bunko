@@ -31,7 +31,17 @@ for (const architecture of ["amd64", "arm64"] as const) test(`musl ${architectur
   expect(() => assertBaseLibc(tree, "glibc", platform)).toThrow("Base uses musl");
   const metadata = {libc:"musl", path:"/usr/local/bin/bun", interpreter, needed:["libstdc++.so.6", interpreter.split('/').at(-1)!.replace('ld-', 'libc.')]} as InjectedRuntime;
   expect(() => runtimeEntries(metadata, Buffer.from('fixture'), tree)).toThrow("missing libstdc++.so.6");
+  tree.set("opt/lib/libstdc++.so.6", {type:"file",mode:0o755,size:1});
+  expect(() => runtimeEntries(metadata, Buffer.from('fixture'), tree)).toThrow("missing libstdc++.so.6");
+  expect(runtimeEntries(metadata, Buffer.from('fixture'), tree, "/opt/lib")).toHaveLength(1);
+  expect(() => runtimeEntries(metadata, Buffer.from('fixture'), tree, "relative/lib")).toThrow("absolute paths");
+  const configPath = `etc/${interpreter.split('/').at(-1)!.replace('.so.1', '.path')}`;
+  tree.set(configPath, {type:"file",mode:0o644,size:8,muslSearchPath:"/opt/lib"});
+  expect(runtimeEntries(metadata, Buffer.from('fixture'), tree)).toHaveLength(1);
+  tree.delete("opt/lib/libstdc++.so.6");
   tree.set("usr/lib/libstdc++.so.6", {type:"file",mode:0o755,size:1});
+  expect(() => runtimeEntries(metadata, Buffer.from('fixture'), tree)).toThrow("missing libstdc++.so.6");
+  tree.delete(configPath);
   expect(runtimeEntries(metadata, Buffer.from('fixture'), tree)).toHaveLength(1);
   const capabilities = baseCapabilities(tree, {}, '/', [{path:'addon.node', architecture, needed:[metadata.needed[1]!]}]);
   expect(capabilities.missingFromBase).toEqual([]);

@@ -28,7 +28,7 @@ Bundle and source modes can use a compatible Bun already in the base or inject a
 }
 ```
 
-The base must contain the architecture's executable musl loader and the runtime's required libraries. The verified releases require `libstdc++.so.6`; bare Alpine does not include it. Prepare a base with `apk add --no-cache libstdc++ ca-certificates` before using it with bunko. bunko does not run apk or install OS libraries. Missing loaders, wrong libc bases and missing injected/compiled musl runtime libraries are rejected before publication.
+The base must contain the architecture's executable musl loader and the runtime's required libraries. The verified releases require `libstdc++.so.6`; bare Alpine does not include it. Prepare a base with `apk add --no-cache libstdc++ ca-certificates` before using it with bunko. bunko does not run apk or install OS libraries. Missing loaders, wrong libc bases and missing injected/compiled musl runtime libraries are rejected before publication. The library check uses `/lib`, `/usr/local/lib` and `/usr/lib`, or the base's `/etc/ld-musl-<architecture>.path` configuration, plus the effective `LD_LIBRARY_PATH`. These follow [musl's library path configuration](https://wiki.musl-libc.org/faq.html#q-where-is-ldconfig). Custom paths must be absolute; configuration files must be regular files at their conventional location and no larger than 4096 bytes. Arbitrary symlink targets for configuration files, relative search paths, and application-layer library additions are not supported by this preflight. Library contents, transitive dependencies and ABI compatibility still require runtime testing.
 
 ## Native dependencies and certificates
 

@@ -304,9 +304,10 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       assertBaseWorkdir(tree, project.workdir);
       assertBaseLibc(tree, project.runtimeLibc, project.platforms[index]!);
     }
+    const libraryPath = (base: BaseImage) => project.env.LD_LIBRARY_PATH ?? base.config.config?.Env?.findLast((value) => value.startsWith("LD_LIBRARY_PATH="))?.slice(16) ?? "";
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
     if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
-    for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!));
+    for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!), libraryPath(bases[index]!));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
@@ -368,7 +369,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const tree = await filesystem(base);
         if (assets.length) assertBaseDataPaths(tree, assets);
         const inputRuntime = runtimes[index];
-        const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp), metadata: inputRuntime.metadata } : undefined;
+        const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp, libraryPath(base)), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {
           const key = cacheKey({ kind: "runtime", packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
