@@ -2,16 +2,16 @@
 
 The npm package is [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko), first published as `0.1.0-rc.5` on 2026-09-09. The unscoped `bunko` package is unrelated to this distribution. See [initial publication evidence](validation/npm-rc5.md).
 
-The repository root remains private to prevent publishing the development checkout. `scripts/npm-package.ts` creates a separate, allowlisted package from an existing GitHub release. Its `bunko.js`, licenses, checksums and release provenance are copied without modification. No lifecycle scripts or runtime npm dependencies are included. Bun must already be installed and on PATH; npm does not install it. Supported hosts are Linux and macOS, x64 and arm64. Published 0.1.4 requires Bun >=1.3.11 <1.5; 0.6.1 requires >=1.3.13 <1.5.
+The repository root remains private to prevent publishing the development checkout. `scripts/npm-package.ts` creates a separate, allowlisted package from an existing GitHub release. Its `bunko.js`, licenses, checksums and release provenance are copied without modification. No lifecycle scripts or runtime npm dependencies are included. Bun must already be installed and on PATH; npm does not install it. Supported hosts are Linux and macOS, x64 and arm64. Published 0.1.4 requires Bun >=1.3.11 <1.5; 0.6.2 requires >=1.3.13 <1.5.
 
-The current stable release is **0.6.1**, published through GitHub Actions trusted publishing with npm provenance. See [stable publication evidence](validation/v0.6.1.md).
+The current stable release is **0.6.2**, published through GitHub Actions trusted publishing with npm provenance. See [stable publication evidence](validation/v0.6.2.md).
 
 Usage:
 
 ```sh
-bunx @sakajunquality/bunko@0.6.1 version
+bunx @sakajunquality/bunko@0.6.2 version
 bunx @sakajunquality/bunko@latest build .
-npm install -g @sakajunquality/bunko@0.6.1
+npm install -g @sakajunquality/bunko@0.6.2
 bunko version
 ```
 
@@ -24,10 +24,10 @@ Run the **npm distribution** workflow on main with the existing release tag and 
 For local preparation, download the complete release into a new directory, verify it, then package it:
 
 ```sh
-gh release download v0.6.1 --repo sakajunquality/bunko --dir dist/release
-BUNKO_ATTESTATION_SOURCE_DIGEST=965bbce218c935e29cfb2d87e00b733dbcbf86b1 \
-  bun scripts/verify-release.ts dist/release v0.6.1
-bun scripts/npm-package.ts dist/release dist/npm v0.6.1
+gh release download v0.6.2 --repo sakajunquality/bunko --dir dist/release
+BUNKO_ATTESTATION_SOURCE_DIGEST=ab6d35eb7c39369b1c2491c4b94c20e656b4548b \
+  bun scripts/verify-release.ts dist/release v0.6.2
+bun scripts/npm-package.ts dist/release dist/npm v0.6.2
 bun scripts/validation/npm-smoke.ts dist/npm dist/npm-artifact
 ```
 
@@ -49,8 +49,8 @@ Then configure the npm package's **Trusted Publisher** for:
 
 Create the matching GitHub `npm` environment and restrict deployment branches to main. The workflow also requires main for publishing. Use GitHub-hosted runners and a supported npm CLI (>=11.5.1) with Node >=22.14.0. It publishes with OIDC and provenance without a long-lived npm token. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-rc.5 was published during authenticated local bootstrap and has no npm workflow provenance. Its enclosed CLI release provenance remains intact. Version 0.1.0 is the first successful OIDC publication; those versions remain immutable and must not be published again. Versions 0.1.1 through 0.1.4, 0.2.0, 0.3.0, 0.3.1, 0.3.2, 0.4.0, 0.5.0, 0.6.0 and 0.6.1 use the same trusted-publishing workflow.
+rc.5 was published during authenticated local bootstrap and has no npm workflow provenance. Its enclosed CLI release provenance remains intact. Version 0.1.0 is the first successful OIDC publication; those versions remain immutable and must not be published again. Versions 0.1.1 through 0.1.4, 0.2.0, 0.3.0, 0.3.1, 0.3.2, 0.4.0, 0.5.0, 0.6.0, 0.6.1 and 0.6.2 use the same trusted-publishing workflow.
 
 For future releases, dispatch the workflow on main with a **new, unpublished npm version** whose GitHub release has already been published and verified, and `publish: true`. It publishes the tested tarball once, downloads it independently, compares its SHA512 integrity with the candidate and executes the npm and bunx consumers. A failed post-publication check must be investigated before declaring success; rerunning publication of an existing version is not a repair strategy.
 
-The stable package passed anonymous tarball download, exact candidate integrity comparison, npm installation, fresh-cache bunx execution with both the exact version and `latest`, and `npm audit signatures` verification of the registry signature and npm attestation. Registry installations also passed 0.6.0 → 0.6.1 → 0.6.0 → 0.6.1 upgrades and rollback, followed by Bun installation and bunx execution. The `next` tag remains on rc.5; `latest` selects 0.6.1. See the [versioned results](validation/v0.6.1.md).
+The stable package passed anonymous tarball download, exact candidate integrity comparison, npm installation, fresh-cache bunx execution with both the exact version and `latest`, and `npm audit signatures` verification of the registry signature and npm attestation. Registry installations also passed 0.6.1 → 0.6.2 → 0.6.1 → 0.6.2 upgrades and rollback, followed by Bun installation and bunx execution. The `next` tag remains on rc.5; `latest` selects 0.6.2. See the [versioned results](validation/v0.6.2.md).

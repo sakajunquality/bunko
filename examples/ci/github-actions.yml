@@ -1,7 +1,7 @@
 # Build and publish one application on GitHub Actions.
 # `cache: github` lets the build Action restore and save the managed bunko cache itself, so this
 # workflow needs no actions/cache step; see docs/CI.md#the-github-actions-cache.
-# Setup and build are pinned to the verified v0.6.1 release, including cache and summary support.
+# Setup and build are pinned to the verified v0.6.2 release, including cache and summary support.
 name: Build image
 
 on:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: sakajunquality/bunko@965bbce218c935e29cfb2d87e00b733dbcbf86b1 # v0.6.1
+      - uses: sakajunquality/bunko@ab6d35eb7c39369b1c2491c4b94c20e656b4548b # v0.6.2
         with:
           bun-version: 1.4.2
           verify-attestation: 'true'
@@ -28,7 +28,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ github.token }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - uses: sakajunquality/bunko/build@965bbce218c935e29cfb2d87e00b733dbcbf86b1 # v0.6.1
+      - uses: sakajunquality/bunko/build@ab6d35eb7c39369b1c2491c4b94c20e656b4548b # v0.6.2
         id: image
         with:
           path: .
