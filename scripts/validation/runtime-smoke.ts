@@ -1,6 +1,6 @@
 /** Public, disposable runtime-injection smoke checks against the distributed CLI. */
 import { randomUUID } from "node:crypto";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BlobStore } from "../../packages/oci/blob-store.ts";
@@ -27,6 +27,12 @@ try {
   if (check.platforms.some((p: { runtimeVerified: boolean }) => !p.runtimeVerified)) throw new Error("Injected revision was not verified");
   const rejected = await run([...cli, "check-base", "--base", empty, "--runtime-inject", "release", "--platform", platforms[0]!]);
   if (!rejected.code || !rejected.err.includes("glibc loader")) throw new Error("Static base was not rejected clearly");
+  const compiled = join(root, "compiled");
+  await mkdir(compiled);
+  await writeFile(join(compiled, "package.json"), JSON.stringify({ name: "compile-loader-validation", bunko: { mode: "compile", entrypoint: "index.ts" } }));
+  await writeFile(join(compiled, "index.ts"), 'console.log("compiled");');
+  const compileRejected = await run([...cli, "build", compiled, "--base", empty, "--platform", platforms[0]!, "--push=false", "--oci-layout", join(root, "invalid-compile")]);
+  if (!compileRejected.code || !compileRejected.err.includes("glibc loader")) throw new Error("Compile mode accepted a base without its glibc loader");
   // Exercise local OCI input through the same composed runtime check.
   const store = new BlobStore(join(root, "store")), source = new RegistrySource(base), selected = await resolveBase(source, platform(platforms[0]!), store, true);
   const layout = join(root, "base");

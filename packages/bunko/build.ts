@@ -306,7 +306,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     }
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
     if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
-    if (project.runtimeLibc === "musl") for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!));
+    for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!));
     const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {

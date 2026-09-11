@@ -1,13 +1,23 @@
 import { expect, test } from "bun:test";
 import { loadProject } from "../packages/bunko/config.ts";
 import { runtimeAsset, runtimeELF, type InjectedRuntime } from "../packages/bunko/runtime-download.ts";
-import { runtimeEntries, type BaseFilesystem } from "../packages/bunko/runtime-layer.ts";
+import { assertRuntimeBase, runtimeEntries, type BaseFilesystem } from "../packages/bunko/runtime-layer.ts";
 import { assertBaseLibc, assertNativeLibc, libcLoader } from "../packages/bunko/libc.ts";
 import { assertSharedClosure } from "../packages/bunko/closure.ts";
 import { baseCapabilities } from "../packages/bunko/base-capabilities.ts";
 import { cacheKey } from "../packages/bunko/cache.ts";
 
 const toolchain = { path: "bun", version: "1.4.2", revision: "744846f84" };
+test("compiled glibc runtimes also require an executable base loader", () => {
+  const interpreter = libcLoader("glibc", { os: "linux", architecture: "amd64" });
+  const metadata = { libc: "glibc", interpreter, needed: [] } as unknown as InjectedRuntime;
+  const tree: BaseFilesystem = new Map();
+  expect(() => assertRuntimeBase(metadata, tree)).toThrow("glibc loader");
+  tree.set(interpreter.slice(1), { type: "file", mode: 0o644, size: 1 });
+  expect(() => assertRuntimeBase(metadata, tree)).toThrow("glibc loader");
+  tree.set(interpreter.slice(1), { type: "file", mode: 0o755, size: 1 });
+  expect(() => assertRuntimeBase(metadata, tree)).not.toThrow();
+});
 for (const architecture of ["amd64", "arm64"] as const) test(`musl ${architecture} selects a pinned artifact and requires its loader and libraries`, () => {
   const platform = { os: "linux", architecture } as const;
   const interpreter = libcLoader("musl", platform);
