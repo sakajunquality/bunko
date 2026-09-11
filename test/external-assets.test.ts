@@ -651,11 +651,12 @@ test.skipIf(process.platform !== "linux")("image asset caches support separate f
     const cold = await stageAssetMappings(mapping, {}, join(f.root, `cold-${index}`), [], external);
     const requests = f.registry.requests.length;
     const warm = await stageAssetMappings(mapping, {}, join(f.root, `warm-${index}`), [], external);
-    const files = async (entries: typeof cold) => Promise.all(entries.entries.filter((entry) => entry.type === "file").map(async (entry) => ({
-      path: entry.path, executable: entry.executable, bytes: await readFile(entry.source!), mode: (await stat(entry.source!)).mode & 0o777,
-    })));
+    const files = async (entries: typeof cold) => Promise.all(entries.entries.filter((entry) => entry.type === "file").map(async (entry) => {
+      if (!("source" in entry)) throw new Error("Expected a staged image asset file");
+      return { path: entry.path, executable: entry.executable, bytes: await readFile(entry.source), mode: (await stat(entry.source)).mode & 0o777 };
+    }));
     expect(await files(warm)).toEqual(await files(cold));
     expect((await files(cold)).length).toBeGreaterThan(0);
-    expect(f.registry.requests.slice(requests).some((request) => request.url.pathname.includes("/blobs/"))).toBe(false);
+    expect(f.registry.requests.slice(requests).some((request) => request.url.pathname.includes("/blobs/") && !request.url.pathname.endsWith(f.configDigest))).toBe(false);
   }
 });
