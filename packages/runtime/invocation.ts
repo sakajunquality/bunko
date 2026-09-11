@@ -110,11 +110,20 @@ export async function runInvocation(task: () => Promise<number>, graceMs = 10_00
           // A leader can exit on TERM while a helper in its group ignores it.
           // Reap direct children first, then wait for the cancelled groups to vanish.
           for (const pid of invocation.cancelledGroups) {
-            try { process.kill(-pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+            try { process.kill(-pid, "SIGKILL"); } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code !== "ESRCH" && code !== "EPERM") throw error;
+            }
           }
           while (invocation.cancelledGroups.size) {
             for (const pid of invocation.cancelledGroups) {
-              try { process.kill(-pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") invocation.cancelledGroups.delete(pid); else throw error; }
+              try { process.kill(-pid, 0); } catch (error) {
+                const code = (error as NodeJS.ErrnoException).code;
+                if (code === "ESRCH") invocation.cancelledGroups.delete(pid);
+                // macOS can report EPERM while an orphaned group is disappearing.
+                // It is not proof of exit: keep polling, or retain scratch at the deadline.
+                else if (code !== "EPERM") throw error;
+              }
             }
             if (invocation.cancelledGroups.size) await new Promise((resolve) => setTimeout(resolve, 10));
           }
