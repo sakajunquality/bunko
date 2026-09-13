@@ -2,7 +2,7 @@
 
 `bunko rebase` replaces a verified base layer prefix while preserving every generated application, dependency, asset and injected runtime layer. It reads OCI images and metadata; it never reads application source, invokes the application builder, or installs dependencies. The output is a new image with its own digest, configuration, attestations and signatures.
 
-This command requires images built with `org.bunko.rebase.metadata` version 1. Published v0.7.0 images predate that metadata and must be rebuilt first. The command and metadata format are introduced together after v0.7.0.
+This command requires images built with `org.bunko.rebase.metadata` version 1. Published v0.7.0 images predate that metadata and must be rebuilt first. The command and metadata format are introduced together in v0.8.0.
 
 ## Inputs and outputs
 
