@@ -9,6 +9,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const allowed: Record<string, string> = {
     build: `offline ${build} deps-artifact`, resolve: `${build} ${input}`, apply: `${build} ${input} ${kube}`,
     "cache-info": "cache-dir",
+    rebase: "old-base compatibility-policy base base-layout platform oci-layout repo push tag tag-conflict dry-run report sbom base-sbom provenance sign-key cosign-path registry-mirror insecure-registry registry-config publish-concurrency",
     metadata: "registry-mirror metadata-dir insecure-registry registry-config",
     "push-layout": "repo tag tag-conflict insecure-registry registry-config publish-concurrency report", prune: "cache-dir cache-repo older-than keep-bytes execute dry-run insecure-registry registry-config",
     "prepare-base": "base base-layout platform oci-layout registry-mirror insecure-registry registry-config",

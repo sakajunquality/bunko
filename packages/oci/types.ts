@@ -61,7 +61,7 @@ export interface ImageConfig {
   author?: string;
   config?: RuntimeConfig;
   rootfs: { type: "layers"; diff_ids: Digest[] };
-  history?: { created?: string; created_by?: string; empty_layer?: boolean; comment?: string }[];
+  history?: { created?: string; author?: string; created_by?: string; empty_layer?: boolean; comment?: string }[];
 }
 
 export interface Layer {

@@ -16,7 +16,8 @@ import type { InjectedRuntime } from "./runtime-download.ts";
 export interface BaseNode { type: string; link?: string; mode: number; size: number; layer?: number; muslSearchPath?: string }
 /** Receives every non-whiteout entry of one layer; the stream may be consumed, and is drained otherwise.
  * Directories a layer only implies carry no stream and are reported once, when they enter the tree. */
-export type LayerCapture = (index: number, path: string, node: BaseNode, stream?: Readable) => Promise<void>;
+export type LayerCapture = (index: number, path: string, node: BaseNode, stream?: Readable, metadata?: { uid?: number; gid?: number; pax?: unknown }) => Promise<void>;
+export type LayerWhiteout = (index: number, path: string) => void;
 export type BaseFilesystem = Map<string, BaseNode>;
 /** Normalizes a layer entry name the way container runtimes do: leading `/` and `./` prefixes are dropped (ko and
  * some tar writers emit absolute names such as `/ko-app/tool`); traversal, empty segments, backslashes and control
@@ -51,7 +52,7 @@ export async function baseFilesystem(store: BlobStore, base: BaseImage, temporar
 
 /** Apply every layer in order, resolving whiteouts, and optionally capture selected entry bodies.
  * Captured nodes record their winning layer index so callers can materialize the merged result. */
-export async function applyLayers(store: BlobStore, base: BaseImage, temporary: string, capture?: LayerCapture, entryLimit = 200_000): Promise<BaseFilesystem> {
+export async function applyLayers(store: BlobStore, base: BaseImage, temporary: string, capture?: LayerCapture, entryLimit = 200_000, onWhiteout?: LayerWhiteout): Promise<BaseFilesystem> {
   if (!Number.isSafeInteger(entryLimit) || entryLimit < 1 || entryLimit > 200_000) throw new Error("Invalid base filesystem entry limit");
   const tree: BaseFilesystem = new Map(); let count = 0;
   const directory = await mkdtemp(join(temporary, "base-inspect-"));
@@ -69,12 +70,12 @@ export async function applyLayers(store: BlobStore, base: BaseImage, temporary: 
             if (++count > entryLimit) throw new Error("Runtime base has too many entries");
             const path = pathName(header.name), leaf = posix.basename(path), parent = posix.dirname(path);
             if (path) {
-              if (leaf === ".wh..wh..opq") opaque.add(parent === "." ? "" : parent);
-              else if (leaf.startsWith(".wh.")) removed.add(parent === "." ? leaf.slice(4) : `${parent}/${leaf.slice(4)}`);
+              if (leaf === ".wh..wh..opq") { onWhiteout?.(index, parent === "." ? "" : parent); opaque.add(parent === "." ? "" : parent); }
+              else if (leaf.startsWith(".wh.")) { const whiteout = parent === "." ? leaf.slice(4) : `${parent}/${leaf.slice(4)}`; onWhiteout?.(index, whiteout); removed.add(whiteout); }
               else {
                 const node: BaseNode = { type: header.type ?? "file", link: header.linkname, mode: header.mode ?? 0, size: header.size ?? 0, ...(capture ? { layer: index } : {}) };
                 overlay.set(path, node);
-                await capture?.(index, path, node, body);
+                await capture?.(index, path, node, body, { uid: header.uid ?? 0, gid: header.gid ?? 0, ...(header.pax ? { pax: header.pax } : {}) });
               }
             }
             if (!body.readableEnded) for await (const chunk of body) void chunk;

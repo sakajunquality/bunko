@@ -1,6 +1,6 @@
 # Roadmap
 
-This is a delivery plan, not a promise of release dates or complete ko/BuildKit compatibility. Each implementation change receives review, and release claims identify the exact tested artifact. The [comparison](COMPARISON.md) explains the current scope. The [September recheck disposition](RECHECK.md) records repaired issues, retained contracts and the next implementation order. npm distribution starts after the next RC; musl and rebase remain tracked in issues #53 and #54.
+This is a delivery plan, not a promise of release dates or complete ko/BuildKit compatibility. Each implementation change receives review, and release claims identify the exact tested artifact. The [comparison](COMPARISON.md) explains the current scope. The [September recheck disposition](RECHECK.md) records repaired issues, retained contracts and the next implementation order. npm distribution and musl support are available. The [rebase implementation](REBASE.md) adds explicit compatibility and configuration ownership gates for issue #54.
 
 ## Release candidate and workload acceptance
 
@@ -48,6 +48,6 @@ The following ordered work is implemented. Focused documentation records fixture
 3. Invocation-level defines; consistent proxy and npm CA handling; pull-only registry mirrors with origin-scoped authentication; persistent base preparation and bounded offline operation.
 4. Source-preserving application packaging; runtime arguments, asset exclusions and modes, extra CA configuration, workspace defaults and toolchain declarations.
 
-Source-preserving mode precedes rebase. Rebase requires a separate image compatibility and configuration ownership design. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
+Source-preserving builds and rebasing are implemented. Rebase deliberately limits OS updates to explicit ABI contracts and requires rebuilding unsupported native workloads. Release claims must distinguish fixture coverage from external workload acceptance and unavailable provider credentials. Review comments and all shipped documentation remain in English.
 
 [System font packaging (#37)](FONTS.md) is also included in rc.4, with a narrow data-only destination policy, asset collision/mode checks, and renderer-specific discovery guidance. Canvas CJK/color emoji and Resvg CJK passed on both Linux architectures. General OS package-manager execution remains outside the request.

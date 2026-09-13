@@ -18,7 +18,7 @@ ko is the workflow reference for building images directly from language source a
 | SPDX | Opt-in package/license/runtime inventory, platform-bound external base document, exact-payload export | ko defaults to SBOM generation; Bunko does not scan the base OS itself |
 | Provenance/signing | Self-reported SLSA v1 predicate, builder/Bun digests, private key/KMS signing, CI policy | No claimed SLSA assurance level, public keyless workflow or implicit base-image trust policy |
 | Diagnostics | Configuration checks, plain/JSON stage progress, cache reports, partial-failure records and OTLP/HTTP JSON metrics/spans | No build-history service or protobuf exporter |
-| Base updates | Explicit base selection, checks and digest validation | No automatic rebase; native ABI constraints stay in cache identity |
+| Base updates | Explicit selection, checks and [safe rebase](REBASE.md) with preserved layers | Requires build ownership metadata and identical files or an explicit ABI contract; native library updates require rebuilding |
 | Platforms | Linux amd64 and arm64 targets on documented Bun/host versions | No promise of Go's architecture breadth or every BuildKit platform |
 | Isolation | Explicit child environments and containment validation | Host subprocesses are not an OS sandbox; use trusted inputs and isolated runners |
 

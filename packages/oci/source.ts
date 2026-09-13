@@ -146,7 +146,7 @@ export function validateImageConfig(value: unknown, platform: Platform, layerCou
     if (!Array.isArray(config.history)) throw new Error("Invalid base history");
     for (const row of config.history) {
       const item = object(row, "History entry");
-      for (const key of ["created", "created_by", "comment"]) {
+      for (const key of ["created", "author", "created_by", "comment"]) {
         if (item[key] != null && typeof item[key] !== "string") throw new Error(`Invalid history ${key}`);
       }
       if (item.empty_layer != null && typeof item.empty_layer !== "boolean") throw new Error("Invalid history empty_layer");
