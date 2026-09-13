@@ -25,7 +25,7 @@ For local preparation, download the complete release into a new directory, verif
 
 ```sh
 gh release download v0.8.0 --repo sakajunquality/bunko --dir dist/release
-BUNKO_ATTESTATION_SOURCE_DIGEST=58ad5f2527820727f4365a12bdb4553f74618e28 \
+BUNKO_ATTESTATION_SOURCE_DIGEST=9ec19b72a2ef8b65d3933154484a7de5b301a620 \
   bun scripts/verify-release.ts dist/release v0.8.0
 bun scripts/npm-package.ts dist/release dist/npm v0.8.0
 bun scripts/validation/npm-smoke.ts dist/npm dist/npm-artifact
