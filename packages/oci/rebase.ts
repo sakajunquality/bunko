@@ -146,7 +146,7 @@ export async function rebaseImage(store: BlobStore, image: BaseImage, oldBase: B
   if (newBase.config.os !== p.os || newBase.config.architecture !== p.architecture || newVariant !== requestedVariant) fail("new base platform mismatch");
   const annotations = { ...((image.manifest as unknown as { annotations?: Record<string, string> }).annotations ?? {}) };
   delete annotations[baseAnnotation]; delete annotations[baseNameAnnotation]; annotations[baseAnnotation] = newBase.descriptor.digest;
-  const labels: Record<string, string> = { ...inspected.options.labels, [baseLabel]: newBase.descriptor.digest };
+  const labels: Record<string, string> = { ...inspected.options.labels, [baseLabel]: newBase.descriptor.digest, "org.bunko.rebase.source.digest": image.descriptor.digest };
   if (newBase.indexDigest) labels[baseIndexLabel] = newBase.indexDigest; else delete labels[baseIndexLabel];
   return assembleImage(store, newBase, inspected.layers, { ...inspected.options, labels, annotations, rebase: inspected.context }, true);
 }

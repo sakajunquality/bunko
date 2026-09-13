@@ -74,7 +74,7 @@ These static gates and the operator's contract do not replace application accept
 
 ## Metadata, signatures and failures
 
-Old artifacts and signatures remain attached to the original image; they are never relabeled as evidence for the new digest.
+Old artifacts and signatures remain attached to the original image; they are never relabeled as evidence for the new digest. Each output platform config records its immediate predecessor in `org.bunko.rebase.source.digest`. Even an unchanged base gets a distinct output subject, so a regenerated SBOM cannot create an ambiguous second inventory on the original platform digest. Repeating the same operation with the same source and base inputs remains deterministic.
 
 `--sbom` requires exactly one supported Bunko SPDX inventory for each original platform. Bunko recreates its application and runtime inventory under the new subject and a new document namespace. Unsupported or ambiguous inventories fail before publication. This preserves inventory claims from the original publisher; it is not a fresh package scan. Old external base-document references are removed. Supply replacement references with `--base-sbom linux/amd64=REPO@sha256:ARTIFACT_DIGEST` or a local artifact layout; each must describe the replacement platform manifest. Without those inputs, the new SBOM explicitly omits base OS inventory.
 

@@ -46,6 +46,12 @@ test("rebase exports and rebases again without application source or process exe
       else { expect(doc.predicate.buildDefinition.buildType).toEndWith("/rebase/v1"); expect(doc.subject[0].digest.sha256).toBe(result.root.digest.slice(7)); }
     }
     expect(result.signed).toBe(false);
+    const unchangedBase = await rebase({ ...f.options, base: f.options.oldBase, output: join(f.root, "same-base"), sbom: true, provenance: true });
+    expect(unchangedBase.root.digest).not.toBe(f.built.root.digest);
+    const unchangedMetadata = await exportMetadata(`layout:${unchangedBase.layout}`, join(f.root, "same-base-metadata"));
+    expect(unchangedMetadata.records).toHaveLength(2);
+    const unchangedConfig = await readJSON<ImageConfig>(unchangedBase.layout!, unchangedBase.platforms[0]!.config);
+    expect(unchangedConfig.config?.Labels?.["org.bunko.rebase.source.digest"]).toBe(f.built.images[0]!.manifest.digest);
   } finally { spawn.mockRestore(); }
 });
 
