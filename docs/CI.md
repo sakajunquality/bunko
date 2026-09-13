@@ -10,7 +10,7 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: sakajunquality/setup-bunko@df07f107af7d41b8476a875b966ee70039fb29ab # v0.1.0
+  - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
     with:
       version: v0.8.0
       bun-version: 1.4.2
@@ -56,7 +56,7 @@ On GitHub Actions, set `cache: github` and the build Action persists the managed
 
 Replacing a Dockerfile and docker/build-push-action is covered instruction by instruction in [migrating from a Dockerfile](MIGRATING_FROM_DOCKERFILE.md).
 
-The dedicated setup-bunko v0.1.0 Action defaults to CLI v0.6.2 and Bun 1.4.2. Its version is independent of the CLI; an explicit `version` selects another published release. It verifies checksums and signed provenance by default and requires `gh`. An optional `source-commit` constrains the attested source; leave it unset when changing CLI versions unless you also select the matching source digest. The existing `sakajunquality/bunko@...` entry point retains its automatic version resolution and opt-in provenance verification. See [setup inputs](RELEASING.md#use-the-setup-action), [compatibility behavior](RELEASING.md#existing-setup-entry-point), and [release provenance](RELEASE_PROVENANCE.md).
+The dedicated setup-bunko v0.1.1 Action defaults to CLI v0.8.0 and Bun 1.4.2. Its version is independent of the CLI; an explicit `version` selects another published release. It verifies checksums and signed provenance by default and requires `gh`. An optional `source-commit` constrains the attested source; leave it unset when changing CLI versions unless you also select the matching source digest. The existing `sakajunquality/bunko@...` entry point retains its automatic version resolution and opt-in provenance verification. See [setup inputs](RELEASING.md#use-the-setup-action), [compatibility behavior](RELEASING.md#existing-setup-entry-point), and [release provenance](RELEASE_PROVENANCE.md).
 
 ## The GitHub Actions cache
 
