@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.7.0 reference is `ghcr.io/sakajunquality/bunko:v0.7.0`, with verified multiarchitecture index `sha256:b613415203c9c73bcdc5544fa355d07a059e5725368861672a8b00c0fe46bc79`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.8.0 reference is `ghcr.io/sakajunquality/bunko:v0.8.0`, with verified multiarchitecture index `sha256:3bb3b7eac4ded3cec5e4392f3f9b4d5ffcdedf72f9fa090402437be0762d638a`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:b613415203c9c73bcdc5544fa355d07a059e5725368861672a8b00c0fe46bc79 \
+  ghcr.io/sakajunquality/bunko@sha256:3bb3b7eac4ded3cec5e4392f3f9b4d5ffcdedf72f9fa090402437be0762d638a \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -112,3 +112,8 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 ## Published 0.6.2 validation
 
 [Container workflow 34559147568](https://github.com/sakajunquality/bunko/actions/runs/34559147568) validated, attested and promoted index `sha256:e597562078a86d7982d0e0578c16f36e0a485c4dfc0c1f078abc8c49fda805c2` from recipe source `ab6d35eb7c39369b1c2491c4b94c20e656b4548b`. Independent exact-source attestation verification, anonymous pulls, nonroot/read-only/network-disabled execution and CLI hash comparison passed on Linux amd64 and arm64. See [0.6.2 evidence](validation/v0.6.2.md).
+
+
+## v0.8.0 publication
+
+[Container workflow 34744597646](https://github.com/sakajunquality/bunko/actions/runs/34744597646) validated, attested and promoted index `sha256:3bb3b7eac4ded3cec5e4392f3f9b4d5ffcdedf72f9fa090402437be0762d638a` from recipe source `9ec19b72a2ef8b65d3933154484a7de5b301a620`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match the GitHub v0.8.0 release. See [release evidence](validation/v0.8.0.md).
