@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { runInvocation } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
+import { rebase } from "./rebase.ts";
 import { prepareBase } from "./prepare-base.ts";
 import { selectRegistryMirrors } from "../oci/mirrors.ts";
 import { parseDefines } from "./defines.ts";
@@ -60,6 +61,7 @@ Usage:
   bunko cache-info [--cache-dir <directory>]
   bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
+  bunko rebase <image@digest|layout:DIR> --old-base <reference> --base <reference> [--oci-layout <dir> | --repo <repository>]
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
   bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
@@ -118,6 +120,8 @@ Options:
   --local                  Load a single-platform image into Docker
   --kind                   Load into a Docker-backed kind cluster
   --kind-cluster <name>    Cluster name (default: KIND_CLUSTER_NAME or kind)
+  --old-base <reference>   Original digest-pinned base or layout:DIR for rebase
+  --compatibility-policy <file>  Explicit digest-bound ABI transition contract for rebase
   --base <reference>       OCI/Docker base (default: oven/bun:<Bun version>-distroless)
   --base-layout <dir>      Use a complete local OCI layout as the base
   --platform <list>        linux/amd64,linux/arm64 (default: linux/amd64)
@@ -283,6 +287,8 @@ export async function main(argv: string[]): Promise<number> {
       "dry-run": { type: "boolean" },
       "oci-layout": { type: "string" },
       "base-layout": { type: "string" },
+      "old-base": { type: "string" },
+      "compatibility-policy": { type: "string" },
       base: { type: "string" },
       platform: { type: "string" },
       "bun-path": { type: "string" },
@@ -344,6 +350,19 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "metadata") {
       if (positionals.length !== 2 || !values["metadata-dir"]) throw new Error("metadata requires an image@digest or layout:DIR and --metadata-dir");
       process.stdout.write(JSON.stringify(await exportMetadata(path, values["metadata-dir"], registry)) + "\n"); return 0;
+    }
+    if (command === "rebase") {
+      if (positionals.length !== 2 || !values["old-base"] || Boolean(values.base) === Boolean(values["base-layout"])) throw new Error("rebase requires one image, --old-base, and exactly one of --base or --base-layout");
+      const baseSBOMs: Record<string, string> = {};
+      for (const value of values["base-sbom"] ?? []) {
+        const equals = value.indexOf("="), key = value.slice(0, equals), reference = value.slice(equals + 1);
+        if (equals < 1 || !reference || !["linux/amd64", "linux/arm64"].includes(key) || baseSBOMs[key]) throw new Error("Use one --base-sbom linux/ARCH=reference per platform");
+        baseSBOMs[key] = reference;
+      }
+      const result = await rebase({ image: path, oldBase: values["old-base"], base: values.base ?? `layout:${values["base-layout"]}`, platform: values.platform, output: values["oci-layout"], repo: values.repo,
+        push: supplied("push") ? values.push : undefined, tags: values.tag, dryRun: values["dry-run"], report: values.report, policy: values["compatibility-policy"], registry, tagConflict,
+        sbom: values.sbom, baseSBOMs, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"] });
+      process.stdout.write(result.publication?.published ? `${result.publication.reference}\n` : JSON.stringify(result) + "\n"); return 0;
     }
     if (command === "push-layout") {
       if (positionals.length !== 2 || !values.repo) throw new Error("push-layout requires a layout directory and an exact --repo");

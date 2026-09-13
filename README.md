@@ -172,6 +172,8 @@ Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`.
 
 Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted registry/local read locations, `--cache-to` selects explicit write destinations, `--cache-write=false` suppresses explicit exports and Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
 
+Development builds after v0.7.0 also provide [`bunko rebase`](docs/REBASE.md): replace a compatible, digest-pinned base while preserving application layers, with explicit configuration ownership, multi-platform preflight and new attestations. Existing v0.7.0 images need rebuilding with ownership metadata before rebasing.
+
 `metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.
 
 ## Development and validation

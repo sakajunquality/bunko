@@ -18,7 +18,7 @@ ko is the workflow reference for building images directly from language source a
 | SPDX | Opt-in package/license/runtime inventory, platform-bound external base document, exact-payload export | ko defaults to SBOM generation; Bunko does not scan the base OS itself |
 | Provenance/signing | Self-reported SLSA v1 predicate, builder/Bun digests, private key/KMS signing, CI policy | No claimed SLSA assurance level, public keyless workflow or implicit base-image trust policy |
 | Diagnostics | Configuration checks, plain/JSON stage progress, cache reports, partial-failure records and OTLP/HTTP JSON metrics/spans | No build-history service or protobuf exporter |
-| Base updates | Explicit base selection, checks and digest validation | No automatic rebase; native ABI constraints stay in cache identity |
+| Base updates | Explicit selection, checks and [safe rebase](REBASE.md) with preserved layers | Requires build ownership metadata and identical files or an explicit ABI contract; native library updates require rebuilding |
 | Platforms | Linux amd64 and arm64 targets on documented Bun/host versions | No promise of Go's architecture breadth or every BuildKit platform |
 | Isolation | Explicit child environments and containment validation | Host subprocesses are not an OS sandbox; use trusted inputs and isolated runners |
 
@@ -30,7 +30,7 @@ GHCR, Artifact Registry and Docker Hub have [published CLI live validation](PUBL
 
 ## Deferred work
 
-Prioritize additional changes only with workload evidence: finer install/build/transfer concurrency, guarded base-independent reuse, richer tracing, optional scanner adapters, and additional cache backends. Rebase must first define Bun/libc/native compatibility gates. General Dockerfile/LLB frontends, operating-system package installation, remote workers, arbitrary secret/SSH execution and broad platform expansion are outside the current release.
+Prioritize additional changes only with workload evidence: finer install/build/transfer concurrency, guarded base-independent reuse, richer tracing, optional scanner adapters, and additional cache backends. Rebase now enforces [Bun/libc/native compatibility gates](REBASE.md); broader ABI transitions remain outside its contract. General Dockerfile/LLB frontends, operating-system package installation, remote workers, arbitrary secret/SSH execution and broad platform expansion are outside the current release.
 
 ## Sources
 

@@ -1,0 +1,40 @@
+import { afterEach, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+import { build } from "../packages/bunko/build.ts";
+import { rebaseMetadataLabel } from "../packages/oci/rebase-metadata.ts";
+import type { ImageConfig, ImageIndex, ImageManifest } from "../packages/oci/types.ts";
+import { baseLayout, project, readJSON, temporary } from "./helpers.ts";
+
+const directories: string[] = [];
+afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+
+test("builds record explicit equal-valued environment ownership in the exported config", async () => {
+  const root = await temporary(); directories.push(root);
+  const base = await baseLayout(join(root, "base"));
+  const source = await project(join(root, "app"));
+  const options = { path: source, baseLayout: base, gitMetadata: false, localCache: false, registryCache: false };
+  const inherited = await build({ ...options, output: join(root, "inherited"), verifyDeterministic: true });
+  await project(source, { bunko: { env: { BASE_FLAG: "retained" } } });
+  const explicit = await build({ ...options, output: join(root, "explicit") });
+  const inheritedConfig = await readJSON<ImageConfig>(inherited.layout!, inherited.config);
+  const explicitConfig = await readJSON<ImageConfig>(explicit.layout!, explicit.config);
+  expect(inheritedConfig.config?.Env).toEqual(explicitConfig.config?.Env);
+  const first = inheritedConfig.config?.Labels?.[rebaseMetadataLabel];
+  const second = explicitConfig.config?.Labels?.[rebaseMetadataLabel];
+  expect(typeof first).toBe("string");
+  expect(typeof second).toBe("string");
+  expect(first).not.toBe(second);
+  const metadata = JSON.parse(first!);
+  expect(metadata.base.manifestDigest).toBe(inherited.baseDigest);
+  expect(metadata.generatedLayers).toEqual(inherited.layers.map((layer) => ({ role: layer.kind })));
+  expect(metadata.context).toEqual({ mode: "bundle", libc: "glibc", buildToolchain: { version: inherited.toolchain.version, revision: inherited.toolchain.revision }, runtime: { origin: "base" } });
+  expect(metadata.ownership.env.explicitKeys).not.toContain("BASE_FLAG");
+  expect(JSON.parse(second!).ownership.env.explicitKeys).toContain("BASE_FLAG");
+  expect(second).toContain("BASE_FLAG");
+  expect(second).not.toContain("retained");
+  expect(inherited.layers.map((layer) => layer.descriptor.digest)).toEqual(explicit.layers.map((layer) => layer.descriptor.digest));
+  const index = await readJSON<ImageIndex>(inherited.layout!, inherited.root);
+  const manifest = await readJSON<ImageManifest>(inherited.layout!, index.manifests[0]!);
+  expect(manifest.config).toEqual(inherited.config);
+});
