@@ -3,6 +3,16 @@ import { baseNode, type BaseFilesystem, type BaseNode } from "./runtime-layer.ts
 import type { ImageOptions } from "../oci/image.ts";
 import type { Libc } from "./libc.ts";
 
+/** Check a shared object's bounded ELF header, without requiring an executable interpreter. */
+export function libraryELF(header: Buffer | undefined, architecture: "amd64" | "arm64", path: string): void {
+  if (!header || header.length < 64 || header.subarray(0, 4).toString("latin1") !== "\x7fELF" ||
+    header[4] !== 2 || header[5] !== 1 || header[6] !== 1 || ![0, 3].includes(header[7]!) ||
+    header.readUInt16LE(16) !== 3 || header.readUInt16LE(18) !== (architecture === "amd64" ? 62 : 183) ||
+    header.readUInt32LE(20) !== 1 || header.readUInt16LE(52) !== 64) {
+    throw new Error(`Rebase shared library is not a target-compatible ELF64 object: ${path}`);
+  }
+}
+
 /** Read search tags from the ELF64 image already validated by runtimeELF. */
 function searchTags(bytes: Buffer) {
   const offset = Number(bytes.readBigUInt64LE(32)), count = bytes.readUInt16LE(56);
@@ -56,7 +66,7 @@ function cacheEntries(bytes: Buffer, architecture: "amd64" | "arm64") {
 }
 
 /** Resolve direct Bun dependencies through supported loader paths, never by basename across the image. */
-export function checkRuntimeLibraries(tree: BaseFilesystem, bodies: WeakMap<BaseNode, Buffer>, bytes: Buffer, options: ImageOptions, libc: Libc, needed: string[], env: Record<string, string>, distribution?: string): void {
+export function checkRuntimeLibraries(tree: BaseFilesystem, bodies: WeakMap<BaseNode, Buffer>, headers: WeakMap<BaseNode, Buffer>, bytes: Buffer, options: ImageOptions, libc: Libc, needed: string[], env: Record<string, string>, distribution?: string): void {
   const tags = searchTags(bytes), origin = posix.dirname(options.entrypoint[0]!);
   const paths = (value: string | undefined, separators: RegExp, expand = true) => {
     if (!value) return [];
@@ -99,6 +109,7 @@ export function checkRuntimeLibraries(tree: BaseFilesystem, bodies: WeakMap<Base
       const node = baseNode(tree, path);
       if (!node) continue;
       if (node.type !== "file" || !node.size) throw new Error(`Invalid rebase shared library candidate ${path}`);
+      libraryELF(headers.get(node), options.platform.architecture, path);
       found = true; break;
     }
     if (!found) throw new Error(`Rebase runtime requires missing shared library ${name} in loader search paths`);

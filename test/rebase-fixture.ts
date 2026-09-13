@@ -5,6 +5,15 @@ import { packLayer, type TarEntry } from "../packages/oci/tar.ts";
 import { media, type Platform, type RuntimeConfig } from "../packages/oci/types.ts";
 import { libcLoader } from "../packages/bunko/libc.ts";
 
+/** Minimal target ELF64 shared-object header for static compatibility fixtures. */
+export function rebaseLibrary(platform: Platform) {
+  const bytes = Buffer.alloc(64);
+  bytes.write("\x7fELF"); bytes[4] = 2; bytes[5] = 1; bytes[6] = 1;
+  bytes.writeUInt16LE(3, 16); bytes.writeUInt16LE(platform.architecture === "amd64" ? 62 : 183, 18);
+  bytes.writeUInt32LE(1, 20); bytes.writeUInt16LE(64, 52);
+  return bytes;
+}
+
 export function rebaseRuntime(platform: Platform, libc: "glibc" | "musl" = "glibc") {
   const bytes = Buffer.alloc(1024);
   bytes.write("\x7fELF"); bytes[4] = 2; bytes[5] = 1;
@@ -26,8 +35,8 @@ export async function rebaseBase(directory: string, platform: Platform = { os: "
   const store = new BlobStore(`${directory}-store`);
   const layer = (await packLayer(store, [
     { path: "usr/local/bin/bun", type: "file", content: rebaseRuntime(platform), executable: true },
-    { path: libcLoader("glibc", platform).slice(1), type: "file", content: Buffer.from("loader"), executable: true },
-    { path: "lib/libc.so.6", type: "file", content: Buffer.from("libc") },
+    { path: libcLoader("glibc", platform).slice(1), type: "file", content: rebaseLibrary(platform), executable: true },
+    { path: "lib/libc.so.6", type: "file", content: rebaseLibrary(platform) },
     { path: "etc/os-release", type: "file", content: Buffer.from('ID="debian"\nVERSION_ID="13"\n') },
     ...extra,
   ], "assets", 0, []))!;

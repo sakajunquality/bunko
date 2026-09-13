@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { checkRuntimeLibraries } from "../packages/bunko/rebase-libraries.ts";
 import type { BaseNode } from "../packages/bunko/runtime-layer.ts";
-import { rebaseRuntime } from "./rebase-fixture.ts";
+import { rebaseRuntime, rebaseLibrary } from "./rebase-fixture.ts";
 
 const platform = { os: "linux", architecture: "amd64" } as const;
 const options = { platform, epoch: 0, entrypoint: ["/opt/bun/bin/bun"], args: [], workdir: "/app", env: {}, labels: {} };
 function fixture() {
   const tree = new Map<string, BaseNode>(), bodies = new WeakMap<BaseNode, Buffer>();
-  function file(path: string, body = Buffer.from("library")) { const node = { type: "file", mode: 0o644, size: body.length }; tree.set(path, node); bodies.set(node, body); }
-  const check = (bytes = rebaseRuntime(platform), env = {}, libc: "glibc" | "musl" = "glibc", needed = ["libc.so.6"], architecture: "amd64" | "arm64" = "amd64") => checkRuntimeLibraries(tree, bodies, bytes, { ...options, platform: { os: "linux", architecture } }, libc, needed, env, "debian");
+  function file(path: string, body = rebaseLibrary(platform)) { const node = { type: "file", mode: 0o644, size: body.length }; tree.set(path, node); bodies.set(node, body); }
+  const check = (bytes = rebaseRuntime(platform), env = {}, libc: "glibc" | "musl" = "glibc", needed = ["libc.so.6"], architecture: "amd64" | "arm64" = "amd64") => checkRuntimeLibraries(tree, bodies, bodies, bytes, { ...options, platform: { os: "linux", architecture } }, libc, needed, env, "debian");
   return { tree, bodies, file, check };
 }
 function withPaths(rpath?: string, runpath?: string) {
@@ -58,7 +58,7 @@ test("musl path configuration replaces defaults and accepts colon/newline separa
 });
 test("GNU cache entries use target ABI and baseline hardware capabilities with bounded strings", () => {
   for (const architecture of ["amd64", "arm64"] as const) {
-    const f = fixture(); f.file("opt/system/libc.so.6");
+    const f = fixture(); f.file("opt/system/libc.so.6", rebaseLibrary({ os: "linux", architecture }));
     f.file("etc/ld.so.cache", cache(architecture === "amd64" ? 0x303 : 0xa03));
     expect(() => f.check(undefined, {}, "glibc", undefined, architecture)).not.toThrow();
     f.file("etc/ld.so.cache", cache(architecture === "amd64" ? 0xa03 : 0x303));
@@ -69,5 +69,23 @@ test("GNU cache entries use target ABI and baseline hardware capabilities with b
   for (const mutate of [(b: Buffer) => { b[28] = 3; }, (b: Buffer) => b.writeUInt32LE(100_000, 20), (b: Buffer) => b.writeUInt32LE(1, 52), (b: Buffer) => { b[0] = 0; }]) {
     const f = fixture(), data = cache(); mutate(data); f.file("etc/ld.so.cache", data);
     expect(() => f.check()).toThrow("loader cache");
+  }
+});
+
+
+test("resolved libraries must have target ELF64 shared-object headers", () => {
+  for (const architecture of ["amd64", "arm64"] as const) {
+    const f = fixture(), valid = rebaseLibrary({ os: "linux", architecture });
+    f.file("opt/lib/libc.so.6", valid);
+    f.tree.set("lib/libc.so.6", { type: "symlink", link: "/opt/lib/libc.so.6", mode: 0o777, size: 0 });
+    expect(() => f.check(undefined, {}, "glibc", undefined, architecture)).not.toThrow();
+    const invalid = [Buffer.from("not an ELF library"), valid.subarray(0, 63), rebaseLibrary({ os: "linux", architecture: architecture === "amd64" ? "arm64" : "amd64" })];
+    for (const [offset, value] of [[0, 0], [4, 1], [5, 2], [6, 0], [7, 9], [16, 2], [20, 0], [52, 0]]) {
+      const bytes = Buffer.from(valid); bytes[offset!] = value!; invalid.push(bytes);
+    }
+    for (const bytes of invalid) {
+      f.file("opt/lib/libc.so.6", bytes);
+      expect(() => f.check(undefined, {}, "glibc", undefined, architecture)).toThrow("target-compatible ELF64");
+    }
   }
 });

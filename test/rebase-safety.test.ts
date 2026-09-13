@@ -8,7 +8,7 @@ import { packLayer, type TarEntry } from "../packages/oci/tar.ts";
 import { media, type BaseImage } from "../packages/oci/types.ts";
 import { checkRebaseSafety } from "../packages/bunko/rebase-safety.ts";
 import { temporary } from "./helpers.ts";
-import { rebaseRuntime } from "./rebase-fixture.ts";
+import { rebaseRuntime, rebaseLibrary } from "./rebase-fixture.ts";
 
 const platform = { os: "linux", architecture: "amd64" } as const;
 const options = { platform, epoch: 0, entrypoint: ["/usr/local/bin/bun"], args: [], workdir: "/app", env: {}, labels: {} };
@@ -20,9 +20,9 @@ async function fixture() {
   async function base(overrides: Record<string, TarEntry | null> = {}): Promise<BaseImage> {
     const entries: Record<string, TarEntry> = Object.fromEntries([
       { path: "usr/local/bin/bun", type: "file", content: rebaseRuntime(platform), executable: true },
-      { path: "lib64/ld-linux-x86-64.so.2", type: "file", content: Buffer.from("loader"), executable: true },
+      { path: "lib64/ld-linux-x86-64.so.2", type: "file", content: rebaseLibrary(platform), executable: true },
       { path: "etc/os-release", type: "file", content: Buffer.from("ID=debian\n") },
-      { path: "lib/libc.so.6", type: "file", content: Buffer.from("libc") },
+      { path: "lib/libc.so.6", type: "file", content: rebaseLibrary(platform) },
     ].map((entry) => [entry.path, entry as TarEntry]));
     for (const [path, entry] of Object.entries(overrides)) if (entry) entries[path] = entry; else delete entries[path];
     const layer = (await packLayer(store, Object.values(entries), "assets", 0, []))!;
@@ -109,4 +109,15 @@ test("an ABI contract cannot hide a missing direct Bun shared library", async ()
   const f = await fixture();
   const fresh = await f.base({ "lib/libc.so.6": null, "app/cache/libc.so.6": { path: "app/cache/libc.so.6", type: "file", content: Buffer.from("unrelated") } });
   await expect(checkRebaseSafety(f.store, f.old, f.old, fresh, options, context, f.root, f.policy(fresh))).rejects.toThrow("missing shared library libc.so.6");
+});
+
+
+test("contracts cannot authorize text, truncated or foreign-architecture libraries and loaders", async () => {
+  const f = await fixture();
+  for (const path of ["lib/libc.so.6", "lib64/ld-linux-x86-64.so.2"]) {
+    for (const content of [Buffer.from("not ELF"), rebaseLibrary(platform).subarray(0, 63), rebaseLibrary({ os: "linux", architecture: "arm64" })]) {
+      const fresh = await f.base({ [path]: { path, type: "file", content, executable: true } });
+      await expect(checkRebaseSafety(f.store, f.old, f.old, fresh, options, context, f.root, f.policy(fresh))).rejects.toThrow("target-compatible ELF64");
+    }
+  }
 });
