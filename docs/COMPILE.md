@@ -69,6 +69,6 @@ See [application compatibility](APPLICATION_COMPATIBILITY.md) and the [build con
 
 ## Validation
 
-The checked-in [compile smoke test](../test/compile-smoke.ts), run with `bun run test:compile-smoke`, checks deterministic compiled images, literal dynamic imports, architecture, and authenticated runtime revision by executing containers. [musl validation](MUSL.md#diagnostics-and-validation) also exercises compiled Alpine images. These require the repository's development dependencies and Docker in addition to the compiler prerequisites.
+The checked-in [compile smoke test](../test/compile-smoke.ts), run with `bun run test:compile-smoke`, checks deterministic compiled images, literal dynamic imports, declared runtime assets, architecture, and authenticated runtime revision by executing containers. [musl validation](MUSL.md#diagnostics-and-validation) also exercises compiled Alpine images. These require the repository's development dependencies and Docker in addition to the compiler prerequisites.
 
 Run the example's actual container as well when changing its code or runtime assets. A successful compile alone does not establish that every runtime path, shared library, or application behavior works in the final image.
