@@ -37,7 +37,7 @@ Completion means a consumer can identify the artifact's origin, and automation c
 - Optimize bounded file processing, install/bundle overlap, transfer concurrency, or cache behavior only where profiles show a material bottleneck.
 - Stabilize CLI, configuration, report formats, cache migration, and recovery instructions before a stable release. Exercise installation, upgrade, and rollback from a fresh consumer environment.
 
-General Dockerfile/LLB execution, arbitrary RUN steps, remote workers, and broad platform expansion remain outside this plan. Rebase work first requires explicit Bun/libc/native compatibility gates.
+General Dockerfile/LLB execution, arbitrary RUN steps, remote workers, and broad platform expansion remain outside this plan. Rebase enforces the [documented Bun/libc/native compatibility gates](REBASE.md); broader ABI transitions require workload evidence and a separate design.
 
 ## Completed implementation sequence
 

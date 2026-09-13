@@ -54,9 +54,9 @@ export async function readRebasePolicy(path: string): Promise<{ value: RebasePol
 
 /** Changes to loader controls, users, mounts or signals require a full rebuild. */
 function safeRuntimeConfig(original: ImageConfig, replacement: ImageConfig): void {
-  const env = (config: ImageConfig) => Object.fromEntries((config.config?.Env ?? []).map((entry) => { const i = entry.indexOf("="); return [entry.slice(0, i), entry.slice(i + 1)]; }).filter(([key]) => /^(?:PATH$|LD_|DYLD_|BUN_|NODE_OPTIONS$|NODE_EXTRA_CA_CERTS$|SSL_CERT_(?:FILE|DIR)$)/.test(key!)));
+  const env = (config: ImageConfig) => Object.fromEntries((config.config?.Env ?? []).map((entry) => { const i = entry.indexOf("="); return [entry.slice(0, i), entry.slice(i + 1)]; }).filter(([key]) => /^(?:PATH$|GLIBC_TUNABLES$|LD_|DYLD_|BUN_|NODE_OPTIONS$|NODE_EXTRA_CA_CERTS$|SSL_CERT_(?:FILE|DIR)$)/.test(key!)));
   if (Buffer.compare(Buffer.from(canonicalJSON(env(original))), Buffer.from(canonicalJSON(env(replacement))))) throw new Error("Rebase changes runtime loader or trust environment; rebuild instead");
-  for (const key of ["User", "Volumes", "StopSignal"] as const) if (JSON.stringify(original.config?.[key] ?? null) !== JSON.stringify(replacement.config?.[key] ?? null)) throw new Error(`Rebase changes runtime ${key}; rebuild instead`);
+  for (const key of ["User", "Volumes", "StopSignal"] as const) if (Buffer.compare(canonicalJSON(original.config?.[key] ?? null), canonicalJSON(replacement.config?.[key] ?? null)) !== 0) throw new Error(`Rebase changes runtime ${key}; rebuild instead`);
 }
 
 /** Plan every selected platform before exports, registry writes or signing. */

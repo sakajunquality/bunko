@@ -1,4 +1,4 @@
-import { posix } from "node:path";
+import { checkRuntimeLibraries } from "./rebase-libraries.ts";
 import { createHash } from "node:crypto";
 import { applyLayers, baseNode, type BaseFilesystem, type BaseNode } from "./runtime-layer.ts";
 import { libcLoader } from "./libc.ts";
@@ -24,7 +24,7 @@ async function inspect(store: BlobStore, image: BaseImage, temporary: string, ta
   const fingerprints = new WeakMap<BaseNode, string>(), bodies = new WeakMap<BaseNode, Buffer>(), native = new WeakSet<BaseNode>();
   const tree = await applyLayers(store, image, temporary, async (_index, path, node, stream, metadata) => {
     const hash = createHash("sha256"), chunks: Buffer[] = [];
-    const capture = path === target ? 256 * 1024 ** 2 : ["etc/os-release", "usr/lib/os-release"].includes(path) ? 4096 : 0;
+    const capture = path === target ? 256 * 1024 ** 2 : path === "etc/ld.so.cache" ? 16 * 1024 ** 2 : ["etc/os-release", "usr/lib/os-release"].includes(path) || /^etc\/ld-musl-(?:x86_64|aarch64)\.path$/.test(path) ? 4096 : 0;
     let size = 0, prefix = Buffer.alloc(0);
     if (node.type === "file" && stream) for await (const chunk of stream) {
       const bytes = Buffer.from(chunk); hash.update(bytes); size += bytes.length;
@@ -96,16 +96,9 @@ export async function checkRebaseSafety(store: BlobStore, image: BaseImage, oldB
   const bytes = owner.bodies.get(runtime);
   if (!bytes) throw new Error("Cannot inspect the rebase Bun runtime");
   const elf = runtimeELF(bytes, options.platform, context.libc);
-  const files = new Set<string>();
-  for (const path of final.tree.keys()) {
-    const node = baseNode(final.tree, `/${path}`);
-    if (node?.type === "file" && node.size) files.add(posix.basename(path));
-  }
-  for (const name of elf.needed) {
-    const muslLibc = context.libc === "musl" && ["libc.so", `libc.musl-${options.platform.architecture === "amd64" ? "x86_64" : "aarch64"}.so.1`].includes(name);
-    const absolute = name.startsWith("/") ? baseNode(final.tree, name) : undefined;
-    if (!muslLibc && !(name.includes("/") ? absolute?.type === "file" && absolute.size : files.has(name))) throw new Error(`Rebase runtime requires missing shared library ${name}`);
-  }
+  const env = { ...Object.fromEntries((newBase.config.config?.Env ?? []).map((item) => { const at = item.indexOf("="); return [item.slice(0, at), item.slice(at + 1)]; })), ...options.env };
+  if (runtime.mode & 0o6000) throw new Error("Rebase does not support privileged Bun executables");
+  checkRuntimeLibraries(final.tree, final.bodies, bytes, options, context.libc, elf.needed, env, osId(fresh));
   releaseRevision(bytes, { path: "", version: context.bunVersion, revision: context.bunRevision });
   let nativeAddons = 0;
   for (const [path, node] of gen.tree) {

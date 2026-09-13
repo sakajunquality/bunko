@@ -30,7 +30,7 @@ GHCR, Artifact Registry and Docker Hub have [published CLI live validation](PUBL
 
 ## Deferred work
 
-Prioritize additional changes only with workload evidence: finer install/build/transfer concurrency, guarded base-independent reuse, richer tracing, optional scanner adapters, and additional cache backends. Rebase must first define Bun/libc/native compatibility gates. General Dockerfile/LLB frontends, operating-system package installation, remote workers, arbitrary secret/SSH execution and broad platform expansion are outside the current release.
+Prioritize additional changes only with workload evidence: finer install/build/transfer concurrency, guarded base-independent reuse, richer tracing, optional scanner adapters, and additional cache backends. Rebase now enforces [Bun/libc/native compatibility gates](REBASE.md); broader ABI transitions remain outside its contract. General Dockerfile/LLB frontends, operating-system package installation, remote workers, arbitrary secret/SSH execution and broad platform expansion are outside the current release.
 
 ## Sources
 

@@ -107,6 +107,6 @@ test("explicit contracts reject changed or unidentified distributions and rename
 
 test("an ABI contract cannot hide a missing direct Bun shared library", async () => {
   const f = await fixture();
-  const fresh = await f.base({ "lib/libc.so.6": null });
+  const fresh = await f.base({ "lib/libc.so.6": null, "app/cache/libc.so.6": { path: "app/cache/libc.so.6", type: "file", content: Buffer.from("unrelated") } });
   await expect(checkRebaseSafety(f.store, f.old, f.old, fresh, options, context, f.root, f.policy(fresh))).rejects.toThrow("missing shared library libc.so.6");
 });

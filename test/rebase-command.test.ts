@@ -9,17 +9,17 @@ import { LayoutSource, RegistrySource, resolveBase } from "../packages/oci/sourc
 import { exportLayout } from "../packages/oci/layout.ts";
 import { pushLayout } from "../packages/bunko/push-layout.ts";
 import { canonicalJSON } from "../packages/oci/digest.ts";
-import { media, type ImageConfig } from "../packages/oci/types.ts";
+import { media, type ImageConfig, type RuntimeConfig } from "../packages/oci/types.ts";
 import { project, temporary, readJSON } from "./helpers.ts";
 import { rebaseBase } from "./rebase-fixture.ts";
 import { MockRegistry } from "./mock-registry.ts";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
-async function fixture() {
+async function fixture(config: RuntimeConfig = {}, replacement: RuntimeConfig = config) {
   const root = await temporary(); directories.push(root);
-  const old = await rebaseBase(join(root, "old"));
-  const fresh = await rebaseBase(join(root, "fresh"), undefined, { Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "FLAG=new"] });
+  const old = await rebaseBase(join(root, "old"), undefined, config);
+  const fresh = await rebaseBase(join(root, "fresh"), undefined, { Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "FLAG=new"], ...replacement });
   const source = await project(join(root, "source"));
   const built = await build({ path: source, baseLayout: old.directory, output: join(root, "image"), localCache: false, registryCache: false, gitMetadata: false, sbom: true, provenance: true });
   await rm(source, { recursive: true });
@@ -71,6 +71,8 @@ test("unsafe configuration, legacy metadata and unpinned inputs fail before publ
   const changed = await rebaseBase(join(f.root, "changed"), undefined, { User: "1000" });
   const common = { ...f.options, repo: "registry.example/rebased", registry: { fetcher: remote.fetch, credentials: async () => undefined } };
   await expect(rebase({ ...common, base: `layout:${changed.directory}` })).rejects.toThrow("User");
+  const loaderChange = await rebaseBase(join(f.root, "loader-change"), undefined, { Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX2"] });
+  await expect(rebase({ ...common, base: `layout:${loaderChange.directory}` })).rejects.toThrow("loader or trust environment");
   expect(remote.requests).toHaveLength(0);
   await expect(rebase({ ...common, image: f.options.oldBase })).rejects.toThrow("capsule");
   await expect(rebase({ ...common, image: "registry.example/app:latest" })).rejects.toThrow("digest-pinned");
@@ -145,4 +147,12 @@ test("authenticated inputs, immutable tags and explicit signing use the new subj
   await expect(rebase(options)).rejects.toThrow();
   const skipped = await rebase({ ...options, tagConflict: "skip" });
   expect(skipped.publication?.skippedTags?.map((item) => item.tag)).toEqual(["locked"]);
+});
+
+
+test("volume key order is immaterial while changed mount declarations require rebuilding", async () => {
+  const same = await fixture({ Volumes: { "/z": {}, "/a": {} } }, { Volumes: { "/a": {}, "/z": {} } });
+  expect((await rebase({ ...same.options, dryRun: true })).root.digest).toMatch(/^sha256:/);
+  const changed = await fixture({ Volumes: { "/a": {} } }, { Volumes: { "/a": {}, "/z": {} } });
+  await expect(rebase({ ...changed.options, dryRun: true })).rejects.toThrow("Volumes");
 });
