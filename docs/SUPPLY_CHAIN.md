@@ -38,6 +38,8 @@ Signing explicitly disables cosign's public signing configuration and transparen
 
 ## Compile and base checks
 
+See the [compile-mode guide](COMPILE.md) and [runnable example](../examples/compile) for a complete walkthrough and supported inputs.
+
 ```sh
 bunko build . --mode compile --platform linux/amd64,linux/arm64 --repo ghcr.io/OWNER
 bunko check-base --base oven/bun:1.3.13-distroless --platform linux/amd64,linux/arm64

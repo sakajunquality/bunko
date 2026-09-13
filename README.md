@@ -154,6 +154,8 @@ Resolve publishes by default, or loads Docker/kind images with `--local`/`--kind
 
 See [Operations](docs/OPERATIONS.md) for prepared dependency artifacts, apply, layout publication, and cache pruning.
 
+For single-binary application images, start with the [compile-mode guide](docs/COMPILE.md) and [runnable example](examples/compile).
+
 See [Supply-chain and compile support](docs/SUPPLY_CHAIN.md) for opt-in metadata, private signing, base checks, and Linux executable builds.
 
 Unsupported: nested workspaces, file/link/git dependencies, bytecode, source symlinks, unsupported `bunfig.toml` settings, macros in bundle/compile mode, computed application imports in bundle/compile mode, runtime packages requiring install scripts without an explicit ignored-script allowance or prepared dependency artifact. Executable build inputs are checked before Bun parses them; copied assets and unreachable modules do not undergo executable syntax validation. See [application compatibility](docs/APPLICATION_COMPATIBILITY.md) for data imports and explicit dependency policies. Unknown or unsupported settings fail explicitly.

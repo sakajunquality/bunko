@@ -1,0 +1,10 @@
+{
+  "name": "bunko-compile-example",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "bunko": {
+    "mode": "compile",
+    "assets": ["data"]
+  }
+}

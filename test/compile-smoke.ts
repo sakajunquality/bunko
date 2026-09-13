@@ -9,9 +9,11 @@ const directory = await mkdtemp(join(tmpdir(), "bunko-compile-smoke-"));
 try {
   const source = join(directory, "source");
   await mkdir(source);
-  await writeFile(join(source, "package.json"), JSON.stringify({ name: "compiled", module: "index.ts" }));
-  await writeFile(join(source, "index.ts"), 'const value = await import("./message.ts"); console.log(JSON.stringify({message:value.message,arch:process.arch,revision:Bun.revision}));');
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "compiled", module: "index.ts", bunko: { assets: ["data"] } }));
+  await writeFile(join(source, "index.ts"), 'const value = await import("./message.ts"); console.log(JSON.stringify({message:value.message,asset:(await Bun.file("data/message.txt").text()).trim(),arch:process.arch,revision:Bun.revision}));');
   await writeFile(join(source, "message.ts"), 'export const message = "compiled works";');
+  await mkdir(join(source, "data"));
+  await writeFile(join(source, "data/message.txt"), "runtime asset works\n");
   for (const architecture of (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",").map((p) => p.split("/")[1]!)) {
     const reference = `bunko.local/compile-${process.pid}:${architecture}`;
     const tarball = join(directory, `${architecture}.tar`);
@@ -28,6 +30,7 @@ try {
       await command(["docker", "tag", image, reference]);
       const output = JSON.parse(await command(["docker", "run", "--rm", "--platform", `linux/${architecture}`, "--network=none", "--read-only", "--cap-drop=ALL", "--user=65532:65532", reference]));
       if (output.revision !== config.compileRuntime.releaseRevision) throw new Error("Compiled runtime revision differs from the authenticated release");
+      if (output.asset !== "runtime asset works") throw new Error("Compiled application cannot read its declared runtime asset");
       if (output.message !== "compiled works" || output.arch !== (architecture === "amd64" ? "x64" : "arm64")) throw new Error("Compiled runtime mismatch");
     } finally {
       await command(["docker", "image", "rm", reference]);
@@ -36,5 +39,5 @@ try {
   }
   const base = await checkBase({ platform: process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64", run: true });
   if (base.platforms.some((p) => !p.runtimeVerified)) throw new Error("Base runtime was not verified");
-  console.log("PASS: compiled images are deterministic and run on requested Linux platforms; base Bun revision verified");
+  console.log("PASS: compiled images are deterministic and read runtime assets on requested Linux platforms; base Bun revision verified");
 } finally { await rm(directory, { recursive: true, force: true }); }

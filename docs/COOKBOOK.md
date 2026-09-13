@@ -13,6 +13,10 @@ Start with the task below, then follow its reference link for the complete contr
 - [Check inputs before a build](#check-inputs-before-a-build)
 - [Follow an older example](#follow-an-older-example)
 
+## Build a single-binary application image
+
+Use `bunko build . --mode compile` for supported applications. The [compile guide](COMPILE.md) explains prerequisites and limitations; [examples/compile](../examples/compile) demonstrates a compiled executable with a separately packaged runtime data file, including container execution.
+
 ## Ship gitignored frontend output
 
 Generate the frontend first; Bunko does not execute build scripts for you. Declare the generated directory explicitly:
