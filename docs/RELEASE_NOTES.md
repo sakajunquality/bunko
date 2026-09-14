@@ -1,9 +1,9 @@
-# v0.8.0
+# v0.8.1
 
-Rebase an existing Bunko image onto a compatible, digest-pinned base with `bunko rebase`. Generated application, dependency, asset and runtime layers retain their exact bytes without application source or dependency installation. Linux amd64/arm64, glibc/musl, bundle/source/compile modes, OCI layout exports and authenticated registry publication are supported within the documented compatibility contract.
+This patch adds a dedicated [compile guide](https://github.com/sakajunquality/bunko/blob/v0.8.1/docs/COMPILE.md) and runnable single-binary example, including separately packaged runtime assets and explicit Bun feature limitations. Compile smoke tests now verify those asset reads.
 
-Builds now record explicit configuration ownership and the original base boundary. Rebase validates that metadata, preflights every selected platform, resolves direct libraries through supported loader paths and checks library/loader ELF headers. It reconstructs inherited configuration, refreshes base identity, and can generate new SPDX/provenance and explicitly sign the new subjects. Old signatures do not transfer.
+Completed-image acceptance now checks actual runtime behavior alongside image structure on native Linux amd64 and arm64. Cases cover lazy workspace dependencies, source-mode module-relative catalog access, and negative controls where startup alone would miss a broken application. Linux CI also exercises cross-device cache operations using different filesystems.
 
-The default requires identical base filesystem contents. Filesystem changes require a reviewed operator ABI contract bound to exact old/new platform manifests. This is not automatic proof of ABI compatibility. Unsupported native dependency transitions, Bun upgrades and unsafe configuration changes require rebuilding. The runtime matrix uses controlled base extensions; arbitrary upstream OS-package updates and live hosted-registry rebase transitions are not certified by that matrix.
+There are no CLI implementation changes since v0.8.0. Runtime support and rebase compatibility boundaries are unchanged. The additional tests validate their fixtures; they do not certify arbitrary applications or OS-library upgrades.
 
-Images built with v0.7.0 or earlier must be rebuilt with v0.8.0 to acquire ownership metadata before rebasing. Bun host support remains >=1.3.13 <1.5. See the [rebase guide](https://github.com/sakajunquality/bunko/blob/main/docs/REBASE.md) and [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.0.md). The independently versioned setup-bunko v0.1.0 Action retains CLI v0.6.2 as its default; pass `version: v0.8.0` to select this release.
+The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; use `version: v0.8.1` to select this release. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.1.md).
