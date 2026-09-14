@@ -1,3 +1,4 @@
+import { registryAuthOrigins } from "./auth-origins.ts";
 import { registryMirrors } from "./mirrors.ts";
 import { registryHost } from "./registry-host.ts";
 import { readFile, lstat, realpath } from "node:fs/promises";
@@ -7,14 +8,16 @@ import { object } from "./digest.ts";
 export interface RegistryTLS { ca?: string; cert?: string; key?: string }
 
 /** Certificate material is loaded once and scoped to exact HTTPS origins. */
-export async function registryTLS(file: string): Promise<{ hosts: Record<string, RegistryTLS>; files: string[]; mirrors?: Record<string, string[]> }> {
+export async function registryTLS(file: string): Promise<{ hosts: Record<string, RegistryTLS>; files: string[]; mirrors?: Record<string, string[]>; authOrigins?: Record<string, string[]> }> {
   const configDirectory = dirname(resolve(file));
   file = await realpath(file);
   const value = object(JSON.parse(await readFile(file, "utf8")), "Registry TLS configuration");
   let tlsHosts = value;
+  let authOrigins: Record<string, string[]> | undefined;
   let mirrors: Record<string, string[]> | undefined;
   if (Object.hasOwn(value, "schemaVersion")) {
-    if (value.schemaVersion !== 1 || Object.keys(value).some((key) => !["schemaVersion", "tls", "mirrors"].includes(key))) throw new Error("Unsupported registry configuration schema");
+    if (value.schemaVersion !== 1 || Object.keys(value).some((key) => !["schemaVersion", "tls", "mirrors", "authOrigins"].includes(key))) throw new Error("Unsupported registry configuration schema");
+    authOrigins = value.authOrigins === undefined ? undefined : registryAuthOrigins(value.authOrigins);
     tlsHosts = value.tls === undefined ? {} : object(value.tls, "Registry TLS hosts");
     const configured = value.mirrors === undefined ? {} : object(value.mirrors, "Registry mirrors");
     const items: string[] = [];
@@ -43,5 +46,5 @@ export async function registryTLS(file: string): Promise<{ hosts: Record<string,
     }
     result[origin.origin] = tls;
   }
-  return { hosts: result, files, ...(mirrors ? { mirrors } : {}) };
+  return { hosts: result, files, ...(authOrigins ? { authOrigins } : {}), ...(mirrors ? { mirrors } : {}) };
 }

@@ -1,3 +1,4 @@
+import { defaultAuthOrigins, registryAuthOrigins } from "./auth-origins.ts";
 import { registryAuthHelp } from "./auth-help.ts";
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { registryHost } from "./registry-host.ts";
@@ -7,6 +8,8 @@ import { media } from "./types.ts";
 
 export type Fetcher = (url: string | URL, init?: RequestInit) => Promise<Response>;
 export interface RegistryOptions {
+  /** Additional token-service origins allowed to receive each registry's credentials. */
+  authOrigins?: Record<string, string[]>;
   /** Origin-to-mirror hosts; only RegistrySource uses these for digest reads. */
   mirrors?: Record<string, string[]>;
   onMirrorFallback?: (event: { registry: string; mirror: string; reason: string }) => void;
@@ -147,6 +150,7 @@ export class RegistryClient {
   private readonly challenges = new Map<string, string>();
   private readonly tokens = new Map<string, { authorization: string; expires: number }>();
   private readonly pendingTokens = new Map<string, Promise<{ authorization: string; expires: number }>>();
+  private readonly authOrigins: Set<string>;
   private readonly reportedInsecure = new Set<string>();
   private cooldownUntil = 0;
   private cooldownTime = 0;
@@ -166,6 +170,8 @@ export class RegistryClient {
       return transport(url, { ...init, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
     };
     this.credentials = options.credentials ?? dockerCredentials();
+    const configured = options.authOrigins === undefined ? undefined : registryAuthOrigins(options.authOrigins)[registryHost(registry)];
+    this.authOrigins = new Set([this.origin, ...(configured ?? defaultAuthOrigins(registryHost(registry)))]);
   }
 
   private safeURL(value: string | URL, from = this.origin): URL {
@@ -200,6 +206,9 @@ export class RegistryClient {
     }
     if (!values.realm) throw new Error("Registry Bearer challenge has no realm");
     const realm = this.safeURL(values.realm);
+    if ((credential?.identityToken || credential?.username !== undefined && credential.password !== undefined) && !this.authOrigins.has(realm.origin)) {
+      throw new Error(`Registry authentication origin is not allowed for ${this.registry}; configure authOrigins in --registry-config`);
+    }
     const params = new URLSearchParams();
     if (values.service) params.set("service", values.service);
     for (const scope of scopes) params.append("scope", scope);
@@ -214,8 +223,7 @@ export class RegistryClient {
       for (const [key, value] of params) realm.searchParams.append(key, value);
       if (credential?.username !== undefined && credential.password !== undefined) headers.set("Authorization", `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`);
     }
-    // The token service is whatever host the challenge's realm named, which is not necessarily the
-    // registry: a refresh token or Basic header reaches it over whatever transport that realm uses.
+    // Credentials only reach this registry or an explicitly trusted token-service origin.
     if (body || headers.has("Authorization")) this.reportInsecureCredentials(realm);
     let response: Response;
     try { response = await this.fetcher(realm, { method: body ? "POST" : "GET", headers, body, redirect: "error", signal: AbortSignal.timeout(30_000) }); }
