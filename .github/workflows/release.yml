@@ -68,6 +68,8 @@ jobs:
       - uses: ./
         with:
           version: ${{ steps.candidate.outputs.version }}
+          # This candidate was built in this job and has no version-tag attestation.
+          verify-attestation: 'false'
           distribution-directory: dist/release
       - run: bunko version
       - name: Verify installation from the published release

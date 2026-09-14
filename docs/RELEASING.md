@@ -66,7 +66,7 @@ A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different pri
 
 ## Existing setup entry point
 
-`sakajunquality/bunko@...` remains supported. It exposes the same inputs and outputs, but defaults `version` to empty and `verify-attestation` to `false` for compatibility. Its installer implementation remains in this repository; the dedicated Marketplace Action reuses it. The following resolution rules apply only to this existing entry point, not the dedicated wrapper's default:
+`sakajunquality/bunko@...` remains supported. It exposes the same inputs and outputs, and defaults `version` to empty. New revisions default `verify-attestation` to `true`; existing pinned Action revisions retain their previous defaults. Explicitly set `verify-attestation: 'false'` only for a trusted local unsigned candidate or an unsigned historical release. Its installer implementation remains in this repository; the dedicated Marketplace Action reuses it. The following resolution rules apply only to this existing entry point, not the dedicated wrapper's default:
 
 The `version` input is optional starting with v0.1.3. Earlier immutable tags retain their original defaults; v0.1.2 still installs CLI 0.1.1 unless `version` is explicit. Current Actions resolve their version in this order:
 

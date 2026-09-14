@@ -17,7 +17,7 @@ inputs:
     description: Optional full source commit digest to constrain attestation verification
   verify-attestation:
     description: Verify signed provenance and version-tag identity before executing the CLI (requires gh and an attested release)
-    default: 'false'
+    default: 'true'
   distribution-directory:
     description: Optional pre-downloaded directory containing bunko.js, notices, and SHA256SUMS
 outputs:

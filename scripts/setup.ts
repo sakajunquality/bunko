@@ -77,8 +77,9 @@ export async function resolveVersion(env: Record<string, string | undefined>, re
 }
 
 export async function setup(options: SetupOptions) {
+  const verifyAttestation = options.verifyAttestation !== false;
   if (!["linux", "darwin"].includes(process.platform)) throw new Error("setup-bunko currently supports Linux and macOS runners");
-  if (options.sourceCommit && (!options.verifyAttestation || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
+  if (options.sourceCommit && (!verifyAttestation || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
   const tag = releaseTag(options.version), repository = options.repository ?? "sakajunquality/bunko";
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.split("/").some((part) => part === "." || part === "..")) throw new Error("Invalid release repository");
   let load: (name: string) => Promise<Uint8Array>;
@@ -101,7 +102,7 @@ export async function setup(options: SetupOptions) {
   try {
     if (/[\r\n]/.test(root)) throw new Error("Installation path contains a newline");
     for (const [name, bytes] of assets) await writeFile(join(root, name), bytes, { flag: "wx" });
-    if (options.verifyAttestation) {
+    if (verifyAttestation) {
       await writeFile(join(root, "SHA256SUMS"), hashes, { flag: "wx" });
       await writeFile(join(root, "PROVENANCE.jsonl"), await load("PROVENANCE.jsonl"), { flag: "wx" });
       await verifyRelease(root, repository, `refs/tags/${tag}`, options.sourceCommit, options.token);
@@ -121,7 +122,7 @@ if (import.meta.main) {
   if (process.env.INPUT_VERIFY_ATTESTATION && !["true", "false"].includes(process.env.INPUT_VERIFY_ATTESTATION)) throw new Error("verify-attestation must be true or false");
   const selected = await resolveVersion(process.env);
   console.log(`Selected bunko ${selected.version} from ${selected.source}`);
-  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION === "true", sourceCommit: process.env.INPUT_SOURCE_COMMIT || undefined, version: selected.version, repository: process.env.INPUT_REPOSITORY,
+  const result = await setup({ verifyAttestation: process.env.INPUT_VERIFY_ATTESTATION !== "false", sourceCommit: process.env.INPUT_SOURCE_COMMIT || undefined, version: selected.version, repository: process.env.INPUT_REPOSITORY,
     token: process.env.INPUT_TOKEN, distribution: process.env.INPUT_DISTRIBUTION_DIRECTORY || undefined, temporary: process.env.RUNNER_TEMP });
   if (process.env.GITHUB_PATH) await appendFile(process.env.GITHUB_PATH, `${result.bin}\n`);
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `version=${result.version}\nbunko-path=${result.executable}\n`);
