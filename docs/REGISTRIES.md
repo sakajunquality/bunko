@@ -28,7 +28,7 @@ Credential precedence is host-specific `credHelpers`, then `credsStore`, then `a
 
 Supported auths include username/password, base64 auth, identitytoken, and registrytoken. Follow HTTP 401 Basic/Bearer challenges, reusing Bearer tokens according to scope and expiry. Do not forward Registry Authorization across storage redirect origins. [Registry authentication](https://docs.docker.com/reference/api/registry/auth/)
 
-A Bearer challenge names its own token service in `realm`, so the registry decides which host receives the Basic header or `identitytoken` exchanged for a token. That host is validated like any other endpoint (HTTPS unless explicitly allowed with `--insecure-registry`, no embedded credentials) but it is not required to be the registry itself, which is how Docker Hub and most hosted registries work. A registry you authenticate to can therefore direct that registry's credential to another host it names.
+A Bearer challenge names a token service in `realm`. Credential-bearing exchanges require the registry's own origin or an explicitly allowed token-service origin; Docker Hub also trusts `https://auth.docker.io` by default. See [token-service credential boundaries](#token-service-credential-boundaries) for custom authentication services.
 
 ## Examples
 
@@ -230,3 +230,22 @@ Cache export error policy is separate from image publication tag policy: `--cach
 ## Cache tag retention on shared registries
 
 Explicit cache exports can create non-release tags in the selected repository. Prefer a separate cache repository so release retention rules remain independent. Bunko does not automatically remove remote cache tags during builds. Apply provider retention rules only to the dedicated cache repository or the `bunko-cache-v1-` prefix, preserve release tags, and preview any deletion. Evicting cache records causes rebuilds; backend blob reclamation and deduplication are registry-specific. Use `--cache-write=false` to suppress all remote/explicit exports while retaining reads.
+
+## Token-service credential boundaries
+
+Bearer exchanges send Basic credentials and identity-token refresh grants only to the registry's own origin by default. Docker Hub additionally trusts `https://auth.docker.io`. An unknown cross-origin realm fails before credentials are sent. Anonymous token requests and direct registry tokens retain their existing behavior.
+
+For a private registry with a separate authentication service, configure its exact scheme, host and port:
+
+```json
+{
+  "schemaVersion": 1,
+  "authOrigins": {
+    "registry.example": ["https://auth.example"]
+  }
+}
+```
+
+Pass this file through `--registry-config`. Entries are scoped to the registry or mirror that owns the credential, never shared globally. An explicit array replaces the additional defaults for that registry; the registry's own origin remains trusted. Wildcards, paths, queries, fragments and userinfo are rejected. HTTP origins additionally require the token-service host in `--insecure-registry`; listing an HTTP origin does not disable transport validation. Token-service redirects remain forbidden. Only add authentication services trusted to receive that registry's credentials.
+
+This changes the default for custom registries with a cross-origin token service: existing users must add the explicit origin. GHCR and same-origin services continue to work, as does Docker Hub's standard authentication service.

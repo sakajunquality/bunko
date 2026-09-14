@@ -1,0 +1,96 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Audit root and example lockfiles
+        shell: bash
+        run: |
+          status=0
+          while IFS= read -r -d '' lockfile; do
+            echo "Auditing $lockfile"
+            (cd "$(dirname "$lockfile")" && bun audit) || status=1
+          done < <(git ls-files -z -- bun.lock 'examples/**/bun.lock')
+          exit "$status"
+
+  container:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run release:prepare
+      - name: Build the actual CLI container
+        env:
+          IMAGE_ARCH: ${{ matrix.architecture }}
+        run: |
+          docker build --platform "linux/$IMAGE_ARCH" -f container/Dockerfile \
+            --build-arg "BUNKO_VERSION=$(bun -p 'require("./package.json").version')" \
+            -t bunko.local/security-candidate .
+      - name: Report all container vulnerability matches
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: bunko.local/security-candidate
+          fail-build: false
+          severity-cutoff: high
+          only-fixed: false
+          output-format: json
+          output-file: ${{ runner.temp }}/container-vulnerabilities.json
+          cache-db: false
+      - name: Reject high and critical findings with available fixes
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: bunko.local/security-candidate
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: json
+          output-file: ${{ runner.temp }}/container-fixable-vulnerabilities.json
+          cache-db: false
+      - name: Preserve the scan report, including failed scans
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: container-vulnerabilities-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/container-vulnerabilities.json
+            ${{ runner.temp }}/container-fixable-vulnerabilities.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -11,7 +11,7 @@ import { assetInputs } from "./cache.ts";
 import { assertNoLayerCollision } from "./files.ts";
 import { filesystemMetadata, sourceIgnore, sourceOmissions } from "./ignore.ts";
 import { stageImageAsset } from "./image-assets.ts";
-import { assetURL, urlAssetFile, type AssetFetcher } from "./url-assets.ts";
+import { publicAssetURL, assetURL, urlAssetFile, type AssetFetcher } from "./url-assets.ts";
 import { parseReference } from "../oci/source.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
 import type { Platform } from "../oci/types.ts";
@@ -27,6 +27,10 @@ export interface ExternalAssetOptions {
 }
 export const contextMapping = (mapping: AssetMapping): mapping is ContextAssetMapping => "context" in mapping;
 export const imageMapping = (mapping: AssetMapping): mapping is ImageAssetMapping => "image" in mapping;
+/** Public diagnostics and materials retain content identity without URL credentials. */
+export function publicAssetMapping<T extends AssetMapping>(mapping: T): T {
+  return "url" in mapping ? { ...mapping, url: publicAssetURL(mapping.url) } : mapping;
+}
 const contextName = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const protectedRoots = new Set(["bin", "boot", "dev", "etc", "home", "lib", "lib32", "lib64", "media", "mnt", "proc", "root", "run", "sbin", "sys", "usr", "var"]);
 
@@ -138,7 +142,7 @@ async function selectedAssetMappings(mappings: AssetMapping[], contexts: Record<
         fontFileKind(entry.path, effective, entry.size);
         await validateFontFile(entry.source, entry.path, effective);
       }
-      materials.push({ ...entry, ...(resolved ? { resolved } : {}), digest: sha256(canonicalJSON(await assetInputs(selected))) });
+      materials.push({ ...publicAssetMapping(entry), ...(resolved ? { resolved } : {}), digest: sha256(canonicalJSON(await assetInputs(selected))) });
       entries.push(...selected);
       continue;
     }

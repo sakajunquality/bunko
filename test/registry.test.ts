@@ -51,7 +51,7 @@ describe("Docker-compatible authentication", () => {
 
   test.each(["ghcr.io", "registry-1.docker.io", "us-docker.pkg.dev"])("exchanges Basic credentials for scoped Bearer tokens at %s", async (host) => {
     let tokens = 0;
-    const client = new RegistryClient(host, { credentials: async () => ({ username: "user", password: "secret" }), fetcher: async (input, init) => {
+    const client = new RegistryClient(host, { authOrigins: { [host]: ["https://auth.example"] }, credentials: async () => ({ username: "user", password: "secret" }), fetcher: async (input, init) => {
       const url = new URL(input), auth = new Headers(init?.headers).get("Authorization");
       if (url.host === "auth.example") {
         expect(auth).toBe(`Basic ${Buffer.from("user:secret").toString("base64")}`);
@@ -81,7 +81,7 @@ describe("Docker-compatible authentication", () => {
   });
 
   test("identity tokens use the OAuth refresh grant and never appear in URLs", async () => {
-    const client = new RegistryClient("registry.example", { credentials: async () => ({ identityToken: "private-refresh" }), fetcher: async (input, init) => {
+    const client = new RegistryClient("registry.example", { authOrigins: { "registry.example": ["https://auth.example"] }, credentials: async () => ({ identityToken: "private-refresh" }), fetcher: async (input, init) => {
       const url = new URL(input);
       expect(url.toString()).not.toContain("private-refresh");
       if (url.host === "auth.example") {
@@ -136,6 +136,7 @@ describe("Docker-compatible authentication", () => {
     const reported: { registry: string; origin: string }[] = [];
     const client = new RegistryClient("localhost:5000", {
       insecure: ["localhost:5000", "auth.localhost:6000"],
+      authOrigins: { "localhost:5000": ["http://auth.localhost:6000"] },
       onInsecureCredentials: (event) => { reported.push(event); },
       credentials: async () => ({ username: "user", password: "secret" }),
       fetcher: async (input, init) => {
@@ -157,6 +158,7 @@ describe("Docker-compatible authentication", () => {
   test("does not report credentials sent over HTTPS", async () => {
     const reported: unknown[] = [];
     const client = new RegistryClient("ghcr.io", {
+      authOrigins: { "ghcr.io": ["https://auth.example"] },
       onInsecureCredentials: (event) => { reported.push(event); },
       credentials: async () => ({ username: "user", password: "secret" }),
       fetcher: async (input, init) => {
@@ -330,7 +332,7 @@ describe("Distribution publication", () => {
     registry.latencyMs = 5;
     let tokens = 0;
     const { manifest } = await layered(store, 8);
-    const publisher = new Publisher("registry.example/app", { credentials: async () => ({ username: "user", password: "secret" }), fetcher: async (input, init) => {
+    const publisher = new Publisher("registry.example/app", { authOrigins: { "registry.example": ["https://auth.example"] }, credentials: async () => ({ username: "user", password: "secret" }), fetcher: async (input, init) => {
       const url = new URL(input);
       if (url.host === "auth.example") { tokens++; return Response.json({ access_token: "scoped", expires_in: 3600 }); }
       if (new Headers(init?.headers).get("Authorization") !== "Bearer scoped") return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
@@ -369,7 +371,7 @@ describe("Distribution publication", () => {
     const { manifest } = await layered(store, 4);
     let challenges = 0;
     // A credential provider that rejects with undefined: the batch must still stop.
-    const publisher = new Publisher("registry.example/app", { credentials: async () => { throw undefined; }, fetcher: async (input, init) => {
+    const publisher = new Publisher("registry.example/app", { authOrigins: { "registry.example": ["https://auth.example"] }, credentials: async () => { throw undefined; }, fetcher: async (input, init) => {
       if (init?.method === "HEAD" && ++challenges === 1) return new Response(null, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="https://auth.example/token"' } });
       return registry.fetch(input, init);
     } });
@@ -413,6 +415,7 @@ describe("Distribution publication", () => {
     const { manifest } = await layered(store, 5);
     let attempts = 0;
     const publisher = new Publisher("registry.example/app", {
+      authOrigins: { "registry.example": ["https://auth.example"] },
       credentials: async () => { if (++attempts === 1) throw new Error("credential helper failed"); return { username: "user", password: "secret" }; },
       fetcher: async (input, init) => {
         if (new URL(input).host === "auth.example") return Response.json({ access_token: "scoped", expires_in: 3600 });
