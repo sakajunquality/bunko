@@ -33,7 +33,7 @@ test("release assets carry matching versions, checksums, and parser licenses", a
 
 test("offline installation runs outside node_modules and handles quoted paths and arguments", async () => {
   const prefix = join(root, "space and ' quote"); await mkdir(prefix);
-  const installed = await setup({ version: metadata.version, distribution, temporary: prefix });
+  const installed = await setup({ verifyAttestation: false, version: metadata.version, distribution, temporary: prefix });
   expect(installed.version).toBe(metadata.version);
   const child = Bun.spawn([installed.executable, "version"], { cwd: prefix, stdout: "pipe", stderr: "pipe", env: { PATH: "/usr/bin:/bin" } });
   expect(await new Response(child.stdout).text()).toBe(`${metadata.version}\n`); expect(await child.exited).toBe(0);
@@ -58,7 +58,7 @@ test("corrupted artifacts are rejected before execution or installation", async 
   const corrupt = join(root, "corrupt"); await cp(distribution, corrupt, { recursive: true });
   const marker = join(root, "executed");
   await writeFile(join(corrupt, "bunko.js"), `await Bun.write(${JSON.stringify(marker)}, "unsafe");`);
-  await expect(setup({ version: metadata.version, distribution: corrupt, temporary: root })).rejects.toThrow("checksum mismatch");
+  await expect(setup({ verifyAttestation: false, version: metadata.version, distribution: corrupt, temporary: root })).rejects.toThrow("checksum mismatch");
   expect(await Bun.file(marker).exists()).toBe(false);
   const manifest = await readFile(join(distribution, "SHA256SUMS"), "utf8");
   expect(() => verifyAssets(manifest + manifest, new Map())).toThrow("duplicate");
@@ -66,7 +66,7 @@ test("corrupted artifacts are rejected before execution or installation", async 
 });
 
 test("a checksummed artifact must still report the requested release version", async () => {
-  await expect(setup({ version: "v9.9.9", distribution, temporary: root })).rejects.toThrow("version does not match");
+  await expect(setup({ verifyAttestation: false, version: "v9.9.9", distribution, temporary: root })).rejects.toThrow("version does not match");
   expect(() => releaseTag("latest")).toThrow("explicit");
   expect(() => releaseTag("v1.0.0\ninvalid")).toThrow();
   expect(() => releaseTag("v1.0.0\n")).toThrow();
@@ -105,7 +105,7 @@ test("the setup Action installs the release matching its own ref or checkout", a
 
 test("private release assets use authenticated API downloads and strip tokens on storage redirects", async () => {
   const names = ["SHA256SUMS", ...assetNames], token = "test-only-private-token", seen: string[] = [];
-  const installed = await setup({ version: metadata.version, repository: "SakaJunQuality/Bunko", token, temporary: root, fetcher: (async (input, init) => {
+  const installed = await setup({ verifyAttestation: false, version: metadata.version, repository: "SakaJunQuality/Bunko", token, temporary: root, fetcher: (async (input, init) => {
     const url = new URL(input), headers = new Headers(init?.headers); seen.push(url.toString());
     expect(url.toString()).not.toContain(token);
     if (url.hostname === "storage.example") {
@@ -125,7 +125,7 @@ test("failed downloads redact credentials and reject insecure redirect targets",
   await expect(githubBytes(new URL("https://api.github.com/repos/owner/repo"), "secret", "application/json", (async () => new Response(null, { status: 302, headers: { Location: "http://storage.example/asset" } })))).rejects.toThrow("Invalid release download URL");
 });
 
-test("attestation opt-in rejects an unattested artifact before executing checksummed code", async () => {
+test("default attestation verification rejects an unattested artifact before executing checksummed code", async () => {
   const { chmod } = await import("node:fs/promises"), { checksum } = await import("../scripts/distribution.ts");
   const directory = join(root, "unattested"); await cp(distribution, directory, { recursive: true });
   const marker = join(root, "unattested-executed");
@@ -136,7 +136,7 @@ test("attestation opt-in rejects an unattested artifact before executing checksu
   const bin = join(root, "rejecting-gh"); await mkdir(bin);
   await writeFile(join(bin, "gh"), "#!/bin/sh\nexit 1\n"); await chmod(join(bin, "gh"), 0o755);
   const previous = process.env.PATH; process.env.PATH = bin;
-  try { await expect(setup({ version: metadata.version, distribution: directory, temporary: root, verifyAttestation: true })).rejects.toThrow("attestation verification failed"); }
+  try { await expect(setup({ version: metadata.version, distribution: directory, temporary: root })).rejects.toThrow("attestation verification failed"); }
   finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
   expect(await Bun.file(marker).exists()).toBe(false);
 });
