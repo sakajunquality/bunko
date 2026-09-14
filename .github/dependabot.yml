@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: bun
+    directories:
+      - /
+      - /examples/application-validation
+      - /examples/dependencies
+      - /examples/font-validation
+      - /examples/image-acceptance
+      - /examples/workspace
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /container
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
