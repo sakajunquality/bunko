@@ -13,11 +13,21 @@ export const urlAssetTimeoutMs = 10 * 60_000;
 // GitHub serves release assets from sibling hosts, so those hops are accepted as one site.
 const githubHosts = new Set(["github.com", "codeload.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "raw.githubusercontent.com"]);
 
+/** Public URL identity excludes userinfo, query credentials, and fragments. */
+export function publicAssetURL(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return "[invalid asset URL]";
+    url.username = ""; url.password = ""; url.search = ""; url.hash = "";
+    return url.href;
+  } catch { return "[invalid asset URL]"; }
+}
+
 /** HTTPS only, never with credentials, and only same-site or GitHub-style redirects. */
 export function assetURL(value: string, origin?: string): URL {
   let url: URL;
-  try { url = new URL(value); } catch { throw new Error(`Asset mapping url must be an absolute HTTPS URL: ${value}`); }
-  if (url.protocol !== "https:" || url.username || url.password || url.hash || !url.hostname) throw new Error(`Asset mapping url must be a plain HTTPS location without credentials or a fragment: ${value}`);
+  try { url = new URL(value); } catch { throw new Error(`Asset mapping url must be an absolute HTTPS URL: ${publicAssetURL(value)}`); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !url.hostname) throw new Error(`Asset mapping url must be a plain HTTPS location without credentials or a fragment: ${publicAssetURL(value)}`);
   const host = url.hostname.toLowerCase();
   if (origin !== undefined && host !== origin && !host.endsWith(`.${origin}`) && !(githubHosts.has(origin) && githubHosts.has(host))) throw new Error(`Asset download redirected off its original host: ${origin} to ${host}`);
   return url;
@@ -27,36 +37,45 @@ export function assetURL(value: string, origin?: string): URL {
 async function download(url: string, destination: string, sha256: string, limit: number, fetcher: AssetFetcher, timeoutMs: number): Promise<void> {
   const origin = assetURL(url).hostname.toLowerCase();
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = invocationSignal(controller.signal) ?? controller.signal;
   try {
     let current = assetURL(url);
     for (let redirects = 0; ; redirects++) {
       // Credentials are never attached; private sources belong in an asset context.
-      const response = await fetcher(current.href, { redirect: "manual", signal: invocationSignal(controller.signal), headers: { Accept: "application/octet-stream" } });
+      let response: Response;
+      try { response = await fetcher(current.href, { redirect: "manual", signal, headers: { Accept: "application/octet-stream" } }); }
+      catch { throw new Error(`Asset download ${signal.aborted ? "aborted" : "connection failed"}: ${publicAssetURL(url)}`); }
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         // Never await a discarded body: a stalled peer must not be able to hold the build here.
         void response.body?.cancel().catch(() => {});
-        if (!location) throw new Error(`Asset download redirect is missing a location: ${url}`);
-        if (redirects >= redirectLimit) throw new Error(`Asset download exceeded ${redirectLimit} redirects: ${url}`);
-        current = assetURL(new URL(location, current).href, origin);
+        if (!location) throw new Error(`Asset download redirect is missing a location: ${publicAssetURL(url)}`);
+        if (redirects >= redirectLimit) throw new Error(`Asset download exceeded ${redirectLimit} redirects: ${publicAssetURL(url)}`);
+        let next: URL;
+        try { next = new URL(location, current); }
+        catch { throw new Error(`Invalid asset download redirect: ${publicAssetURL(url)}`); }
+        current = assetURL(next.href, origin);
         continue;
       }
-      if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error(`Asset download failed (${response.status}): ${url}`); }
-      if (!response.body) throw new Error(`Empty asset download response: ${url}`);
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error(`Asset download failed (${response.status}): ${publicAssetURL(url)}`); }
+      if (!response.body) throw new Error(`Empty asset download response: ${publicAssetURL(url)}`);
       const hash = createHash("sha256"), reader = response.body.getReader(), handle = await open(destination, "wx", 0o600);
       let size = 0;
       try {
         for (;;) {
-          const { done, value } = await reader.read();
+          let chunk: Awaited<ReturnType<typeof reader.read>>;
+          try { chunk = await reader.read(); }
+          catch { throw new Error(`Asset download ${signal.aborted ? "aborted" : "body failed"}: ${publicAssetURL(url)}`); }
+          const { done, value } = chunk;
           if (done) break;
           size += value.byteLength;
-          if (size > limit) throw new Error(`Asset download exceeds the ${limit} byte limit: ${url}`);
+          if (size > limit) throw new Error(`Asset download exceeds the ${limit} byte limit: ${publicAssetURL(url)}`);
           hash.update(value);
           await writeAssetBytes(handle, value);
         }
       } finally { await handle.close(); void reader.cancel().catch(() => {}); }
       const digest = `sha256:${hash.digest("hex")}`;
-      if (digest !== `sha256:${sha256}`) throw new Error(`Asset checksum mismatch for ${url}: expected sha256:${sha256}, received ${digest}`);
+      if (digest !== `sha256:${sha256}`) throw new Error(`Asset checksum mismatch for ${publicAssetURL(url)}: expected sha256:${sha256}, received ${digest}`);
       return;
     }
   } finally { clearTimeout(timer); controller.abort(); }
@@ -105,7 +124,7 @@ export async function urlAssetFile(url: string, sha256: string, options: { cache
         // Offline reports why the cache could not be used, rather than claiming a present entry is missing.
         if (options.offline) throw absent ? new Error(`Offline builds require a cached URL asset; sha256:${sha256} is missing from the download cache`) : error;
         await rm(file, { force: true });
-        options.log?.(`Fetching asset ${url}\n`);
+        options.log?.(`Fetching asset ${publicAssetURL(url)}\n`);
         const staging = join(directory, `.download-${randomUUID()}`);
         try {
           await download(url, staging, sha256, limit, options.fetcher ?? fetch, options.timeoutMs ?? urlAssetTimeoutMs);
