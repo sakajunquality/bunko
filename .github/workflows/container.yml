@@ -68,7 +68,7 @@ jobs:
           bun -e 'import {parseReference} from "./packages/oci/source.ts"; import {RegistryClient} from "./packages/oci/registry.ts"; const r=parseReference(process.env.IMAGE_REFERENCE!); const response=await new RegistryClient(r.registry).request(`/v2/${r.repository}/manifests/${r.reference}`, {method:"HEAD"}, [`repository:${r.repository}:pull,push`], [404]); if(response.status !== 404) throw new Error("Container version tag already exists; refusing replacement");'
       - name: Build a digest-addressed candidate once
         id: image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: container/Dockerfile
