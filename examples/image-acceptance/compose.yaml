@@ -16,7 +16,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     entrypoint: [/usr/local/bin/bun]
-    command: [/app/probes/http.mjs]
+    command: ["${ACCEPTANCE_PROBE_PATH:-/app/probes/http.mjs}"]
     environment:
       TARGET_URL: http://app:3000
       PROBE_KIND: ${PROBE_KIND:-all}

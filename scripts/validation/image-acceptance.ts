@@ -19,11 +19,15 @@ process.exitCode = await runInvocation(async () => {
   assert.ok(platforms.length > 0 && new Set(platforms).size === platforms.length && platforms.every((p) => ["linux/amd64", "linux/arm64"].includes(p)), "Invalid platforms");
   const root = await mkdtemp(join(tmpdir(), "bunko-image-acceptance-"));
   const fixture = resolve("examples/image-acceptance"), tags = new Set<string>();
-  const checks: { platform: string; scenario: string; manifest: string; config: string; runtimeImage: string; structure: string; behavior: string }[] = [];
+  const checks: { platform: string; mode: string; scenario: string; manifest: string; config: string; runtimeImage: string; structure: string; behavior: string }[] = [];
   let status = "failed";
   try {
-    for (const variant of ["working", "missing-dependency"]) {
-      const source = join(root, variant);
+    for (const { mode, variant } of [
+      { mode: "bundle", variant: "working" },
+      { mode: "source", variant: "working" },
+      { mode: "bundle", variant: "missing-dependency" },
+    ] as const) {
+      const source = join(root, `${mode}-${variant}`);
       await cp(fixture, source, { recursive: true, filter: (path) => !path.split("/").includes("node_modules") });
       if (variant === "missing-dependency") {
         const path = join(source, "packages/lazy/package.json");
@@ -36,14 +40,17 @@ process.exitCode = await runInvocation(async () => {
       for (const platform of platforms) {
         const id = randomUUID(), repository = `bunko.local/acceptance-${id}`;
         const archive = join(root, `${id}.tar`), report = join(root, `${id}.json`);
-        await checked([process.execPath, resolve("dist/bunko.js"), "build", source, "--target", "app", "--mode", "bundle",
+        await checked([process.execPath, resolve("dist/bunko.js"), "build", source, "--target", "app", "--mode", mode,
+          "--deps-strategy", mode === "source" ? "production" : "closure",
           "--base", "oven/bun@sha256:478281fdd196871c7e51ba6a820b7803a8ae97042ec86cdbc2e1c6b6626442d9", "--platform", platform,
           "--bun-path", process.execPath, "--repo", repository, "--bare", "--tag", "test", "--push=false", "--tarball", archive,
           "--oci-layout", join(root, `${id}-layout`), "--report", report, "--no-cache", "--git-metadata=false"], { timeoutMs: 300_000 });
         const built = JSON.parse(await readFile(report, "utf8")) as BuildResult;
         assert.equal(built.schemaVersion, 2); assert.equal(built.images.length, 1);
         const image = built.images[0]!;
-        assert.deepEqual(image.entrypoints, { server: "/app/src/server.js", worker: "/app/src/worker.js" });
+        assert.deepEqual(image.entrypoints, mode === "source"
+          ? { server: "/app/app/src/server.ts", worker: "/app/app/src/worker.ts" }
+          : { server: "/app/src/server.js", worker: "/app/src/worker.js" });
         const tag = `${repository}:sha256-${built.root.digest.slice(7)}`;
         tags.add(tag);
         await checked(["docker", "load", "--input", archive]);
@@ -54,23 +61,26 @@ process.exitCode = await runInvocation(async () => {
         const config = await checked(["python3", "-c", "import hashlib,json,sys,tarfile\nwith tarfile.open(sys.argv[1]) as t:\n m=json.load(t.extractfile('manifest.json')); assert len(m)==1\n print('sha256:'+hashlib.sha256(t.extractfile(m[0]['Config']).read()).hexdigest())", saved]);
         assert.equal(config, image.config.digest, "Loaded image differs from the build report");
         await rm(saved);
-        await checked([structureTest, "test", "--image", runtimeImage, "--platform", platform, "--config", join(fixture, "structure.yaml"),
+        await checked([structureTest, "test", "--image", runtimeImage, "--platform", platform, "--config", join(fixture, mode === "source" ? "structure-source.yaml" : "structure.yaml"),
           "--output", "json", "--test-report", join(root, `${id}-structure.json`)], { env: { ...process.env, DOCKER_HOST: dockerHost } });
         const structure = JSON.parse(await readFile(join(root, `${id}-structure.json`), "utf8"));
         assert.equal(structure.Total, 6, "Not all declared structure checks ran");
         assert.equal(structure.Pass, 6); assert.equal(structure.Fail, 0);
-        const scenarios = variant === "working" ? ["working", "empty-catalog"] : ["missing-dependency"];
+        const scenarios = mode === "source" ? ["module-relative-catalog"]
+          : variant === "working" ? ["working", "empty-catalog"] : ["missing-dependency"];
         for (const scenario of scenarios) {
+          const positive = scenario === "working" || scenario === "module-relative-catalog";
           const project = `bunko-acceptance-${randomUUID()}`;
           const compose = ["docker", "compose", "--project-name", project, "--file", join(fixture, "compose.yaml")];
           const env = { ...process.env, ACCEPTANCE_IMAGE: runtimeImage, ACCEPTANCE_PLATFORM: platform,
-            CATALOG_LOCATION: scenario === "empty-catalog" ? "module" : "explicit",
+            ACCEPTANCE_PROBE_PATH: mode === "source" ? "/app/app/probes/http.mjs" : "/app/probes/http.mjs",
+            CATALOG_LOCATION: scenario === "empty-catalog" || scenario === "module-relative-catalog" ? "module" : "explicit",
             PROBE_KIND: scenario === "missing-dependency" ? "dependency" : scenario === "empty-catalog" ? "catalog" : "all" };
           try {
             const result = await run([...compose, "up", "--no-build", "--exit-code-from", "probe", "--abort-on-container-exit"], { env, timeoutMs: 60_000 });
             const logs = await checked([...compose, "logs", "--no-color", "probe"], { env });
             assert.ok(logs.includes("READINESS_PASSED"), "Startup did not reach the behavioral check");
-            if (scenario === "working") {
+            if (positive) {
               assert.equal(result.code, 0, result.stdout + result.stderr);
               assert.ok(logs.includes("APPLICATION_PROBE_PASSED"));
             } else {
@@ -78,8 +88,8 @@ process.exitCode = await runInvocation(async () => {
               assert.ok(logs.includes(scenario === "empty-catalog" ? "CATALOG_CONTENT_FAILED" : "DEPENDENCY_HTTP_FAILED"), logs);
               assert.ok(!logs.includes("APPLICATION_PROBE_PASSED"));
             }
-            checks.push({ platform, scenario, manifest: image.manifest.digest, config, runtimeImage, structure: "passed",
-              behavior: scenario === "working" ? "passed" : "expected-failure" });
+            checks.push({ platform, mode, scenario, manifest: image.manifest.digest, config, runtimeImage, structure: "passed",
+              behavior: positive ? "passed" : "expected-failure" });
             console.log(JSON.stringify(checks.at(-1)));
           } catch (error) {
             const logs = await run([...compose, "logs", "--no-color"], { env, cleanup: true, timeoutMs: 10_000 });
@@ -90,7 +100,7 @@ process.exitCode = await runInvocation(async () => {
         }
       }
     }
-    assert.equal(checks.length, platforms.length * 3);
+    assert.equal(checks.length, platforms.length * 4);
     status = "passed";
     return 0;
   } finally {
