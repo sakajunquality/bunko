@@ -54,9 +54,9 @@ jobs:
             cd ../..
             bun scripts/verify-release.ts dist/release "$RELEASE_TAG"
           fi
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -68,7 +68,7 @@ jobs:
           bun -e 'import {parseReference} from "./packages/oci/source.ts"; import {RegistryClient} from "./packages/oci/registry.ts"; const r=parseReference(process.env.IMAGE_REFERENCE!); const response=await new RegistryClient(r.registry).request(`/v2/${r.repository}/manifests/${r.reference}`, {method:"HEAD"}, [`repository:${r.repository}:pull,push`], [404]); if(response.status !== 404) throw new Error("Container version tag already exists; refusing replacement");'
       - name: Build a digest-addressed candidate once
         id: image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: container/Dockerfile

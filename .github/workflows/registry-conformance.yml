@@ -93,7 +93,7 @@ jobs:
           audience: ${{ endsWith(steps.destination.outputs.host, '.amazonaws.com.cn') && 'sts.amazonaws.com.cn' || 'sts.amazonaws.com' }}
       - name: Log in to ECR
         if: inputs.vendor == 'ecr'
-        uses: aws-actions/amazon-ecr-login@aded0d722166a37980e030aa969dda0bfe6b6947 # v2.1.7
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
         with:
           registries: ${{ steps.destination.outputs.account }}
       - run: bun run test:registry
