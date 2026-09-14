@@ -85,6 +85,7 @@ test("a mirror cache miss does not disable other digest lookups", async () => {
 test("repository-prefixed mirrors use mapped paths and scopes with host-only credentials", async () => {
   const scopes: string[] = [], paths: string[] = [], hosts: string[] = [];
   const source = new RegistrySource(`docker.io/library/app@${digest}`, { mirrors: registryMirrors(["docker.io=us-docker.pkg.dev/example-project/cache"]),
+    authOrigins: { "us-docker.pkg.dev": ["https://auth.example"] },
     credentials: async (host) => { hosts.push(host); return { username: "test", password: "test" }; }, fetcher: async (value, init) => {
       const url = new URL(value);
       if (url.host === "auth.example") { scopes.push(url.searchParams.get("scope")!); return Response.json({ token: "mirror-token" }); }

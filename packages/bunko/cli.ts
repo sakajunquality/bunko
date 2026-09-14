@@ -327,7 +327,7 @@ export async function main(argv: string[]): Promise<number> {
         process.stderr.write(`Sending registry credentials in cleartext to ${event.origin}; --insecure-registry permits HTTP but does not protect them\n`);
       },
       mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors),
-      insecure: values["insecure-registry"], tls: tlsConfig?.hosts, sensitivePaths: tlsConfig?.files,
+      insecure: values["insecure-registry"], tls: tlsConfig?.hosts, authOrigins: tlsConfig?.authOrigins, sensitivePaths: tlsConfig?.files,
     };
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
