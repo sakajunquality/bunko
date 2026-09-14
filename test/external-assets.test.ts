@@ -528,11 +528,11 @@ test("url downloads bound transport consumption and abort a stalled body", async
   expect(await Bun.file(join(root, "stalled-cache", "downloads", digest, "asset")).exists()).toBe(false);
 });
 
-test("an unexpected request names the exact URL the downloader asked for", async () => {
+test("an unexpected request identifies the URL without exposing transport details", async () => {
   const root = await temporary(); roots.push(root);
   const server = assetFetcher((url) => url.pathname === "/expected" ? { body } : undefined);
   await expect(stageAssetMappings([{ url: "https://assets.test/unexpected", sha256: digest, to: "/tools/spannerdef" }], {}, join(root, "stage"), [], { platform: amd64, cache: join(root, "asset-cache"), fetcher: server.fetcher }))
-    .rejects.toThrow("Fixture has no route for https://assets.test/unexpected");
+    .rejects.toThrow("Asset download connection failed: https://assets.test/unexpected");
 });
 
 test.each([

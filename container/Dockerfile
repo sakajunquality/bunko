@@ -3,6 +3,7 @@ USER root
 COPY container/debian.sources /etc/apt/sources.list.d/debian.sources
 RUN . /etc/os-release && test "$VERSION_CODENAME" = trixie \
  && apt-get -o Acquire::Retries=3 update \
+ && apt-get -o Acquire::Retries=3 upgrade -y --no-install-recommends \
  && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates gpgv git \
  && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /opt/bunko /work /out /home/bunko/.cache \

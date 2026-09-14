@@ -1,3 +1,4 @@
+import { publicAssetMapping } from "./asset-contexts.ts";
 import { packageLicense } from "./inventory.ts";
 import { assertCosign, cosignCommand } from "./cosign.ts";
 export { signingEnvironment } from "./cosign.ts";
@@ -43,7 +44,7 @@ export function provenance(result: BuildResult, lockDigest?: string) {
   return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: result.imageRepository ?? `bunko.local/${result.target}`, digest: { sha256: result.root.digest.slice(7) } }],
     predicateType: "https://slsa.dev/provenance/v1", predicate: {
       buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/build/v1",
-        externalParameters: { ...result.buildParameters, platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => mapping) } : {}) },
+        externalParameters: { ...result.buildParameters, platforms: result.images.map((image) => image.platform), mode: result.mode ?? "bundle", ...(result.assetMaterials ? { assetMappings: result.assetMaterials.map(({ digest, ...mapping }) => publicAssetMapping(mapping)) } : {}) },
         internalParameters: { builder: result.builder }, resolvedDependencies: [dependency("urn:bunko:source", result.sourceDigest),
           ...(result.runtimeCA ? [dependency("urn:bunko:runtime-ca", result.runtimeCA.digest)] : []),
           ...(result.assetMaterials ?? []).map((material, index) => ({ ...dependency(`urn:bunko:asset:${"context" in material ? material.context : "image" in material ? "image" : "url"}:${index}`, material.digest), ...(material.platforms ? { annotations: { platforms: material.platforms } } : {}) })),

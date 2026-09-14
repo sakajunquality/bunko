@@ -245,7 +245,9 @@ Both sources are cached under `--asset-cache` (default `~/.cache/bunko/assets/v1
 
 Starting with 0.1.4, platform descriptors carrying an OCI or Docker image-config `artifactType` are selectable; other artifact types are skipped, and the selected manifest's config is still validated. Layer names with leading `/` or `./` prefixes are interpreted relative to the container root, including ko's `/ko-app/` entries. Traversal and interior empty/dot path segments remain rejected. This does not relax the selected symlink/hardlink restriction.
 
-`--offline` uses a cached URL file and fails clearly when it is absent; image sources need a registry and are rejected offline. Reports and provenance record the mapping without host paths, including the resolved platform manifest digest for `image`, the `url`/`sha256` pair for `url`, and the target platforms each material was resolved for.
+URL asset downloads retain query parameters only for transport. Logs, diagnostics, build materials and provenance omit them, including signed URL tokens. Download errors do not echo transport exception details. Content checksums remain the immutable identity. This does not sanitize project source files: do not commit credentials to manifests, and use asset contexts for private artifacts.
+
+`--offline` uses a cached URL file and fails clearly when it is absent; image sources need a registry and are rejected offline. Reports and provenance record the mapping without host paths, including the resolved platform manifest digest for `image`, the URL with its query, userinfo and fragment removed plus `sha256` for `url`, and the target platforms each material was resolved for.
 
 
 ## Before workload validation
