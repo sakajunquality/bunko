@@ -1,9 +1,9 @@
-# v0.8.1
+# v0.8.2
 
-This patch adds a dedicated [compile guide](https://github.com/sakajunquality/bunko/blob/v0.8.1/docs/COMPILE.md) and runnable single-binary example, including separately packaged runtime assets and explicit Bun feature limitations. Compile smoke tests now verify those asset reads.
+This patch hardens credential handling and release installation. Asset URL credentials are redacted from public output, registry credentials are restricted to trusted token-service origins, and the root setup Action verifies release provenance by default. Private registries with a separate token service must explicitly configure trusted origins; see the registry documentation.
 
-Completed-image acceptance now checks actual runtime behavior alongside image structure on native Linux amd64 and arm64. Cases cover lazy workspace dependencies, source-mode module-relative catalog access, and negative controls where startup alone would miss a broken application. Linux CI also exercises cross-device cache operations using different filesystems.
+The CLI container refreshes OS packages during its build. Continuous dependency and container security scanning has been added. Dependency updates refresh Bun types, the native font-validation fixture, and pinned publishing Actions. Future scheduled updates are consolidated into one cross-ecosystem Dependabot PR while required CI remains enforced.
 
-There are no CLI implementation changes since v0.8.0. Runtime support and rebase compatibility boundaries are unchanged. The additional tests validate their fixtures; they do not certify arbitrary applications or OS-library upgrades.
+TypeScript remains at 5.9.3 because version 7 removed compiler APIs used by bunko. The migration is tracked in [#185](https://github.com/sakajunquality/bunko/issues/185). Supported Bun versions and runtime/rebase compatibility boundaries are unchanged.
 
-The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; use `version: v0.8.1` to select this release. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.1.md).
+The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; use `version: v0.8.2` to select this release. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.2.md).

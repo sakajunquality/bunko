@@ -1,10 +1,13 @@
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
   - package-ecosystem: bun
     directories:
       - /
@@ -13,13 +16,15 @@ updates:
       - /examples/font-validation
       - /examples/image-acceptance
       - /examples/workspace
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    ignore:
+      # See issue #185. TypeScript 7 removed the JavaScript compiler API used by bunko.
+      - dependency-name: typescript
+        versions: [">=7"]
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
   - package-ecosystem: docker
     directory: /container
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
