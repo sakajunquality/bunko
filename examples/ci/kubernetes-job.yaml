@@ -13,7 +13,7 @@ spec:
         fsGroup: 65532
       containers:
         - name: build
-          image: ghcr.io/sakajunquality/bunko@sha256:b613415203c9c73bcdc5544fa355d07a059e5725368861672a8b00c0fe46bc79
+          image: ghcr.io/sakajunquality/bunko@sha256:96a39d371765f758f67db34ffdaeb97b9138d928c0c856b82ca51161086fefc6
           args: [build, /work, --push=false, --oci-layout, /out/image]
           securityContext:
             readOnlyRootFilesystem: true
