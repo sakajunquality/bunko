@@ -12,7 +12,7 @@ Start with the [task-oriented cookbook](docs/COOKBOOK.md). See the [feature guid
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.8.1 release](https://github.com/sakajunquality/bunko/releases/tag/v0.8.1) into the same directory. Install Bun 1.4.2 (or another supported version), then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.8.2 release](https://github.com/sakajunquality/bunko/releases/tag/v0.8.2) into the same directory. Install Bun 1.4.2 (or another supported version), then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS
@@ -21,7 +21,7 @@ bun ./bunko.js version
 bun ./bunko.js build /path/to/app --push=false --oci-layout /tmp/my-app-image
 ```
 
-Install the CLI in GitHub Actions with [`sakajunquality/setup-bunko`](https://github.com/marketplace/actions/setup-bunko), the dedicated Marketplace Action. See [the installation guide](docs/RELEASING.md#use-the-setup-action) for usage and private release repository authentication. The [build Action](docs/CI.md) runs the installed CLI from a workflow, exposes the digests, report and layout as outputs, and appends a job summary with per-phase timings, cache status, layer sizes and publication details; pass `summary: 'false'` to that step to write nothing to `$GITHUB_STEP_SUMMARY`. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.8.1 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
+Install the CLI in GitHub Actions with [`sakajunquality/setup-bunko`](https://github.com/marketplace/actions/setup-bunko), the dedicated Marketplace Action. See [the installation guide](docs/RELEASING.md#use-the-setup-action) for usage and private release repository authentication. The [build Action](docs/CI.md) runs the installed CLI from a workflow, exposes the digests, report and layout as outputs, and appends a job summary with per-phase timings, cache status, layer sizes and publication details; pass `summary: 'false'` to that step to write nothing to `$GITHUB_STEP_SUMMARY`. Existing release assets remain immutable. The CLI is also published as [`@sakajunquality/bunko`](https://www.npmjs.com/package/@sakajunquality/bunko). Run `bunx @sakajunquality/bunko@0.8.2 version`, or install it with `npm install -g @sakajunquality/bunko@latest`. Bun must already be on PATH. See the [npm distribution guide](docs/NPM_DISTRIBUTION.md) for provenance status and version selection.
 
 Compile mode and runtime injection additionally require `gpgv` and a pinned official Bun revision. Version 0.8.0 supports 1.3.13 and 1.4.0–1.4.2; published 0.1.4 also supports 1.3.11/1.3.12.
 
