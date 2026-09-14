@@ -1,0 +1,6 @@
+{
+  "name": "image-acceptance",
+  "private": true,
+  "workspaces": ["app", "packages/*"],
+  "devDependencies": { "@acceptance/driver": "workspace:*" }
+}
