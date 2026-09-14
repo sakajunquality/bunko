@@ -45,7 +45,8 @@ test("reports preserve all targets and summaries escape application-controlled l
 
 test("installed CLI builds two workspace targets and exposes report/layout without a misleading single digest", async () => {
   const distribution = join(root, "distribution"); await prepareRelease(distribution);
-  const installed = await setup({ version: metadata.version, distribution, temporary: root });
+  // The fixture is built locally and intentionally has no release attestation.
+  const installed = await setup({ verifyAttestation: false, version: metadata.version, distribution, temporary: root });
   const source = join(root, "source"); await mkdir(source);
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "action-workspace", workspaces: ["apps/*"] }));
   for (const name of ["first", "second"]) {
