@@ -51,7 +51,9 @@
     "test:musl": "bun scripts/validation/musl-smoke.ts",
     "test:runtime-injection": "bun scripts/validation/runtime-smoke.ts",
     "test:telemetry": "bun scripts/validation/telemetry-smoke.ts",
-    "test:fonts": "bun scripts/validation/fonts-smoke.ts"
+    "test:fonts": "bun scripts/validation/fonts-smoke.ts",
+    "test:image-acceptance": "bun scripts/validation/image-acceptance.ts",
+    "test:cross-device": "bun scripts/validation/cross-device-smoke.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.13",

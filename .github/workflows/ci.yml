@@ -229,6 +229,57 @@ jobs:
           path: ${{ runner.temp }}/registry-local.json
           if-no-files-found: ignore
 
+  cross-device:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build
+      # The CLI smoke asserts different device IDs; missing mounts fail this job.
+      - run: bun run test:cross-device
+        env:
+          BUNKO_CROSS_DEVICE_CACHE_ROOT: /dev/shm
+      - run: bun test test/asset-move.test.ts test/external-assets.test.ts
+
+  image-acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build
+      - run: bun scripts/validation/install-structure-test.ts "$RUNNER_TEMP/container-structure-test"
+      - run: bun run test:image-acceptance
+        env:
+          BUNKO_STRUCTURE_TEST_PATH: ${{ runner.temp }}/container-structure-test
+          BUNKO_SMOKE_PLATFORMS: ${{ matrix.platform }}
+          BUNKO_SMOKE_REPORT: ${{ runner.temp }}/image-acceptance.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: image-acceptance-${{ matrix.runner }}
+          path: ${{ runner.temp }}/image-acceptance.json
+          if-no-files-found: ignore
+
   application-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 15

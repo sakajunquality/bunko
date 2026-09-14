@@ -1,0 +1,17 @@
+{
+  "name": "@acceptance/app",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@acceptance/lazy": "workspace:*" },
+  "bunko": {
+    "imageName": "image-acceptance",
+    "entrypoints": { "server": "src/server.ts", "worker": "src/worker.ts" },
+    "defaultEntrypoint": "server",
+    "external": ["@acceptance/lazy"],
+    "deps": { "strategy": "closure", "undeclaredImports": "warn" },
+    "assets": ["probes"],
+    "user": "65532:65532",
+    "ports": [3000],
+    "inheritBaseOciLabels": false
+  }
+}

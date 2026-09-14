@@ -1,0 +1,28 @@
+services:
+  app:
+    image: ${ACCEPTANCE_IMAGE:?Set the exact locally loaded image ID}
+    platform: ${ACCEPTANCE_PLATFORM:?Set the tested platform}
+    pull_policy: never
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      CATALOG_LOCATION: ${CATALOG_LOCATION:-explicit}
+  probe:
+    image: ${ACCEPTANCE_IMAGE:?Set the exact locally loaded image ID}
+    platform: ${ACCEPTANCE_PLATFORM:?Set the tested platform}
+    pull_policy: never
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/usr/local/bin/bun]
+    command: [/app/probes/http.mjs]
+    environment:
+      TARGET_URL: http://app:3000
+      PROBE_KIND: ${PROBE_KIND:-all}
+    depends_on:
+      app:
+        condition: service_started
+networks:
+  default:
+    internal: true

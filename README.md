@@ -195,6 +195,8 @@ bun run test:bundled-smoke
 
 Ordinary tests need no network or Docker and include independent Python 3 tarfile checks. CI runs typechecks, tests, and CLI bundling on Linux/macOS, plus real Registry integration on Linux. Smoke tests create and remove their own Registries, containers, and image tags. Runtime tests default to amd64 and arm64; set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict supported target selection. Some multi-platform publication fixtures still build both platforms.
 
+[Completed-image acceptance](examples/image-acceptance/README.md) demonstrates container-structure-test and Compose probes against working images and deliberate silent/runtime failures. [Cross-device cache acceptance](docs/CROSS_DEVICE_VALIDATION.md) requires separate work/cache mounts and checks cold builds, warm reuse, and final asset contents and modes through the bundled CLI.
+
 - [Current implementation specification](docs/SPEC.md)
 - [Migrating from a Dockerfile](docs/MIGRATING_FROM_DOCKERFILE.md)
 - [Registry configuration and verification status](docs/REGISTRIES.md)

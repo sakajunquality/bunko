@@ -1,0 +1,36 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "image-acceptance",
+      "devDependencies": {
+        "@acceptance/driver": "workspace:*",
+      },
+    },
+    "app": {
+      "name": "@acceptance/app",
+      "dependencies": {
+        "@acceptance/lazy": "workspace:*",
+      },
+    },
+    "packages/driver": {
+      "name": "@acceptance/driver",
+      "version": "1.0.0",
+    },
+    "packages/lazy": {
+      "name": "@acceptance/lazy",
+      "version": "1.0.0",
+      "dependencies": {
+        "@acceptance/driver": "workspace:*",
+      },
+    },
+  },
+  "packages": {
+    "@acceptance/app": ["@acceptance/app@workspace:app"],
+
+    "@acceptance/driver": ["@acceptance/driver@workspace:packages/driver"],
+
+    "@acceptance/lazy": ["@acceptance/lazy@workspace:packages/lazy"],
+  }
+}

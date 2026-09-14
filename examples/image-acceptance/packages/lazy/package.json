@@ -1,0 +1,7 @@
+{
+  "name": "@acceptance/lazy",
+  "version": "1.0.0",
+  "main": "index.cjs",
+  "dependencies": { "@acceptance/driver": "workspace:*" },
+  "bunko": { "enabled": false }
+}
