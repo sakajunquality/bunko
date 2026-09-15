@@ -78,5 +78,5 @@ test("supply-chain policy validates evidence even before resolving build referen
   const { supplyChainOptions } = await import("../packages/bunko/policy.ts");
   expect(() => supplyChainOptions({ sbomEvidence: true })).toThrow("requires --sbom");
   expect(supplyChainOptions({ sbom: true, sbomEvidence: true }).sbomEvidence).toBe(true);
-  expect(supplyChainOptions({ sbomEvidence: true, supplyChainPolicy: "ci", reproducible: true, signKey: "fixture" }).sbom).toBe(true);
+  expect(supplyChainOptions({ sbomEvidence: true, supplyChainPolicy: "ci", reproducible: true, signKey: "fixture" })).toMatchObject({ sbom: true });
 });
