@@ -1,9 +1,7 @@
-# v0.8.2
+# v0.8.3
 
-This patch hardens credential handling and release installation. Asset URL credentials are redacted from public output, registry credentials are restricted to trusted token-service origins, and the root setup Action verifies release provenance by default. Private registries with a separate token service must explicitly configure trusted origins; see the registry documentation.
+This patch updates bunko's bundled TypeScript parser from 5.9.3 to 6.0.3. TypeScript 6 retains the JavaScript compiler APIs used for syntax analysis, macro detection, input discovery and module-location diagnostics. TypeScript 7 remains excluded pending the API migration tracked in [#185](https://github.com/sakajunquality/bunko/issues/185).
 
-The CLI container refreshes OS packages during its build. Continuous dependency and container security scanning has been added. Dependency updates refresh Bun types, the native font-validation fixture, and pinned publishing Actions. Future scheduled updates are consolidated into one cross-ecosystem Dependabot PR while required CI remains enforced.
+A new [prebuilt application example](https://github.com/sakajunquality/bunko/tree/v0.8.3/examples/prebuilt) demonstrates building with npm or pnpm and packaging the generated JavaScript and static assets with bunko. The resulting image runs with Bun; bunko does not consume npm/pnpm lockfiles or run their build scripts.
 
-TypeScript remains at 5.9.3 because version 7 removed compiler APIs used by bunko. The migration is tracked in [#185](https://github.com/sakajunquality/bunko/issues/185). Supported Bun versions and runtime/rebase compatibility boundaries are unchanged.
-
-The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; use `version: v0.8.2` to select this release. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.2.md).
+Supported Bun versions and runtime/rebase compatibility boundaries are unchanged. The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; select `version: v0.8.3` explicitly. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.3.md).

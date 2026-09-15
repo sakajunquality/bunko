@@ -6,9 +6,9 @@
 
 Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
 
-**v0.8.2** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with glibc or Alpine/musl runtimes and module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
+**v0.8.3** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with glibc or Alpine/musl runtimes and module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
-Start with the [task-oriented cookbook](docs/COOKBOOK.md). See the [feature guide](docs/FEATURES.md), [0.8.2 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). Review the documented compatibility and trust boundaries before adopting it.
+Start with the [task-oriented cookbook](docs/COOKBOOK.md). See the [feature guide](docs/FEATURES.md), [0.8.3 release notes](docs/RELEASE_NOTES.md), and [comparison with ko and BuildKit](docs/COMPARISON.md). Review the documented compatibility and trust boundaries before adopting it.
 
 ## Install a release
 
