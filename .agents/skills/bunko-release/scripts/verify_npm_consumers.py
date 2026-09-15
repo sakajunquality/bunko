@@ -13,7 +13,7 @@ import tempfile
 
 
 def version(value):
-    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?", value):
+    if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?", value):
         raise argparse.ArgumentTypeError("Use a version without the v prefix")
     return value
 
@@ -44,7 +44,7 @@ def main():
     root = Path(tempfile.mkdtemp(prefix="bunko-release-npm-"))
     env = dict(os.environ)
     for key in list(env):
-        if key.lower().startswith("npm_config_"):
+        if key.lower().startswith(("npm_config_", "bun_config_")):
             env.pop(key)
     for name in ["npmrc-user", "npmrc-global"]:
         (root / name).write_text("")
@@ -59,12 +59,22 @@ def main():
                BUN_INSTALL_CACHE_DIR=str(root / "bun-cache"))
 
     def run(command, cwd=root):
-        result = subprocess.run(command, cwd=cwd, env=env, text=True,
-                                capture_output=True, timeout=300)
-        if result.returncode:
+        def diagnostics(stdout, stderr):
+            def decode(value):
+                return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
             log = root / "command-error.log"
-            log.write_text(result.stderr)
+            log.write_text("stdout:\n" + decode(stdout) + "\nstderr:\n" + decode(stderr))
             log.chmod(0o600)
+            return log
+
+        try:
+            result = subprocess.run(command, cwd=cwd, env=env, text=True,
+                                    capture_output=True, timeout=300)
+        except subprocess.TimeoutExpired as error:
+            log = diagnostics(error.stdout, error.stderr)
+            raise RuntimeError(f"{command[0]} timed out; private diagnostics: {log}") from None
+        if result.returncode:
+            log = diagnostics(result.stdout, result.stderr)
             raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); private diagnostics: {log}")
         return result.stdout.strip()
 

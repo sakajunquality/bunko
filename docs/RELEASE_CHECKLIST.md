@@ -23,6 +23,7 @@ Use a clean main checkout. Run the following as a Bash script (or save it and in
 (
   set -euo pipefail
   release_version=0.1.1
+  bun -e 'import { releaseTag } from "./scripts/distribution.ts"; releaseTag(process.argv[1]);' "$release_version"
   release_commit=REPLACE_WITH_REVIEWED_MAIN_COMMIT
   [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]]
   test "$(git branch --show-current)" = main

@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--source-commit", required=True, help="Actual container workflow main SHA")
     parser.add_argument("--cli-sha256", required=True, help="CLI SHA256 from verified GitHub release")
     args = parser.parse_args()
-    for value, pattern in [(args.version, r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?"),
+    for value, pattern in [(args.version, r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"),
                            (args.digest, r"sha256:[0-9a-f]{64}"),
                            (args.source_commit, r"[0-9a-f]{40}"),
                            (args.cli_sha256, r"[0-9a-f]{64}")]:
@@ -26,11 +26,22 @@ def main():
     root = Path(tempfile.mkdtemp(prefix="bunko-release-container-"))
 
     def run(command, env=None):
-        result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=600)
-        if result.returncode:
+        def diagnostics(stdout, stderr):
+            def decode(value):
+                return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
             log = root / "command-error.log"
-            log.write_text(result.stderr)
+            log.write_text("stdout:\n" + decode(stdout) + "\nstderr:\n" + decode(stderr))
             log.chmod(0o600)
+            return log
+
+        try:
+            result = subprocess.run(command, env=env, text=True,
+                                    capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired as error:
+            log = diagnostics(error.stdout, error.stderr)
+            raise RuntimeError(f"{command[0]} timed out; private diagnostics: {log}") from None
+        if result.returncode:
+            log = diagnostics(result.stdout, result.stderr)
             raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); private diagnostics: {log}")
         return result.stdout.strip()
 
