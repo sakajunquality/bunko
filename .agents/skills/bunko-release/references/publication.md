@@ -16,27 +16,7 @@ Compare the CLI with the locally tested candidate, and wait for preparation and 
 
 ## 2. Guard the tag
 
-Use a clean checkout on main, the full merged SHA, and a shell block that stops on every failure. Assign reviewed values before running this example. This block creates a local tag, so it belongs only in an authorized release:
-
-```bash
-set -euo pipefail
-: "${release_version:?}" "${release_commit:?}"
-[[ "$release_commit" =~ ^[0-9a-f]{40}$ ]]
-[[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-test "$(git branch --show-current)" = main
-test -z "$(git status --porcelain)"
-git fetch origin main --tags
-test "$(git rev-parse HEAD)" = "$release_commit"
-test "$(git rev-parse origin/main)" = "$release_commit"
-test "$(bun -p 'require("./package.json").version')" = "$release_version"
-if git show-ref --verify --quiet "refs/tags/v$release_version"; then
-  echo 'Tag exists; inspect and resume instead of replacing it.' >&2
-  exit 1
-fi
-git tag -a "v$release_version" "$release_commit" -m "Release v$release_version"
-test "$(git rev-parse "v$release_version^{commit}")" = "$release_commit"
-git show --no-patch "v$release_version"
-```
+Use the guarded Bash block in the current `docs/RELEASE_CHECKLIST.md`, with a clean checkout on main and the full reviewed merged SHA. Keep its subshell and stop-on-failure behavior. Confirm checkout and origin/main identity, package version, clean tracked state, tag absence, and the tag's peeled commit. Creating the local tag belongs only in an authorized release.
 
 Inspect the result, then push **only that tag in a separate step**. Never move an existing release tag. If main advanced, re-evaluate its diff and candidate identity rather than weakening the guard.
 
@@ -58,7 +38,7 @@ Inspect `npm-candidate`: current file allowlist, exact CLI digest, SHA512 integr
 
 Successful `npm publish` may report that the package is still being processed. Registry 404/ETARGET can persist beyond the workflow's initial wait. Read [recovery.md](recovery.md); publication success is not yet consumer availability.
 
-Once visible, independently download the registry tarball and match its SHA512 to the successful publishing candidate, and its CLI SHA256 to GitHub. In an isolated consumer with empty npm configuration and fresh npm/Bun caches, verify exact-version installation, registry signature and npm attestation, exact/intended-dist-tag bunx, separate Bun install, and previous -> new -> previous -> new execution. For prereleases use the intended prerelease dist-tag; do not silently move `latest`.
+Once visible, independently download the registry tarball and match its SHA512 to the successful publishing candidate, and its CLI SHA256 to GitHub. In an isolated consumer with empty npm configuration and fresh npm/Bun caches, a temporary child HOME and TMPDIR, verify exact-version installation, registry signature and npm attestation, exact/intended-dist-tag bunx, separate Bun install, and previous -> new -> previous -> new execution. For prereleases use the intended prerelease dist-tag; do not silently move `latest`.
 
 ## 5. Evidence and defaults
 
@@ -72,3 +52,9 @@ Use the repository's versioned validation reports as a format reference, not a r
 - Review availability, failures/recovery, native versus emulated checks, and unverified provider/workload limits.
 
 The follow-up updates current README/install instructions, workflow default inputs, release/feature/npm/CI guides and container recipe digests. Preserve old release sections and historical hashes. Version and `BUNKO_ATTESTATION_SOURCE_DIGEST` in an npm preparation example must refer to the same release. Note a deferred independent setup-bunko Action promotion explicitly rather than implying its default changed.
+
+## Consumer helper execution boundaries
+
+`verify_npm_consumers.py` requires `--previous-integrity` as well as the new publishing candidate's `--integrity` and verified GitHub `--cli-sha256`. Both versions must have independently accepted provenance before use. It verifies both registry tarballs and every installed executable before execution. For bunx it resolves the exact version and intended dist-tag read-only, installs the pinned version without lifecycle scripts, verifies its bytes, and invokes the local package with `--no-install`. This separates mutable tag resolution from code execution; it does not claim a direct `bunx package@latest` network-install test.
+
+A failed external command writes private stderr diagnostics under the helper's temporary directory and reports the path. Inspect these locally to distinguish registry absence, authentication and network errors. Do not paste raw logs into reports or PRs: they may contain signed URLs or credentials. Reports deliberately retain only accepted identities and outcomes.

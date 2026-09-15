@@ -24,16 +24,18 @@ def main():
     parser.add_argument("--previous", required=True, type=version)
     parser.add_argument("--cli-sha256", required=True)
     parser.add_argument("--integrity", required=True, help="SHA512 integrity from successful publishing candidate")
+    parser.add_argument("--previous-integrity", required=True, help="SHA512 integrity from the previously verified release")
     parser.add_argument("--dist-tag", choices=["latest", "next"], required=True)
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{64}", args.cli_sha256):
         parser.error("Invalid CLI SHA256")
-    try:
-        algorithm, encoded = args.integrity.split("-", 1)
-        if algorithm != "sha512" or len(base64.b64decode(encoded, validate=True)) != 64:
-            raise ValueError()
-    except (ValueError, TypeError):
-        parser.error("Invalid npm SHA512 integrity")
+    for value in [args.integrity, args.previous_integrity]:
+        try:
+            algorithm, encoded = value.split("-", 1)
+            if algorithm != "sha512" or len(base64.b64decode(encoded, validate=True)) != 64:
+                raise ValueError()
+        except (ValueError, TypeError):
+            parser.error("Invalid npm SHA512 integrity")
     if args.version == args.previous:
         parser.error("Previous and new versions must differ")
     if "-" in args.version and args.dist_tag == "latest":
@@ -46,7 +48,11 @@ def main():
             env.pop(key)
     for name in ["npmrc-user", "npmrc-global"]:
         (root / name).write_text("")
-    env.update(NPM_CONFIG_USERCONFIG=str(root / "npmrc-user"),
+    for name in ["home", "tmp", "xdg"]:
+        (root / name).mkdir()
+    # Isolate child processes only; the operator's environment is unchanged.
+    env.update(HOME=str(root / "home"), TMPDIR=str(root / "tmp"),
+               XDG_CONFIG_HOME=str(root / "xdg"), NPM_CONFIG_USERCONFIG=str(root / "npmrc-user"),
                NPM_CONFIG_GLOBALCONFIG=str(root / "npmrc-global"),
                NPM_CONFIG_CACHE=str(root / "npm-cache"),
                NPM_CONFIG_REGISTRY="https://registry.npmjs.org/",
@@ -56,29 +62,47 @@ def main():
         result = subprocess.run(command, cwd=cwd, env=env, text=True,
                                 capture_output=True, timeout=300)
         if result.returncode:
-            raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); no publication was attempted")
+            log = root / "command-error.log"
+            log.write_text(result.stderr)
+            log.chmod(0o600)
+            raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); private diagnostics: {log}")
         return result.stdout.strip()
 
     package = "@sakajunquality/bunko"
-    packed = json.loads(run(["npm", "pack", f"{package}@{args.version}", "--ignore-scripts", "--json"]))
-    if len(packed) != 1 or packed[0]["filename"] != f"sakajunquality-bunko-{args.version}.tgz":
-        raise RuntimeError("Unexpected npm pack result")
-    archive = root / packed[0]["filename"]
-    integrity = "sha512-" + base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
-    if integrity != args.integrity:
-        raise RuntimeError("Registry tarball differs from the publishing candidate")
     expected = {"package/" + name for name in ["LICENSE", "PROVENANCE.jsonl", "README.md",
                 "SHA256SUMS", "THIRD_PARTY_NOTICES.md", "bunko.js", "package.json"]}
-    with tarfile.open(archive) as tar:
-        members = tar.getmembers()
-        if len(members) != len(expected) or {m.name for m in members} != expected or not all(m.isfile() for m in members):
-            raise RuntimeError("Unexpected npm package members; inspect current packaging before adapting the helper")
-        cli_hash = hashlib.sha256(tar.extractfile("package/bunko.js").read()).hexdigest()
-        metadata = json.load(tar.extractfile("package/package.json"))
-    if cli_hash != args.cli_sha256 or metadata.get("version") != args.version or metadata.get("name") != package:
-        raise RuntimeError("Published CLI or package identity mismatch")
-    if metadata.get("scripts") or metadata.get("dependencies"):
-        raise RuntimeError("Unexpected lifecycle scripts or runtime dependencies")
+
+    def verified_package(selected, expected_integrity):
+        packed = json.loads(run(["npm", "pack", f"{package}@{selected}", "--ignore-scripts", "--json"]))
+        if len(packed) != 1 or packed[0]["filename"] != f"sakajunquality-bunko-{selected}.tgz":
+            raise RuntimeError("Unexpected npm pack result")
+        archive = root / packed[0]["filename"]
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+        if integrity != expected_integrity:
+            raise RuntimeError("Registry tarball differs from the verified release candidate")
+        with tarfile.open(archive) as tar:
+            members = tar.getmembers()
+            if len(members) != len(expected) or {m.name for m in members} != expected or not all(m.isfile() for m in members):
+                raise RuntimeError("Unexpected npm package members; inspect current packaging before adapting the helper")
+            cli_hash = hashlib.sha256(tar.extractfile("package/bunko.js").read()).hexdigest()
+            metadata = json.load(tar.extractfile("package/package.json"))
+        if metadata.get("version") != selected or metadata.get("name") != package:
+            raise RuntimeError("Published package identity mismatch")
+        if metadata.get("scripts") or metadata.get("dependencies") or metadata.get("bin") != {"bunko": "bunko.js"}:
+            raise RuntimeError("Unexpected executable mapping, scripts or runtime dependencies")
+        return cli_hash
+
+    hashes = {args.version: verified_package(args.version, args.integrity),
+              args.previous: verified_package(args.previous, args.previous_integrity)}
+    if hashes[args.version] != args.cli_sha256:
+        raise RuntimeError("Published CLI hash mismatch")
+
+    def check_installed(directory, selected):
+        installed = directory / "node_modules/@sakajunquality/bunko/bunko.js"
+        executable = directory / "node_modules/.bin/bunko"
+        if executable.resolve() != installed.resolve() or hashlib.sha256(installed.read_bytes()).hexdigest() != hashes[selected]:
+            raise RuntimeError("Installed executable differs from verified release bytes")
+        return str(executable)
 
     consumer = root / "npm"
     consumer.mkdir()
@@ -86,7 +110,7 @@ def main():
     sequence = [args.previous, args.version, args.previous, args.version]
     for selected in sequence:
         run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", f"{package}@{selected}"], consumer)
-        if run([str(consumer / "node_modules/.bin/bunko"), "version"], consumer) != selected:
+        if run([check_installed(consumer, selected), "version"], consumer) != selected:
             raise RuntimeError("Upgrade/rollback version mismatch")
     audit = run(["npm", "audit", "signatures"], consumer)
     if "1 package has a verified registry signature" not in audit or "1 package has a verified attestation" not in audit:
@@ -95,14 +119,26 @@ def main():
     bun_consumer.mkdir()
     (bun_consumer / "package.json").write_text('{"private":true}')
     run(["bun", "add", "--ignore-scripts", f"{package}@{args.version}"], bun_consumer)
-    if run([str(bun_consumer / "node_modules/.bin/bunko"), "version"], bun_consumer) != args.version:
+    if run([check_installed(bun_consumer, args.version), "version"], bun_consumer) != args.version:
         raise RuntimeError("Bun install version mismatch")
-    for selector in [args.version, args.dist_tag]:
-        if run(["bun", "x", f"{package}@{selector}", "version"]) != args.version:
-            raise RuntimeError("bunx/dist-tag version mismatch")
-    report = dict(status="passed", version=args.version, integrity=integrity, cliSha256=cli_hash,
+    selectors = {}
+    for label, selector in [("exact", args.version), ("tag", args.dist_tag)]:
+        resolved = json.loads(run(["npm", "view", f"{package}@{selector}", "version", "--json"]))
+        if resolved != args.version:
+            raise RuntimeError("Registry selector does not point to the verified release")
+        directory = root / ("bunx-" + label)
+        directory.mkdir()
+        (directory / "package.json").write_text('{"private":true}')
+        run(["bun", "add", "--ignore-scripts", f"{package}@{resolved}"], directory)
+        check_installed(directory, resolved)
+        # Resolve tags read-only, verify installed bytes, then forbid bunx from fetching code.
+        if run(["bun", "x", "--no-install", "--package", package, "bunko", "version"], directory) != resolved:
+            raise RuntimeError("bunx version mismatch")
+        selectors[selector] = resolved
+    report = dict(status="passed", version=args.version, integrity=args.integrity,
+                  previousIntegrity=args.previous_integrity, cliSha256=hashes[args.version],
                   members=sorted(expected), upgradeRollback=sequence, audit=audit,
-                  bunx=[args.version, args.dist_tag], bunInstall=args.version)
+                  selectors=selectors, bunx="verified local package; --no-install", bunInstall=args.version)
     destination = root / "verification.json"
     destination.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"status": "passed", "report": str(destination)}))

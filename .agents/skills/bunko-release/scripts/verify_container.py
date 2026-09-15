@@ -23,10 +23,15 @@ def main():
         if not re.fullmatch(pattern, value):
             parser.error("Invalid version, digest or commit")
 
+    root = Path(tempfile.mkdtemp(prefix="bunko-release-container-"))
+
     def run(command, env=None):
         result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=600)
         if result.returncode:
-            raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); no publication was attempted")
+            log = root / "command-error.log"
+            log.write_text(result.stderr)
+            log.chmod(0o600)
+            raise RuntimeError(f"{command[0]} failed (exit {result.returncode}); private diagnostics: {log}")
         return result.stdout.strip()
 
     image = "ghcr.io/sakajunquality/bunko@" + args.digest
@@ -35,7 +40,6 @@ def main():
          "--source-ref", "refs/heads/main", "--source-digest", args.source_commit,
          "--deny-self-hosted-runners"])
     context = json.loads(run(["docker", "context", "inspect"]))[0]
-    root = Path(tempfile.mkdtemp(prefix="bunko-release-container-"))
     (root / "config.json").write_text("{}")
     env = dict(os.environ, DOCKER_CONFIG=str(root), DOCKER_HOST=context["Endpoints"]["docker"]["Host"])
     env.pop("DOCKER_CONTEXT", None)

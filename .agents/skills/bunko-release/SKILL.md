@@ -43,7 +43,7 @@ python3 scripts/verify_npm_consumers.py --help
 python3 scripts/verify_container.py --help
 ```
 
-Run them from this skill directory, or use their absolute paths. They never publish or move tags. They install/pull public artifacts into isolated temporary state and execute the explicitly selected version, so use them only after provenance acceptance. Supply checksums from the verified candidate, not merely from the artifact being checked. Compare their assumptions with current repository packaging if a helper rejects a changed allowlist or runtime layout.
+Run them from this skill directory, or use their absolute paths. They never publish or move tags. They install/pull public artifacts into isolated temporary state and execute the explicitly selected version, so use them only after provenance acceptance. Supply the new CLI hash and both new/previous npm integrity values from independently verified release records, not merely from the artifacts being checked. The npm helper resolves the intended dist-tag read-only, stages its exact version, verifies the installed bytes, and runs bunx with `--no-install`; it does not execute a mutable tag directly. Compare their assumptions with current repository packaging if a helper rejects a changed allowlist or runtime layout.
 
 ## Finish
 
