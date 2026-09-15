@@ -3,6 +3,7 @@
 Start with the task below, then follow its reference link for the complete contract. Snippets belong inside your application's `package.json`; preserve its other fields. Commands assume Bun is installed and `bunko` is on PATH. Replace registry, image and checksum placeholders with your own values. `--deep`, base capability reports, explicit-only registry cache writes, import acknowledgements and rejection of explicit credential/internal assets in bundle mode require 0.4.0 or later.
 
 - [Ship gitignored frontend output](#ship-gitignored-frontend-output)
+- [Package npm or pnpm build output](#package-npm-or-pnpm-build-output)
 - [Add fonts and verify the renderer](#add-fonts-and-verify-the-renderer)
 - [Copy a binary from another image](#copy-a-binary-from-another-image)
 - [Fetch a pinned public file](#fetch-a-pinned-public-file)
@@ -32,6 +33,12 @@ bunko build . --push=false --oci-layout ./image --report ./image-report.json
 ```
 
 Replace `dist` with `build` or the specific generated paths your framework actually loads. A `.next` directory alone is not a portable Next.js deployment: follow that framework's runtime/output contract and include every required generated file. Source-mode declared assets override `.gitignore` starting in 0.3.1. `.bunkoignore`, credential exclusions and output/cache exclusions still apply. Incidental `.DS_Store` files are skipped. [Source mode](SOURCE_MODE.md), [asset selection](CONFIGURATION.md).
+
+## Package npm or pnpm build output
+
+Run `npm run build` or `pnpm run build` first, then package a separate runtime directory with `bunko build ./dist`. Give that directory its own `package.json` with `bunko.mode: "source"` and an entrypoint pointing to the generated JavaScript. Source mode preserves the output without rebundling it; the image runs it with Bun.
+
+The [prebuilt application example](../examples/prebuilt/README.md) includes both lockfiles, an esbuild script, static assets, a generated dependency-free runtime manifest, and container checks. It bundles npm dependencies before packaging, so the runtime directory needs no `bun.lock`. Outputs with external runtime dependencies still need bunko's supported dependency preparation and lockfile contract.
 
 ## Add fonts and verify the renderer
 
