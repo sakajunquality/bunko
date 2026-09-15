@@ -97,6 +97,8 @@ Workspace declarations accept positive relative globs as an array or a `workspac
 
 ## npm dependencies and native addons
 
+Already building with npm or pnpm? The [prebuilt application example](examples/prebuilt/README.md) runs the existing package-manager build first, then uses bunko's source mode to package only the generated JavaScript and static assets. The resulting image runs with Bun.
+
 Ordinary JavaScript dependencies are bundled. Declare packages that must remain at runtime in `package.json.bunko.external`. Projects with dependencies need a consistent text `bun.lock`. bunko performs frozen installs in temporary directories instead of using the checkout's `node_modules`. Install scripts never run.
 
 ```sh
