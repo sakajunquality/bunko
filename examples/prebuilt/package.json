@@ -1,0 +1,18 @@
+{
+  "name": "bunko-prebuilt-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "is-number": "7.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
