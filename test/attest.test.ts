@@ -145,6 +145,9 @@ test("opt-in SBOM evidence survives cache reuse without changing image identity 
   const output = join(root, "evidence");
   const result = await build({ ...options, sbom: true, sbomEvidence: true, output });
   expect(result.root).toEqual(plain.root);
+  expect(result.cache.some((event) => event.kind === "app" && event.status === "local")).toBe(true);
+  const cold = await build({ ...options, localCache: false, sbom: true, sbomEvidence: true, output: join(root, "cold-evidence") });
+  expect(cold.attestations).toEqual(result.attestations);
   const store = new BlobStore(output), attachment = result.attestations![0]!;
   const manifest = JSON.parse(Buffer.from(await store.read(attachment.manifest)).toString());
   const document = JSON.parse(Buffer.from(await store.read(manifest.layers[0])).toString());

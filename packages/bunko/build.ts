@@ -659,7 +659,6 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
   options = offlineOptions(options);
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
-  if (options.sbomEvidence && !options.sbom) throw new Error("--sbom-evidence requires --sbom");
   validateCacheOptions(options);
   const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache, ...explicitCachePaths]);

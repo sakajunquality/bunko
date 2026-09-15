@@ -73,3 +73,10 @@ test("evidence option is accepted only by build-producing commands", async () =>
   for (const command of ["build", "resolve", "apply"]) expect(() => validateCommandOptions(command, ["sbom", "sbom-evidence"])).not.toThrow();
   for (const command of ["rebase", "metadata", "doctor"]) expect(() => validateCommandOptions(command, ["sbom-evidence"])).toThrow("not supported");
 });
+
+test("supply-chain policy validates evidence even before resolving build references", async () => {
+  const { supplyChainOptions } = await import("../packages/bunko/policy.ts");
+  expect(() => supplyChainOptions({ sbomEvidence: true })).toThrow("requires --sbom");
+  expect(supplyChainOptions({ sbom: true, sbomEvidence: true }).sbomEvidence).toBe(true);
+  expect(supplyChainOptions({ sbomEvidence: true, supplyChainPolicy: "ci", reproducible: true, signKey: "fixture" }).sbom).toBe(true);
+});

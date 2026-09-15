@@ -7,6 +7,7 @@ export function supplyChainOptions<T extends Partial<BuildOptions>>(options: T):
     if ((options.externalDeps || options.externalDepsByTarget) && !options.depsVerifyKey) throw new Error("CI policy requires --deps-verify-key for prepared dependencies");
     options = { ...options, sbom: true, provenance: true };
   }
+  if (options.sbomEvidence && !options.sbom) throw new Error("--sbom-evidence requires --sbom");
   if (options.baseSBOMs && !options.sbom) throw new Error("--base-sbom requires --sbom");
   if (options.depsVerifyKey && !(options.externalDeps || options.externalDepsByTarget)) throw new Error("--deps-verify-key requires prepared dependencies");
   if (options.depsVerifyKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Dependency signature verification cannot use Registry TLS configuration");

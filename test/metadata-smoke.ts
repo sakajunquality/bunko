@@ -37,7 +37,7 @@ try {
   await packDependencies(source, join(source, "bun.lock"), { os: "linux", architecture: "amd64" }, deps);
   const published = await pushLayout(deps, `${host}/deps`, [], registry);
   const options = { path: source, baseLayout: await baseLayout(join(directory, "base")), repo: `${host}/image`, bare: true, localCache: false, registryCache: false, gitMetadata: false, installCache,
-    sbom: true, provenance: true, reproducible: true, supplyChainPolicy: "ci" as const, signKey: join(directory, "producer.key"), cosignPath: cosign,
+    sbom: true, sbomEvidence: true, provenance: true, reproducible: true, supplyChainPolicy: "ci" as const, signKey: join(directory, "producer.key"), cosignPath: cosign,
     depsVerifyKey: join(directory, "producer.pub"), externalDeps: { "linux/amd64": published.reference }, registry };
   let rejected = 0;
   async function mustReject(key: string) { try { await build({ ...options, depsVerifyKey: key }); } catch (error) { if (!String(error).includes("cosign verify failed")) throw error; rejected++; return; } throw new Error("Untrusted dependency was accepted"); }
