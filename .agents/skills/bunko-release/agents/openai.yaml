@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bunko Release"
+  short_description: "Publish and verify bunko releases across channels"
+  default_prompt: "Use $bunko-release to prepare, publish, and verify the requested bunko version."
