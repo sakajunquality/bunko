@@ -3,7 +3,11 @@ import { createServer } from "node:http";
 import isNumber from "is-number";
 
 const index = readFileSync(new URL("./public/index.html", import.meta.url));
-const port = Number(process.env.PORT ?? 3000);
+const configuredPort = process.env.PORT?.trim();
+const port = configuredPort ? Number(configuredPort) : 3000;
+if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+  throw new Error("PORT must be an integer from 1 through 65535");
+}
 
 const server = createServer((request, response) => {
   if (request.url === "/health") {
