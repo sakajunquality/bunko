@@ -12,7 +12,7 @@ steps:
       persist-credentials: false
   - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
     with:
-      version: v0.8.2
+      version: v0.8.3
       bun-version: 1.4.2
   - name: Authenticate to GHCR
     env:
