@@ -1,3 +1,4 @@
+import { buildEvidence } from "./sbom-evidence.ts";
 import { assertBaseLibc, assertNativeLibc } from "./libc.ts";
 import { configurationPlan } from "./configuration-plan.ts";
 import { mkdtemp, cleanupMkdtemp } from "../runtime/invocation.ts";
@@ -578,7 +579,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       layers: first.layers, images, cache: cache.events, cacheExports: cache.exports, verifiedDeterministic: Boolean(options.verifyDeterministic), dryRun: Boolean(options.dryRun),
     };
     const attestations: Artifact[] = [];
-    if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp, { version: toolchain.version, revision: toolchain.revision, embedded: project.mode === "compile" })));
+    if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp, { version: toolchain.version, revision: toolchain.revision, embedded: project.mode === "compile" }, options.sbomEvidence ? buildEvidence(image, plan.lock) : undefined)));
     if (options.provenance) attestations.push(await artifact(store, root, provenanceType, provenance(result, plan.lock ? sha256(canonicalJSON(plan.lock)) : undefined)));
     if (attestations.length || options.signKey) result.supplyChain = { status: "prepared" };
     if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
@@ -658,6 +659,7 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
   options = offlineOptions(options);
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
+  if (options.sbomEvidence && !options.sbom) throw new Error("--sbom-evidence requires --sbom");
   validateCacheOptions(options);
   const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
   const imageRefs = await referenceOutput(options.imageRefs, [options.report, options.output, options.tarball, options.cacheDir, options.installCache, options.runtimeCache, ...explicitCachePaths]);

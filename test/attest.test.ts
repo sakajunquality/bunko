@@ -137,3 +137,22 @@ test("SPDX namespaces identify document content and provenance names the image r
   expect(statement.predicate.buildDefinition.externalParameters.runtime?.argumentsDigest).toBe(sha256(canonicalJSON(["--title=SECRET_RUNTIME"])));
   expect(JSON.stringify(statement)).not.toContain("SECRET_DEFINE"); expect(JSON.stringify(statement)).not.toContain("SECRET_RUNTIME"); expect(JSON.stringify(statement)).not.toContain(root);
 });
+
+test("opt-in SBOM evidence survives cache reuse without changing image identity or default disclosure", async () => {
+  const root = await fixture(), f = await dependencyFixture(root, false), base = await baseLayout(join(root, "base"));
+  const options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, installCache: f.cache, cacheDir: join(root, "layer-cache") };
+  const plain = await build({ ...options, sbom: true, output: join(root, "plain") });
+  const output = join(root, "evidence");
+  const result = await build({ ...options, sbom: true, sbomEvidence: true, output });
+  expect(result.root).toEqual(plain.root);
+  const store = new BlobStore(output), attachment = result.attestations![0]!;
+  const manifest = JSON.parse(Buffer.from(await store.read(attachment.manifest)).toString());
+  const document = JSON.parse(Buffer.from(await store.read(manifest.layers[0])).toString());
+  const { readEvidence } = await import("../packages/bunko/sbom-evidence.ts");
+  const evidence = readEvidence(document.annotations[0].comment, new Set(["fixture-msg@1.0.0"]));
+  expect(evidence.packages.map((p) => [p.name, p.states])).toEqual([["fixture-dev", ["declared-only"]], ["fixture-msg", ["bundled"]]]);
+  expect(evidence.packages[1]!.lockChecksums[0]!.checksumValue).toBe(Buffer.alloc(64, 1).toString("hex"));
+  expect(document.packages.some((p: any) => p.name === "fixture-dev")).toBe(false);
+  expect(JSON.stringify(document)).not.toContain(root);
+  await expect(build({ ...options, sbomEvidence: true, output: join(root, "invalid") })).rejects.toThrow("requires --sbom");
+});

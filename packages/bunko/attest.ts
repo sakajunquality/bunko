@@ -1,3 +1,4 @@
+import { evidenceComment, type BuildEvidence } from "./sbom-evidence.ts";
 import { publicAssetMapping } from "./asset-contexts.ts";
 import { packageLicense } from "./inventory.ts";
 import { assertCosign, cosignCommand } from "./cosign.ts";
@@ -11,7 +12,7 @@ import { VERSION } from "./config.ts";
 export const sbomType = "application/spdx+json";
 export const provenanceType = "application/vnd.in-toto+json";
 
-export function spdx(name: string, image: PlatformResult, timestamp: number, runtime?: { version: string; revision: string; embedded: boolean }) {
+export function spdx(name: string, image: PlatformResult, timestamp: number, runtime?: { version: string; revision: string; embedded: boolean }, evidence?: BuildEvidence) {
   const release = image.runtime ?? image.compileRuntime;
   const inventory = new Map<string, InventoryEntry>();
   for (const item of [...image.inventory, ...image.bundledInventory ?? []]) inventory.set(`${item.name}@${item.version}`, item);
@@ -26,6 +27,7 @@ export function spdx(name: string, image: PlatformResult, timestamp: number, run
     filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
   const document = { spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: "SPDXRef-DOCUMENT", name: `${name}-${image.platform.architecture}`,
     creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(timestamp * 1000).toISOString().replace(".000Z", "Z") },
+    ...(evidence ? { annotations: [{ annotationType: "OTHER", annotator: `Tool: bunko-${VERSION}`, annotationDate: new Date(timestamp * 1000).toISOString().replace(".000Z", "Z"), comment: evidenceComment(evidence) }] } : {}),
     comment: "Application package inventory from bundled inputs and runtime dependencies. Base OS packages are represented only by an explicitly linked external document, when supplied. Undeclared runtime-loaded packages are not inventoried. Unknown license declarations are not inferred.",
     ...(image.baseInventory ? { externalDocumentRefs: [{ externalDocumentId: "DocumentRef-Base", spdxDocument: image.baseInventory.namespace, checksum: { algorithm: "SHA256", checksumValue: image.baseInventory.digest.slice(7) } }] } : {}),
     ...(image.runtime ? { files: [{ SPDXID: "SPDXRef-Bun-Executable", fileName: image.runtime.path, fileTypes: ["BINARY"], checksums: [{ algorithm: "SHA256", checksumValue: image.runtime.executableDigest.slice(7) }], licenseConcluded: "NOASSERTION", licenseInfoInFiles: ["NOASSERTION"], copyrightText: "NOASSERTION" }] } : {}),
