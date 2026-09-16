@@ -38,12 +38,15 @@ if (import.meta.main) {
       try { await lstat(destination); throw new Error("Action report destination must be absent"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    const child = Bun.spawn(["bunko", ...rebaseArguments(inputs, report)], { stdout: "inherit", stderr: "inherit", stdin: "ignore" });
+    const child = Bun.spawn([Bun.which("bunko", { PATH: process.env.PATH }) ?? "bunko", ...rebaseArguments(inputs, report)], { stdout: "inherit", stderr: "inherit", stdin: "ignore" });
     code = await child.exited;
     const file = Bun.file(report);
     if (file.size > 32 * 1024 * 1024) throw new Error("Rebase Action report exceeds limits");
     result = JSON.parse(await readFile(report, "utf8"));
-    if (destination !== report) { await writeFile(destination, JSON.stringify(result), { flag: "wx", mode: 0o600 }); copied = true; }
+    if (destination !== report) {
+      try { await writeFile(destination, JSON.stringify(result), { flag: "wx", mode: 0o600 }); copied = true; }
+      catch { process.stderr.write("Could not copy the Action report; preserving the temporary report and publication details\n"); code = 1; }
+    }
   } catch { result = { schemaVersion: 1, command: "rebase", status: "failed", decision: "error" }; code = 1; }
   if (!(await Bun.file(report).exists())) await writeFile(report, JSON.stringify(result), { mode: 0o600, flag: "wx" });
   const dry = inputs["dry-run"] !== "false", outputs = rebaseOutputs(result, code, dry);

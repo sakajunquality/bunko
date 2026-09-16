@@ -121,3 +121,9 @@ test("contracts cannot authorize text, truncated or foreign-architecture librari
     }
   }
 });
+
+test("invalid loader ELF is a rebuild decision even before policy selection", async () => {
+  const f = await fixture(); const path = "lib64/ld-linux-x86-64.so.2";
+  const fresh = await f.base({ [path]: { path, type: "file", content: rebaseLibrary({ os: "linux", architecture: "arm64" }), executable: true } });
+  await expect(checkRebaseSafety(f.store, f.old, f.old, fresh, options, context, f.root)).rejects.toMatchObject({ decision: "requires-rebuild", reason: "libc-loader", exitCode: 4 });
+});

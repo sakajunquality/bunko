@@ -16,9 +16,13 @@ jobs:
   assess:
     runs-on: ubuntu-latest
     steps:
-      - uses: sakajunquality/setup-bunko@v0.1.1
+      - name: Require a reviewed CLI release
+        env:
+          VERSION: ${{ vars.BUNKO_REBASE_VERSION }}
+        run: '[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]'
+      - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
         with:
-          version: latest
+          version: ${{ vars.BUNKO_REBASE_VERSION }}
       - name: Assess reviewed targets
         env:
           TARGETS: ${{ vars.REBASE_TARGETS_JSON }}
