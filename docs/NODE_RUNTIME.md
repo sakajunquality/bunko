@@ -39,7 +39,7 @@ bunko check-base --runtime-kind node --base gcr.io/distroless/nodejs24-debian13 
 
 ## Compatibility boundaries
 
-The static guard rejects global `Bun`, `bun:*` imports and Bun-only `import.meta` APIs in included source and loaded bundle inputs. Comments, strings, type-only references and lexical local bindings are ignored. `check-config --deep` checks sanitized application sources; bundling also checks loaded dependency sources. Source packaging checks installed JavaScript dependencies. This is conservative: even a guarded Bun fallback can be rejected. Dynamic property construction, native behavior and every future API difference cannot be proven statically. Test your final image.
+The static guard rejects global `Bun`, `bun:*` imports and Bun-only `import.meta` APIs in included source and loaded bundle inputs. Comments, strings, type-only references and lexical local bindings are ignored. `check-config --deep` checks sanitized application sources; bundling also checks loaded dependency sources. Packaged external JavaScript is checked for both modes, including cache hits and imported dependency layers, with a 64 MiB per-file validation limit. This is conservative: even a guarded Bun fallback can be rejected. Dynamic property construction, native behavior and every future API difference cannot be proven statically. Test your final image.
 
 Runtime arguments use a Node allowlist, including heap limits, warning behavior, CA choices and profiling output options. Bun flags, entrypoint replacement, preload/import hooks and symlink-preservation overrides are unsupported. Application argv belongs in `args`. `NODE_ENV=production` remains the image default; bunko does not inject `BUN_RUNTIME_TRANSPILER_CACHE_PATH` for Node. Explicit or inherited environment settings retain their normal precedence.
 
@@ -51,6 +51,6 @@ Node and Bun application/dependency cache identities are separated. Existing Bun
 
 ## Validation
 
-`bun run build && bun run test:node` exercises glibc/musl × bundle/source × amd64/arm64. It loads disposable images into Docker and checks a real HTTP request, explicit asset read and UID 65532 under read-only/no-network constraints. Set `BUNKO_SMOKE_PLATFORMS` to select available emulation. Unit tests additionally check configuration, API rejection, host Node execution, SBOM/provenance and identical-runtime rebasing. These tests do not cover every npm package or native addon.
+`bun run build && bun run test:node` exercises glibc/musl × bundle/source × amd64/arm64. It loads disposable images into Docker and checks a real HTTP request, explicit asset read and UID 65532 under read-only/no-network constraints. Set `BUNKO_SMOKE_PLATFORMS` to select available emulation and `BUNKO_NODE_MAJOR=22` to test Node 22; CI exercises both supported majors. Unit tests additionally check configuration, API rejection, host Node execution, SBOM/provenance and identical-runtime rebasing. These tests do not cover every npm package or native addon.
 
 References: [distroless Node images](https://github.com/GoogleContainerTools/distroless/blob/main/nodejs/README.md), [Node releases](https://github.com/nodejs/node/releases).

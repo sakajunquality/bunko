@@ -426,6 +426,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -437,4 +438,5 @@ jobs:
       - run: bun run build
       - run: bun run test:node
         env:
+          BUNKO_NODE_MAJOR: ${{ matrix.node }}
           BUNKO_SMOKE_PLATFORMS: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
