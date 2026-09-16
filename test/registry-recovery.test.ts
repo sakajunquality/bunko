@@ -136,3 +136,40 @@ test("transient mount failures fall back and session creation retries are bounde
   await expect(unavailable.blob(store, descriptor)).rejects.toThrow("Registry POST failed (503)");
   expect(attempts).toBe(3);
 });
+
+test("private ECR PATCH 201 continues chunks and requires final digest completion", async () => {
+  const { store, descriptor, bytes } = await input();
+  const registry = new MockRegistry();
+  let patches = 0, completions = 0;
+  const publisher = new Publisher("123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/app", {
+    credentials: anonymous,
+    fetcher: async (url, init) => {
+      const response = await registry.fetch(url, init);
+      if (init?.method === "PATCH") {
+        patches++;
+        expect(response.status).toBe(202);
+        return new Response(null, { status: 201, headers: response.headers });
+      }
+      if (init?.method === "PUT") completions++;
+      return response;
+    },
+  });
+  expect((await publisher.blob(store, descriptor)).action).toBe("uploaded");
+  expect(patches).toBe(2);
+  expect(completions).toBe(1);
+  expect(registry.blobs.get(`123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/app/${descriptor.digest}`)).toEqual(bytes);
+});
+
+test("non-ECR registries cannot claim an accepted chunk with PATCH 201", async () => {
+  const { store, descriptor } = await input();
+  const registry = new MockRegistry();
+  const publisher = new Publisher("registry.example/app", {
+    credentials: anonymous,
+    fetcher: async (url, init) => {
+      const response = await registry.fetch(url, init);
+      return init?.method === "PATCH" ? new Response(null, { status: 201, headers: response.headers }) : response;
+    },
+  });
+  await expect(publisher.blob(store, descriptor)).rejects.toThrow("did not accept upload chunk");
+  expect(registry.requests.some((request) => request.method === "PUT")).toBe(false);
+});
