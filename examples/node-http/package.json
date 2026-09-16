@@ -1,0 +1,11 @@
+{
+  "name": "bunko-node-http",
+  "private": true,
+  "type": "module",
+  "module": "index.js",
+  "engines": { "node": ">=24" },
+  "bunko": {
+    "runtime": { "kind": "node", "node": "24" },
+    "ports": [3000]
+  }
+}

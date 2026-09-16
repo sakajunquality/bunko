@@ -62,7 +62,7 @@ function osId(inspection: Inspection): string | undefined {
 function executable(inspection: Inspection, path: string): BaseNode {
   // Absolute, direct files keep executable provenance unambiguous; wrapper scripts require rebuilding.
   const direct = inspection.tree.get(path), resolved = baseNode(inspection.tree, `/${path}`);
-  if (!direct || direct !== resolved || direct.type !== "file" || !direct.size || !(direct.mode & 0o111)) throw new RebaseDecisionError("requires-rebuild", "runtime-shape", "Rebase Bun executable must be a direct regular executable file");
+  if (!direct || direct !== resolved || direct.type !== "file" || !direct.size || !(direct.mode & 0o111)) throw new RebaseDecisionError("requires-rebuild", "runtime-shape", "Rebase Runtime executable must be a direct regular executable file");
   return direct;
 }
 function loader(inspection: Inspection, context: RebaseBuildContext, options: ImageOptions): void {
@@ -76,7 +76,7 @@ function loader(inspection: Inspection, context: RebaseBuildContext, options: Im
 export async function checkRebaseSafety(store: BlobStore, image: BaseImage, oldBase: BaseImage, newBase: BaseImage, options: ImageOptions,
   context: RebaseBuildContext, temporary: string, policy?: RebaseAbiPolicy): Promise<RebaseSafetyResult> {
   const entrypoint = options.entrypoint[0];
-  if (!entrypoint || !entrypoint.startsWith("/") || entrypoint.split("/").some((part) => part === "." || part === "..")) throw new RebaseDecisionError("requires-rebuild", "entrypoint-shape", "Rebase requires an absolute Bun entrypoint");
+  if (!entrypoint || !entrypoint.startsWith("/") || entrypoint.split("/").some((part) => part === "." || part === "..")) throw new RebaseDecisionError("requires-rebuild", "entrypoint-shape", "Rebase requires an absolute runtime entrypoint");
   const target = entrypoint.slice(1);
   const old = await inspect(store, oldBase, temporary, target), fresh = await inspect(store, newBase, temporary, target);
   loader(old, context, options); loader(fresh, context, options);
@@ -95,16 +95,16 @@ export async function checkRebaseSafety(store: BlobStore, image: BaseImage, oldB
   const finalRuntime = executable(final, target);
   const runtime = context.runtimeOrigin === "base" ? executable(old, target) : executable(gen, target);
   const owner = context.runtimeOrigin === "base" ? old : gen;
-  if (!same(runtime, finalRuntime, owner, final)) throw new RebaseDecisionError("requires-rebuild", "runtime-changed", "Bun executable changed during rebase");
+  if (!same(runtime, finalRuntime, owner, final)) throw new RebaseDecisionError("requires-rebuild", "runtime-changed", "Runtime executable changed during rebase");
   const bytes = owner.bodies.get(runtime);
-  if (!bytes) throw new Error("Cannot inspect the rebase Bun runtime");
+  if (!bytes) throw new Error("Cannot inspect the rebase runtime");
   let elf: ReturnType<typeof runtimeELF>;
   try { elf = runtimeELF(bytes, options.platform, context.libc); } catch { throw new RebaseDecisionError("requires-rebuild", "runtime-platform", "Runtime architecture or libc differs; rebuild instead"); }
   const env = { ...Object.fromEntries((newBase.config.config?.Env ?? []).map((item) => { const at = item.indexOf("="); return [item.slice(0, at), item.slice(at + 1)]; })), ...options.env };
-  if (runtime.mode & 0o6000) throw new Error("Rebase does not support privileged Bun executables");
+  if (runtime.mode & 0o6000) throw new Error("Rebase does not support privileged Runtime executables");
   try { checkRuntimeLibraries(final.tree, final.bodies, final.headers, bytes, options, context.libc, elf.needed, env, osId(fresh)); }
   catch (error) { throw new RebaseDecisionError("requires-rebuild", "runtime-libraries", error instanceof Error ? error.message : "Runtime library compatibility failed"); }
-  try { releaseRevision(bytes, { path: "", version: context.bunVersion, revision: context.bunRevision }); }
+  try { if (context.runtimeKind !== "node") releaseRevision(bytes, { path: "", version: context.bunVersion, revision: context.bunRevision }); }
   catch { throw new RebaseDecisionError("requires-rebuild", "runtime-revision", "Bun runtime revision differs; rebuild instead"); }
   let nativeAddons = 0;
   for (const [path, node] of gen.tree) {

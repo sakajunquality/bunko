@@ -10,6 +10,7 @@ export interface RebaseBuildContext {
   libc: "glibc" | "musl";
   bunVersion: string;
   bunRevision: string;
+  runtimeKind?: "node";
   runtimeOrigin: "base" | "injected" | "compiled";
 }
 
@@ -40,7 +41,7 @@ export function rebaseMetadata(base: BaseImage, layers: Layer[], options: ImageO
       mode: context.mode,
       libc: context.libc,
       buildToolchain: { version: context.bunVersion, revision: context.bunRevision },
-      runtime: { origin: context.runtimeOrigin },
+      runtime: { origin: context.runtimeOrigin, ...(context.runtimeKind === "node" ? { kind: "node" } : {}) },
     },
     ownership: {
       env: {
@@ -48,7 +49,7 @@ export function rebaseMetadata(base: BaseImage, layers: Layer[], options: ImageO
         explicitKeys: sortedKeys(options.env),
         defaults: {
           NODE_ENV: { value: "production", policy: "always" },
-          BUN_RUNTIME_TRANSPILER_CACHE_PATH: { value: "0", policy: "if-missing" },
+          ...(context.runtimeKind === "node" ? {} : { BUN_RUNTIME_TRANSPILER_CACHE_PATH: { value: "0", policy: "if-missing" } }),
         },
         applicationOrder: ["inherited", "defaults", "explicit"],
       },
