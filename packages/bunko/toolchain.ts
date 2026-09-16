@@ -116,7 +116,8 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (Array.isArray(output.imports)) {
       for (const value of output.imports) {
         const item = object(value, "Bun output import");
-        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !/^bun(?::|$)/.test(item.path) && !project.external.includes(packageRoot(item.path))))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
+        if (project.runtimeKind === "node" && typeof item.path === "string" && /^bun(?::|$)/.test(item.path)) throw new Error("Bun-only external import in Node bundle");
+        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !(project.runtimeKind !== "node" && /^bun(?::|$)/.test(item.path)) && !project.external.includes(packageRoot(item.path))))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
       }
     }
   }

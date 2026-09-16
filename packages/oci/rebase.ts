@@ -126,6 +126,7 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   const epochText = string(image.config.created, "created"); const epochDate = Date.parse(epochText); if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(epochText) || !Number.isSafeInteger(epochDate / 1000)) fail("created must be strict epoch seconds");
   const options: ImageOptions = { runtimeKind: context.runtimeKind, platform: platform as unknown as ImageOptions["platform"], epoch: epochDate / 1000, entrypoint: [...runtime.Entrypoint!], args: [...runtime.Cmd!], workdir: runtime.WorkingDir!, env, labels: labelsOut, inheritBaseOciLabels: labelOwn.inheritBaseOciLabels === true, user: explicitUser ? runtime.User : undefined, ports: parsePorts(runtime.ExposedPorts, explicitPorts) };
   if (context.runtimeKind === "node" && labels["org.bunko.runtime.kind"] !== "node" || context.runtimeKind !== "node" && labels["org.bunko.runtime.kind"] !== undefined) fail("runtime kind label mismatch");
+  if (context.runtimeKind === "node" && !["22", "24"].includes(labels["org.bunko.node.version"] ?? "")) fail("invalid declared Node major");
   const order = ["runtime", "deps", "assets", "app"]; let previous = -1;
   for (const layer of layers) { const index = order.indexOf(layer.kind); if (index <= previous) fail("generated layer roles are out of order or duplicated"); previous = index; }
   if (context.mode === "compile" && context.runtimeOrigin !== "compiled") fail("compile mode requires compiled runtime");

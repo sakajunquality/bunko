@@ -11,7 +11,8 @@ export function lexicalScopes(source: ts.SourceFile) {
   }
   function collect(node: ts.Node, outer: Scope) {
     if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly || ts.isImportSpecifier(node) && node.isTypeOnly || ts.isImportEqualsDeclaration(node) && node.isTypeOnly) return;
-    if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+    const runtimeHeritage = ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent) && node.parent.token === ts.SyntaxKind.ExtendsKeyword && (ts.isClassDeclaration(node.parent.parent) || ts.isClassExpression(node.parent.parent));
+    if (ts.isTypeNode(node) && !runtimeHeritage || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
     let scope = outer;
     const fn = ts.isFunctionLike(node);
     if (node !== source && (fn || ts.isBlock(node) || ts.isCaseBlock(node) || ts.isCatchClause(node) || ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node) || ts.isClassExpression(node))) {

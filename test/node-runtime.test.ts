@@ -83,3 +83,34 @@ test("deep diagnostics surface Node runtime policy and reject Bun APIs offline",
   expect(result.targets[0]).toMatchObject({ runtimeKind: "node", nodeVersion: "24", sourceTypeScript: false, runtimePath: "/usr/local/bin/node" });
   await writeFile(join(f.source, "index.js"), 'Bun.serve({})'); await expect(checkConfig({ path: f.source, deep: true })).rejects.toThrow("Bun-only");
 });
+
+test("unused Bun test files do not block Node bundles; loaded bare Bun imports and heritage do", async () => {
+  const f = await fixture(); await writeFile(join(f.source, "unused.test.ts"), 'import { test } from "bun:test"; test("unused",()=>{});');
+  const options = { path: f.source, baseLayout: f.base.directory, localCache: false, gitMetadata: false };
+  await build({ ...options, output: join(f.root, "valid") });
+  for (const [index, code] of ['import {serve} from "bun";', 'class A extends Bun.X {}'].entries()) {
+    await writeFile(join(f.source, "index.js"), code); await expect(build({ ...options, output: join(f.root, `invalid-${index}`) })).rejects.toThrow("Bun-only");
+  }
+  for (const code of ['typeof Bun !== "undefined"', 'const {Bun: value} = object;', 'class A implements Bun.Type {}']) expect(() => rejectBunRuntime(code, "fixture.ts")).not.toThrow();
+  const { moduleLocations } = await import("../packages/bunko/location-diagnostics.ts"); expect(moduleLocations('class A extends f(__dirname) {}', 'fixture.js')).toHaveLength(1);
+});
+test("Node SBOM rebasing rejects a runtime kind or declared-major mismatch", async () => {
+  const f = await fixture(), built = await build({ path: f.source, baseLayout: f.base.directory, output: join(f.root, "image"), localCache: false, gitMetadata: false });
+  const { spdx } = await import("../packages/bunko/attest.ts"), { rebaseSpdx } = await import("../packages/bunko/rebase-attest.ts");
+  const document = spdx("node-fixture", built.images[0]!, 0);
+  expect(() => rebaseSpdx(document, built.manifest, built.manifest, built.images[0]!.platform, 0)).toThrow("Runtime inventory");
+  expect(() => rebaseSpdx(document, built.manifest, built.manifest, built.images[0]!.platform, 0, undefined, { kind: "node", version: "22" })).toThrow("Runtime inventory");
+  expect(() => rebaseSpdx(document, built.manifest, built.manifest, built.images[0]!.platform, 0, undefined, { kind: "node", version: "24" })).not.toThrow();
+});
+test("changed bases retain Node runtime bytes and still require a reviewed ABI policy", async () => {
+  const f = await fixture(), output = join(f.root, "image"); await build({ path: f.source, baseLayout: f.base.directory, output, localCache: false, gitMetadata: false });
+  const bytes = rebaseRuntime({ os: "linux", architecture: "amd64" }); bytes.fill(0, 800);
+  const next = await rebaseBase(join(f.root, "next"), undefined, {}, [{ path: "usr/local/bin/node", type: "file", content: bytes, executable: true }, { path: "etc/update", type: "file", content: Buffer.from("new") }]);
+  const options = { image: `layout:${output}`, oldBase: `layout:${f.base.directory}`, base: `layout:${next.directory}`, dryRun: true };
+  await expect(rebase(options)).rejects.toMatchObject({ decision: "requires-policy" });
+  const { rebasePolicyTemplate } = await import("../packages/bunko/rebase-operations.ts"); const policy = join(f.root, "policy.json");
+  const template = await rebasePolicyTemplate({ ...options, out: policy }); await writeFile(policy, JSON.stringify({ ...template.policy, reviewed: true }));
+  expect((await rebase({ ...options, policy })).decision).toBe("compatible");
+  bytes[900] = 1; const changed = await rebaseBase(join(f.root, "changed"), undefined, {}, [{ path: "usr/local/bin/node", type: "file", content: bytes, executable: true }]);
+  await expect(rebase({ ...options, base: `layout:${changed.directory}`, policy })).rejects.toMatchObject({ decision: "requires-rebuild", reason: "runtime-changed" });
+});

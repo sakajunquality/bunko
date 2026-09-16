@@ -1,6 +1,6 @@
 # Package npm or pnpm build output with bunko
 
-Build a TypeScript HTTP server with Node.js and npm or pnpm, then pass only the generated `dist/` directory to bunko. The application uses Node's HTTP/filesystem APIs and an npm dependency, and serves a static HTML file. The resulting image runs the generated JavaScript with **Bun**.
+Build a TypeScript HTTP server with Node.js and npm or pnpm, then pass only the generated `dist/` directory to bunko. The application uses Node's HTTP/filesystem APIs and an npm dependency, and serves a static HTML file. By default the resulting image runs the generated JavaScript with **Bun**; see below to select Node.
 
 ```text
 npm ci / pnpm install -> npm run build / pnpm run build -> dist/ -> bunko -> OCI image
@@ -91,7 +91,7 @@ Keep the existing npm/pnpm build and stage its deployable output in a separate d
 
 This example bundles all npm dependencies. If the output still imports external packages, a dependency-free manifest is insufficient: declare those runtime dependencies and provide a consistent text `bun.lock` for bunko's controlled install, or use the supported [prepared dependency workflow](../prepared-dependencies/README.md) with its required manifests and lockfile. bunko does not directly copy an npm/pnpm `node_modules` tree.
 
-The runtime remains Bun. Test Node.js compatibility, native addons, and framework output in the final image; this workflow does not provide a general Node.js runtime mode. For browser-only output, include a server entrypoint that serves those files. See [source mode](../../docs/SOURCE_MODE.md) and [application compatibility](../../docs/APPLICATION_COMPATIBILITY.md).
+The commands above retain the default Bun runtime. Test native addons and framework output in the final image; the optional Node path below changes the runtime while keeping the Bun packaging toolchain. For browser-only output, include a server entrypoint that serves those files. See [source mode](../../docs/SOURCE_MODE.md) and [application compatibility](../../docs/APPLICATION_COMPATIBILITY.md).
 
 ## Run the prebuilt output with Node
 

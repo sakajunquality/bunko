@@ -49,7 +49,7 @@ function cleanPackage(value: Record<string, any>, id: string): Record<string, an
 }
 
 export function rebaseSpdx(input: unknown, original: Descriptor, output: Descriptor, platform: Platform, epoch: number,
-  baseInventory?: { namespace: string; digest: Digest; described: string[] }): unknown {
+  baseInventory?: { namespace: string; digest: Digest; described: string[] }, expectedRuntime: { kind: "bun" | "node"; version?: string } = { kind: "bun" }): unknown {
   const value = sourceObject(input);
   descriptor(original, "original"); descriptor(output, "output");
   if (value.spdxVersion !== "SPDX-2.3" || value.SPDXID !== SPDX_ID || typeof value.documentNamespace !== "string" || !Array.isArray(value.packages)) throw new Error("Unsupported Bunko SPDX-2.3 document");
@@ -68,6 +68,7 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   const runtimes = packages.filter((item) => ["SPDXRef-Bun-Runtime", "SPDXRef-Node-Runtime"].includes(item.SPDXID));
   if (runtimes.length > 1) throw new Error("Conflicting runtime inventories");
   const runtime = runtimes[0], nodeRuntime = runtime?.SPDXID === "SPDXRef-Node-Runtime";
+  if (Boolean(nodeRuntime) !== (expectedRuntime.kind === "node") || nodeRuntime && runtime.versionInfo !== expectedRuntime.version) throw new Error("Runtime inventory differs from the image metadata");
   if (nodeRuntime && (runtime.name !== "node" || !["22", "24"].includes(runtime.versionInfo))) throw new Error("Invalid Node runtime inventory");
   if (runtime && !nodeRuntime && (runtime.name !== "bun" || typeof runtime.versionInfo !== "string" || !runtime.versionInfo || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(runtime.versionInfo))) throw new Error("Invalid Bun runtime inventory");
   for (const item of preserved) {

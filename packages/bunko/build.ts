@@ -1,4 +1,4 @@
-import { checkNodeSources, checkNodeDependencyLayer } from "./node-syntax.ts";
+import { checkNodeApplication, checkNodeDependencyLayer } from "./node-syntax.ts";
 import { nodeBase, assertNodeExecutable } from "./node-runtime.ts";
 import { prepareSigning, signingMode, signConfiguredImages, type PreparedSigning, type SigningMetadata } from "./keyless.ts";
 import { buildEvidence } from "./sbom-evidence.ts";
@@ -257,7 +257,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       metric("bunko.base.read.bytes", "By", descriptor.size, { "bunko.source": options.baseLayout ? "layout" : "registry" });
     }, basePlatforms.get(descriptor.digest)));
     const snapshotRoot = context.source;
-    if (project.runtimeKind === "node") await checkNodeSources(join(snapshotRoot, project.targetPath), project.mode === "source");
+    if (project.runtimeKind === "node") await checkNodeApplication(join(snapshotRoot, project.targetPath), Object.values(project.entrypoints ?? { default: project.entrypoint }), project.mode === "source");
     const sourceDigest = context.sourceDigest;
     const plan = context.plan;
     const git = context.git;
@@ -353,6 +353,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       materialsByIdentity.get(identity)!.platforms.push(`${target.os}/${target.architecture}`);
     }
     const assetMaterials = [...materialsByIdentity.values()];
+    const validatedNodeLayers = new Set<Digest>();
     const records: CacheRecord[] = [];
     const plans: ClosurePlanRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
@@ -545,7 +546,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
-        if (project.runtimeKind === "node" && depsLayer) await checkNodeDependencyLayer(store, base, depsLayer, temporary);
+        if (project.runtimeKind === "node" && depsLayer && !validatedNodeLayers.has(depsLayer.descriptor.digest)) {
+          await checkNodeDependencyLayer(store, base, depsLayer, temporary); validatedNodeLayers.add(depsLayer.descriptor.digest);
+        }
         const baseUser = base.config.config?.User;
         if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
         const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);

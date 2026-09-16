@@ -17,6 +17,17 @@ try {
     const manifest = JSON.parse(await readFile(join(app, "package.json"), "utf8")); manifest.engines.node = `>=${major}`; manifest.bunko.runtime.node = major; manifest.bunko.mode = mode; manifest.bunko.runtime.libc = libc; await writeFile(join(app, "package.json"), JSON.stringify(manifest));
     await command([...cli, "build", app, "--platform", platform, "--oci-layout", layout, "--push=false", "--git-metadata=false", "--sbom", "--provenance", "--report", report]);
     const result = JSON.parse(await readFile(report, "utf8")), tag = `bunko.local/node-validation:${randomUUID()}`, archive = join(root, `${id}.tar`);
+    if (libc === "glibc" && mode === "bundle") {
+      const store = new BlobStore(layout), config = JSON.parse(Buffer.from(await store.read(result.config)).toString());
+      const capsule = JSON.parse(config.config.Labels["org.bunko.rebase.metadata"]);
+      const base = `gcr.io/distroless/nodejs${major}-debian13@${capsule.base.indexDigest ?? capsule.base.manifestDigest}`;
+      const rebased = join(root, `${id}-rebased.json`);
+      await command([...cli, "rebase", `layout:${layout}`, "--old-base", base, "--base", base, "--platform", platform,
+        "--oci-layout", join(root, `${id}-rebased`), "--sbom", "--provenance", "--report", rebased,
+        "--smoke-command", JSON.stringify(["/nodejs/bin/node", "/app/index.mjs", "--self-test"])]);
+      const after = JSON.parse(await readFile(rebased, "utf8"));
+      if (after.smoke !== "passed" || JSON.stringify(after.platforms[0].preservedLayers) !== JSON.stringify(result.layers.map((l: any) => l.descriptor.digest))) throw new Error("Node rebase did not preserve accepted application layers");
+    }
     await exportDockerArchive(new BlobStore(layout), result.images[0].manifest, archive, tag, 0); await command(["docker", "load", "--input", archive]); tags.push(tag);
     const actual = JSON.parse(await command(["docker", "run", "--rm", "--platform", platform, "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", tag, "--self-test"]));
     if (actual.runtime !== "node" || actual.uid !== 65532 || actual.message !== "Hello from Node") throw new Error("Node acceptance failed");

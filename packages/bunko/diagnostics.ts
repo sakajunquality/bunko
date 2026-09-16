@@ -1,4 +1,4 @@
-import { checkNodeSources } from "./node-syntax.ts";
+import { checkNodeApplication } from "./node-syntax.ts";
 import { nodeBase } from "./node-runtime.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
 import { tmpdir } from "node:os";
@@ -70,7 +70,7 @@ export async function checkConfig(options: BuildOptions) {
     const directory = nodeTargets.length ? await mkdtemp(join(tmpdir(), "bunko-node-diagnostics-")) : "";
     try {
       await snapshot(discovery.directory, directory, [], undefined, selected.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, selected.some((project) => project.mode === "source"), explicitAssets, !directory);
-      for (const project of nodeTargets) await checkNodeSources(join(directory, project.targetPath), project.mode === "source");
+      for (const project of nodeTargets) await checkNodeApplication(join(directory, project.targetPath), Object.values(project.entrypoints ?? { default: project.entrypoint }), project.mode === "source");
     } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
   }
   const projects: DiagnosticTarget[] = [];
