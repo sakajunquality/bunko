@@ -26,7 +26,7 @@ ko is the workflow reference for building images directly from language source a
 
 [Build comparison](BUILD_COMPARISON.md) records repeated cold/warm/edit scenarios using a frozen CLI checkpoint. It reports client CPU/RSS and Bunko payload counters with their limitations; it is not a total worker-resource or wire-traffic comparison. [Local interoperability](INTEROPERABILITY_REVIEW.md), [metadata](METADATA_REVIEW.md), [cache distribution](validation/cache-distribution.json), and [live registry validation](LIVE_REGISTRY_VALIDATION.md) provide feature-specific evidence.
 
-GHCR, Artifact Registry and Docker Hub have [published CLI live validation](PUBLISHED_RELEASE_VALIDATION.md). An authenticated GAR upstream base also passed bundle and compile runtime checks. Private ECR remains unverified; implemented protocol authentication does not close that account-specific gap.
+GHCR, Artifact Registry and Docker Hub have [published CLI live validation](PUBLISHED_RELEASE_VALIDATION.md). An authenticated GAR upstream base also passed bundle and compile runtime checks. Private ECR push/pull, private upstream inspection, and native GitHub OIDC/environment credential paths passed [AWS acceptance](validation/aws-registry-credentials.md) for v0.10.0. Deployed EKS IRSA/Pod Identity, EC2 IMDSv2 and ECR Public remain unverified; private ECR acceptance does not certify those identities.
 
 ## Deferred work
 
@@ -43,4 +43,4 @@ BuildKit capabilities depend on frontend, exporter, worker and configuration. Bu
 
 Bunko can build with Bun and execute on Bun (default) or Node. Node supports bundled ESM and prebuilt JavaScript source on glibc/musl bases; signed runtime injection and compile remain Bun-only. See [Node runtime](NODE_RUNTIME.md).
 
-Registry credentials retain Docker-compatible defaults, with opt-in host-bound GitHub, Google and Podman sources. See [registry authentication](REGISTRY_AUTH.md) for supported identity flows, helper precedence, local login/logout, and limits of authentication probes.
+Registry credentials retain Docker-compatible defaults, with opt-in host-bound GitHub, Google, AWS and Podman sources. See [registry authentication](REGISTRY_AUTH.md) for supported identity flows, helper precedence, local login/logout, and limits of authentication probes.
