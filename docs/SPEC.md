@@ -354,3 +354,7 @@ Strict `--cache-export-error=fail` requires an explicit `--cache-to`, `--cache-r
 Version 0.4.0 also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.
 
 `runtime.libc` accepts `glibc` (default) and `musl`; `--runtime-libc` overrides it and also applies to `check-base`, which does not read project configuration. The default base is version-matched `oven/bun:<version>-distroless` for glibc or `oven/bun:<version>-alpine` for musl. Verified compile/injection artifacts, cache identity, diagnostics and image metadata retain libc selection. Shared dependency layers require matching libc. See [musl support](MUSL.md) for version availability and validation.
+
+## Node runtime output
+
+`runtime.kind` defaults to Bun; `node` selects Node execution with the same Bun build and dependency toolchain. Node supports bundled ESM and JavaScript source with glibc/musl bases. Compile, type stripping and runtime injection are unsupported. See [Node runtime support](NODE_RUNTIME.md) for the configuration, static guard, cache identity, declared-version inventory and rebase contracts.

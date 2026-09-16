@@ -63,10 +63,13 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   if (!root || root.versionInfo !== original.digest) throw new Error("Original SPDX subject mismatch");
   if (packages.filter((item) => item.SPDXID === ROOT_ID).length !== 1) throw new Error("SPDX document must contain exactly one image root");
   if (typeof root.name !== "string") throw new Error("Original SPDX root package is invalid");
-  for (const item of packages) if (item.SPDXID !== ROOT_ID && item.SPDXID !== "SPDXRef-Bun-Runtime" && !(typeof item.SPDXID === "string" && /^SPDXRef-Package-[A-Za-z0-9._-]+$/.test(item.SPDXID))) throw new Error(`Unknown SPDX package ID ${String(item.SPDXID)}`);
+  for (const item of packages) if (item.SPDXID !== ROOT_ID && item.SPDXID !== "SPDXRef-Bun-Runtime" && item.SPDXID !== "SPDXRef-Node-Runtime" && !(typeof item.SPDXID === "string" && /^SPDXRef-Package-[A-Za-z0-9._-]+$/.test(item.SPDXID))) throw new Error(`Unknown SPDX package ID ${String(item.SPDXID)}`);
   const preserved = packages.filter((item) => typeof item.SPDXID === "string" && /^SPDXRef-Package-[A-Za-z0-9._-]+$/.test(item.SPDXID));
-  const runtime = packages.find((item) => item.SPDXID === "SPDXRef-Bun-Runtime");
-  if (runtime && (runtime.name !== "bun" || typeof runtime.versionInfo !== "string" || !runtime.versionInfo || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(runtime.versionInfo))) throw new Error("Invalid Bun runtime inventory");
+  const runtimes = packages.filter((item) => ["SPDXRef-Bun-Runtime", "SPDXRef-Node-Runtime"].includes(item.SPDXID));
+  if (runtimes.length > 1) throw new Error("Conflicting runtime inventories");
+  const runtime = runtimes[0], nodeRuntime = runtime?.SPDXID === "SPDXRef-Node-Runtime";
+  if (nodeRuntime && (runtime.name !== "node" || !["22", "24"].includes(runtime.versionInfo))) throw new Error("Invalid Node runtime inventory");
+  if (runtime && !nodeRuntime && (runtime.name !== "bun" || typeof runtime.versionInfo !== "string" || !runtime.versionInfo || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(runtime.versionInfo))) throw new Error("Invalid Bun runtime inventory");
   for (const item of preserved) {
     const expectedId = `SPDXRef-Package-${sha256(`${item.name}@${item.versionInfo}`).slice(7)}`;
     if (item.SPDXID !== expectedId) throw new Error(`Invalid package inventory ID ${item.SPDXID}`);
@@ -77,7 +80,7 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   let file: Record<string, any> | undefined;
   const relationships = Array.isArray(value.relationships) ? value.relationships.map((item: unknown) => record(item, "SPDX relationship")) : [];
   if (!relationships.some((rel) => rel.spdxElementId === SPDX_ID && rel.relationshipType === "DESCRIBES" && rel.relatedSpdxElement === ROOT_ID)) throw new Error("SPDX document must describe its image root");
-  const runtimeRelationships = runtime ? relationships.filter((rel) => rel.spdxElementId === ROOT_ID && rel.relatedSpdxElement === "SPDXRef-Bun-Runtime") : [];
+  const runtimeRelationships = runtime ? relationships.filter((rel) => rel.spdxElementId === ROOT_ID && rel.relatedSpdxElement === runtime.SPDXID) : [];
   if (runtime && runtimeRelationships.length !== 1 || !runtime && runtimeRelationships.length) throw new Error("Inconsistent Bun runtime relationship");
   const runtimeRelationshipType = runtimeRelationships[0]?.relationshipType;
   if (runtime && runtimeRelationshipType !== "CONTAINS" && runtimeRelationshipType !== "DEPENDS_ON") throw new Error("Unsupported Bun runtime relationship");
@@ -87,7 +90,7 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
     if (value.files.filter((item: any) => item?.SPDXID === "SPDXRef-Bun-Executable").length > 1) throw new Error("Duplicate Bun executable inventory");
     const candidate = value.files.find((item: any) => item?.SPDXID === "SPDXRef-Bun-Executable");
     if (candidate) {
-      if (!runtime || typeof candidate.fileName !== "string" || !candidate.fileName.startsWith("/") || candidate.fileName.split("/").includes("..") || !Array.isArray(candidate.checksums) || candidate.checksums.length !== 1 || candidate.checksums[0]?.algorithm !== "SHA256" || typeof candidate.checksums[0]?.checksumValue !== "string" || !/^[a-f0-9]{64}$/.test(candidate.checksums[0].checksumValue)) throw new Error("Invalid Bun executable inventory");
+      if (!runtime || nodeRuntime || typeof candidate.fileName !== "string" || !candidate.fileName.startsWith("/") || candidate.fileName.split("/").includes("..") || !Array.isArray(candidate.checksums) || candidate.checksums.length !== 1 || candidate.checksums[0]?.algorithm !== "SHA256" || typeof candidate.checksums[0]?.checksumValue !== "string" || !/^[a-f0-9]{64}$/.test(candidate.checksums[0].checksumValue)) throw new Error("Invalid Bun executable inventory");
       file = { SPDXID: "SPDXRef-Bun-Executable", fileName: candidate.fileName, fileTypes: ["BINARY"], checksums: [{ algorithm: "SHA256", checksumValue: candidate.checksums[0].checksumValue }], licenseConcluded: "NOASSERTION", licenseInfoInFiles: ["NOASSERTION"], copyrightText: "NOASSERTION" };
     }
   }
@@ -103,7 +106,8 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   const cleanRoot = { SPDXID: ROOT_ID, name: root.name, versionInfo: output.digest, downloadLocation: "NOASSERTION", filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
   const cleanPackages = preserved.map((item) => cleanPackage(item, item.SPDXID)).sort((a, b) => a.SPDXID.localeCompare(b.SPDXID));
   const cleanRuntime = runtime ? cleanPackage(runtime, runtime.SPDXID) : undefined;
-  if (cleanRuntime) cleanRuntime.externalRefs = [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: `pkg:generic/bun@${encodeURIComponent(runtime!.versionInfo)}` }];
+  if (cleanRuntime) cleanRuntime.externalRefs = [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: `pkg:generic/${nodeRuntime ? "node" : "bun"}@${encodeURIComponent(runtime!.versionInfo)}` }];
+  if (cleanRuntime && nodeRuntime) cleanRuntime.comment = "Declared Node major preserved from the original SBOM; no runtime version verification was performed";
   const document: Record<string, any> = {
     spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: SPDX_ID, name: `${root.name}-${platform.architecture}`,
     creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(epoch * 1000).toISOString().replace(".000Z", "Z") },

@@ -37,8 +37,8 @@ const rows: Row[] = [
   { label: "User", keys: ["user"], value: (target) => target.user },
   { label: "Workdir", keys: ["workdir"], value: (target) => target.workdir },
   { label: "Ports", keys: ["ports"], value: (target) => target.ports && list(target.ports) },
-  { label: "Runtime", keys: ["runtimeLibc", "runtimePath", "runtimeInjection", "runtimeArgumentCount", "runtimeCertificateCount", "runtimeSystemCaTrust"], value: (target) => join([
-    target.runtimePath, target.runtimeLibc, target.runtimeInjection && `injected ${target.runtimeInjection}`,
+  { label: "Runtime", keys: ["runtimeKind", "nodeVersion", "sourceTypeScript", "runtimeLibc", "runtimePath", "runtimeInjection", "runtimeArgumentCount", "runtimeCertificateCount", "runtimeSystemCaTrust"], value: (target) => join([
+    target.runtimeKind && `Node ${target.nodeVersion} (declared, unverified)`, target.sourceTypeScript === false ? "JavaScript source only" : undefined, target.runtimePath, target.runtimeLibc, target.runtimeInjection && `injected ${target.runtimeInjection}`,
     count(target.runtimeArgumentCount, "runtime argument"), count(target.runtimeCertificateCount, "CA certificate"), target.runtimeSystemCaTrust ? "native CA trust (SSL_CERT_FILE)" : undefined]) },
   { label: "Toolchain", keys: ["toolchainRequirements"], value: (target) => {
     const required = target.toolchainRequirements;

@@ -92,3 +92,7 @@ Keep the existing npm/pnpm build and stage its deployable output in a separate d
 This example bundles all npm dependencies. If the output still imports external packages, a dependency-free manifest is insufficient: declare those runtime dependencies and provide a consistent text `bun.lock` for bunko's controlled install, or use the supported [prepared dependency workflow](../prepared-dependencies/README.md) with its required manifests and lockfile. bunko does not directly copy an npm/pnpm `node_modules` tree.
 
 The runtime remains Bun. Test Node.js compatibility, native addons, and framework output in the final image; this workflow does not provide a general Node.js runtime mode. For browser-only output, include a server entrypoint that serves those files. See [source mode](../../docs/SOURCE_MODE.md) and [application compatibility](../../docs/APPLICATION_COMPATIBILITY.md).
+
+## Run the prebuilt output with Node
+
+After generating `dist/`, use `bunko build examples/prebuilt/dist --runtime-kind node --repo registry.example/team`. The default glibc base contains Node 24. The dependency-free output still requires no bun.lock. Use a CLI containing [Node runtime support](../../docs/NODE_RUNTIME.md); `--runtime-libc musl` selects the official Alpine base.

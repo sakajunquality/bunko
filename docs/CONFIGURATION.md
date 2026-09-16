@@ -204,3 +204,7 @@ Deep checks do not accept build output, cache, signing or registry credential pa
 SIGINT and SIGTERM cancel CLI work with exit status 130 and 143 respectively. Bunko aborts registry/download requests, stops scheduling new work, signals its own child processes, and waits for them before disposing invocation scratch. A child that does not exit is killed after a short grace period. Cleanup commands have a bounded lifetime as well.
 
 If work has not drained within ten seconds, the CLI exits and retains scratch rather than deleting paths that may still have active writers. SIGKILL cannot run cleanup. Published images/tags and already loaded images are not rolled back; cancellation is not a registry transaction. Library calls do not install process-wide signal handlers.
+
+## Node runtime output
+
+Bun-built applications can opt into Node execution with `runtime.kind: "node"` (or `--runtime-kind node`). Bundle and JavaScript source modes support glibc and musl; compile and runtime injection remain Bun-only. The build toolchain and dependency lock remain Bun. See [Node runtime support](NODE_RUNTIME.md).
