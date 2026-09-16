@@ -21,7 +21,7 @@ async function fixture(config: RuntimeConfig = {}, replacement: RuntimeConfig = 
   const old = await rebaseBase(join(root, "old"), undefined, config);
   const fresh = await rebaseBase(join(root, "fresh"), undefined, { Env: ["PATH=/usr/local/bin:/usr/bin:/bin", "FLAG=new"], ...replacement });
   const source = await project(join(root, "source"));
-  const built = await build({ path: source, baseLayout: old.directory, output: join(root, "image"), localCache: false, registryCache: false, gitMetadata: false, sbom: true, provenance: true });
+  const built = await build({ path: source, baseLayout: old.directory, output: join(root, "image"), localCache: false, registryCache: false, gitMetadata: false, sbom: true, sbomEvidence: true, provenance: true });
   await rm(source, { recursive: true });
   return { root, old, fresh, built, options: { image: `layout:${built.layout}`, oldBase: `layout:${old.directory}`, base: `layout:${fresh.directory}` } };
 }
@@ -42,7 +42,10 @@ test("rebase exports and rebases again without application source or process exe
     expect(inventory.records).toHaveLength(2);
     for (const item of inventory.records) {
       const doc = JSON.parse(await readFile(join(inventory.directory, item.file), "utf8"));
-      if (item.payload.mediaType === "application/spdx+json") expect(doc.packages[0].versionInfo).toBe(result.platforms[0]!.manifest.digest);
+      if (item.payload.mediaType === "application/spdx+json") {
+        expect(doc.packages[0].versionInfo).toBe(result.platforms[0]!.manifest.digest);
+        expect(doc.annotations[0].comment).toStartWith("bunko:build-evidence:v1 ");
+      }
       else { expect(doc.predicate.buildDefinition.buildType).toEndWith("/rebase/v1"); expect(doc.subject[0].digest.sha256).toBe(result.root.digest.slice(7)); }
     }
     expect(result.signed).toBe(false);

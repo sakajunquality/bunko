@@ -1,3 +1,4 @@
+import { evidenceComment, readEvidence } from "./sbom-evidence.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { Descriptor, Digest, Platform } from "../oci/types.ts";
 import { VERSION } from "./config.ts";
@@ -94,6 +95,10 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
     digest(baseInventory.digest, "base inventory digest");
     if (!Array.isArray(baseInventory.described) || baseInventory.described.some((id) => typeof id !== "string" || !/^SPDXRef-[A-Za-z0-9._-]+$/.test(id)) || new Set(baseInventory.described).size !== baseInventory.described.length) throw new Error("Invalid base inventory described IDs");
   }
+  if (value.annotations !== undefined && !Array.isArray(value.annotations)) throw new Error("SPDX annotations must be an array");
+  const annotations = (value.annotations ?? []).filter((item: any) => typeof item?.comment === "string" && item.comment.startsWith("bunko:build-evidence:"));
+  if (annotations.length > 1) throw new Error("Duplicate SBOM build evidence");
+  const evidence = annotations.length ? readEvidence(annotations[0].comment, new Set(preserved.map((item) => `${item.name}@${item.versionInfo}`))) : undefined;
   const cleanRoot = { SPDXID: ROOT_ID, name: root.name, versionInfo: output.digest, downloadLocation: "NOASSERTION", filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
   const cleanPackages = preserved.map((item) => cleanPackage(item, item.SPDXID)).sort((a, b) => a.SPDXID.localeCompare(b.SPDXID));
   const cleanRuntime = runtime ? cleanPackage(runtime, runtime.SPDXID) : undefined;
@@ -101,6 +106,7 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   const document: Record<string, any> = {
     spdxVersion: "SPDX-2.3", dataLicense: "CC0-1.0", SPDXID: SPDX_ID, name: `${root.name}-${platform.architecture}`,
     creationInfo: { creators: [`Tool: bunko-${VERSION}`], created: new Date(epoch * 1000).toISOString().replace(".000Z", "Z") },
+    ...(evidence ? { annotations: [{ annotationType: "OTHER", annotator: `Tool: bunko-${VERSION}`, annotationDate: new Date(epoch * 1000).toISOString().replace(".000Z", "Z"), comment: evidenceComment(evidence) }] } : {}),
     comment: "Application package inventories preserved from the original SBOM; no source build or rescan was performed. Base OS packages are represented only by an explicitly linked external document.",
     ...(baseInventory ? { externalDocumentRefs: [{ externalDocumentId: "DocumentRef-Base", spdxDocument: baseInventory.namespace, checksum: { algorithm: "SHA256", checksumValue: baseInventory.digest.slice(7) } }] } : {}),
     ...(file ? { files: [file] } : {}), packages: [cleanRoot, ...cleanPackages, ...(cleanRuntime ? [cleanRuntime] : [])],

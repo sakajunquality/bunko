@@ -145,6 +145,7 @@ Options:
   --mode <mode>           bundle (default) or compile (Linux executable)
   --module-locations <warn|error>  Fail on BUNKO_MODULE_LOCATION diagnostics (default: warn)
   --sbom                   Attach per-platform SPDX package inventories
+  --sbom-evidence          Include lock declarations and build states (requires --sbom)
   --provenance             Attach SLSA provenance to the image root
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
   --cosign-path <file>     cosign executable (default: PATH)
@@ -256,6 +257,7 @@ export async function main(argv: string[]): Promise<number> {
       mode: { type: "string" },
       "module-locations": { type: "string" },
       sbom: { type: "boolean" },
+      "sbom-evidence": { type: "boolean" },
       provenance: { type: "boolean" },
       "sign-key": { type: "string" },
       "cosign-path": { type: "string" },
@@ -445,7 +447,7 @@ export async function main(argv: string[]): Promise<number> {
       jobs: jobsText === undefined ? undefined : Number(jobsText),
       externalDepsByTarget: values["deps-map"] ? await dependencyMap(values["deps-map"]) : undefined,
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
-      mode: values.mode, moduleLocations: values["module-locations"], sbom: values.sbom, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
+      mode: values.mode, moduleLocations: values["module-locations"], sbom: values.sbom, sbomEvidence: values["sbom-evidence"], provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,

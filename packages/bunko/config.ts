@@ -37,6 +37,7 @@ export interface BuildOptions {
   appCache?: boolean;
   targets?: string[];
   sbom?: boolean;
+  sbomEvidence?: boolean;
   baseSBOMs?: Record<string, string>;
   depsVerifyKey?: string;
   supplyChainPolicy?: "ci";

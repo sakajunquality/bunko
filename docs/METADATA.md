@@ -10,6 +10,8 @@ bunko metadata layout:./image --metadata-dir ./metadata
 
 The metadata command checks manifest and payload digests and subject relationships before exporting. It supports the OCI referrers API and the referrers tag fallback. Output must be absent or an empty directory. `index.json` maps each exact payload file to its manifest and subject; exported bytes retain their original digest. SPDX 2.2/2.3 and in-toto Statement v1 with SLSA provenance v1 are exported. Unrelated artifact types are ignored. Unsupported envelopes, predicates, JSON documents and oversized individual metadata payloads are skipped and listed in `index.json` and the command result; digest and subject mismatches fail. Discovery/export is limited to 128 MiB of unique graph metadata, including referrer pages, configs and payloads, in addition to the individual object and node limits. This checks content integrity and binding, not the publisher's trustworthiness. Use `bunko verify` with a trusted key to verify signatures separately.
 
+For opt-in build states and lock archive integrity, use `--sbom --sbom-evidence`. This additionally discloses lockfile package names, including development dependencies. See [Build evidence](SBOM_EVIDENCE.md) for the schema, coverage limits and follow-up design.
+
 ## Inventory scope
 
 The SPDX document describes bundled and external runtime npm packages, recognized single SPDX license identifiers from package manifests, and the Bun runtime. Compound, missing, and unrecognized license declarations remain `NOASSERTION`. Declared licenses are not legal conclusions. Runtime inventory distinguishes an embedded compiled runtime from the expected base runtime; arbitrary custom base runtimes are not independently verified. Undeclared dynamic runtime loads are outside inventory coverage.
@@ -42,7 +44,7 @@ The opt-in `ci` profile requires reproducible mode and a signing key, enables SB
 
 ## Interoperability validation
 
-`bun run test:metadata /absolute/new/output` uses a disposable Distribution registry and cosign keys. Set `BUNKO_COSIGN_PATH` to cosign v3.1.3. It checks unsigned and wrong-key rejection, accepted prepared dependencies, image/attachment signing, and metadata discovery. The fixture is synthetic and does not establish native runtime or OS scanner coverage.
+`bun run test:metadata /absolute/new/output` uses a disposable Distribution registry and cosign keys. Set `BUNKO_COSIGN_PATH` to cosign v3.1.3. It checks unsigned and wrong-key rejection, accepted prepared dependencies, image/attachment signing, metadata discovery, and opt-in SBOM build evidence. The fixture is synthetic and does not establish native runtime or OS scanner coverage.
 
 The exported fixture was also checked with the [official SPDX 2.3 JSON schema](https://github.com/spdx/spdx-spec/blob/v2.3/schemas/spdx-schema.json) using jsonschema 4.26.0, and the [in-toto attestation Python bindings](https://github.com/in-toto/attestation/tree/main/python) 0.9.3 for Statement validation and SLSA v1 protobuf parsing. `scripts/validate-metadata.py` reproduces those independent consumer checks given the export directory and downloaded schema. These checks verify interoperability, not the factual correctness of package claims.
 
