@@ -16,6 +16,7 @@ export function signingEnvironment(keyless = false): Record<string, string> {
 }
 
 function diagnostic(stderr: string): string {
+  if (/failed to verify certificate identity|no matching CertificateIdentity/i.test(stderr)) return "certificate identity or issuer constraint mismatch";
   if (/identity token|oidc|id-token/i.test(stderr)) return "OIDC identity unavailable; check token configuration and Actions id-token: write";
   if (/fulcio|rekor|timestamp/i.test(stderr)) return "Sigstore service or trust configuration failure";
   if (/x509|certificate|tls handshake/i.test(stderr)) return "TLS trust failure";

@@ -56,7 +56,7 @@ References: [Sigstore custom components](https://docs.sigstore.dev/cosign/system
 
 ## Live validation
 
-On September 16, 2026, [GitHub Actions staging validation](https://github.com/sakajunquality/bunko/actions/runs/35056446363) passed both Rekor-enabled and TSA-only signing with cosign 3.1.3. A real GitHub Actions OIDC identity signed an image published to GHCR; both `bunko verify` and independent `cosign verify` accepted it. Both configurations rejected incorrect certificate identities and OIDC issuers.
+On September 16, 2026, [GitHub Actions staging validation](https://github.com/sakajunquality/bunko/actions/runs/35056446363) passed both Rekor-enabled and TSA-only signing with cosign 3.1.3. A real GitHub Actions OIDC identity signed an image published to GHCR; both `bunko verify` and independent `cosign verify` accepted it. Both configurations rejected incorrect certificate identities and OIDC issuers. The live negative tests also exposed a misleading TLS diagnostic for identity mismatches; this classification was corrected without exposing helper output or identity values.
 
 The staging signing configuration and trusted root came from `sigstore/root-signing-staging` commit `4493975f1fc41ca6d7f558454947d61365335675`, in `targets/signing_config.v0.2.json` and `targets/trusted_root.json`. The TSA-only case explicitly removed Rekor endpoints and their selection policy. The temporary branch-push trigger used for pre-merge validation was removed afterward; subsequent runs require manual dispatch and the repository's staging environment controls.
 
