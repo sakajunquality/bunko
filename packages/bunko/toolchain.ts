@@ -60,7 +60,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
   await writeFile(worker, await workerCode(), { mode: 0o600 });
   const manifest = object(JSON.parse(project.manifestText), "package.json");
   const dependencies = [...new Set(["dependencies", "optionalDependencies", "peerDependencies"].flatMap((field) => Object.keys(object(manifest[field] ?? {}, field))))].sort();
-  await writeFile(settings, JSON.stringify({ root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved, dependencies }), { mode: 0o600 });
+  await writeFile(settings, JSON.stringify({ target: project.runtimeKind, root, contextRoot, outdir, entrypoint: project.entrypoint, entrypoints: project.entrypoints, external: project.external, minify: project.build.minify, sourcemap: project.build.sourcemap, define: project.build.define, allowUnresolved: project.build.allowUnresolved, dependencies }), { mode: 0o600 });
   await writeFile(join(root, OUTPUT_DIRECTORY, "bunfig.toml"), "");
   const args = [toolchain.path, "--no-env-file", `--config=${OUTPUT_DIRECTORY}/bunfig.toml`, worker, settings];
   await rm(join(root, OUTPUT_DIRECTORY, "errors.json"), { force: true });
@@ -116,7 +116,8 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (Array.isArray(output.imports)) {
       for (const value of output.imports) {
         const item = object(value, "Bun output import");
-        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !/^bun(?::|$)/.test(item.path) && !project.external.includes(packageRoot(item.path))))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
+        if (project.runtimeKind === "node" && typeof item.path === "string" && /^bun(?::|$)/.test(item.path)) throw new Error("Bun-only external import in Node bundle");
+        if (item.external && (typeof item.path !== "string" || (!isBuiltin(item.path) && !(project.runtimeKind !== "node" && /^bun(?::|$)/.test(item.path)) && !project.external.includes(packageRoot(item.path))))) throw new Error(`Unpackaged external import: ${String(item.path)}`);
       }
     }
   }

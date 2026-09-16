@@ -4,7 +4,7 @@
 
 # bunko
 
-Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/).
+Build OCI images from Bun projects without a Dockerfile or Docker daemon. Inspired by Go's [ko](https://ko.build/). The development branch also supports building with Bun and [running on Node](docs/NODE_RUNTIME.md); Bun remains the default runtime.
 
 **v0.8.3** supports standalone apps and Bun workspaces, Bun 1.4, bundle/source/compile modes with glibc or Alpine/musl runtimes and module-location diagnostics, optional signed Bun runtime injection, npm dependencies, explicit runtime externals, Registry publication, dependency and asset caching, multiple platforms, Docker/kind loading, and YAML/JSON resolution. GHCR, Google Artifact Registry, Docker Hub, and ECR use Docker credentials. See the [Registry matrix](docs/REGISTRIES.md) for the distinction between implemented authentication and verified service interoperability.
 
@@ -223,3 +223,7 @@ Build observability is available through opt-in [OpenTelemetry traces and metric
 For private bases and cloud registries, see the [registry authentication guide](docs/REGISTRY_AUTH.md).
 
 For Alpine-based images, see [musl runtime configuration and compatibility](docs/MUSL.md).
+
+## Node runtime output
+
+Bun-built applications can opt into Node execution with `runtime.kind: "node"` (or `--runtime-kind node`). Bundle and JavaScript source modes support glibc and musl; compile and runtime injection remain Bun-only. The build toolchain and dependency lock remain Bun. See [Node runtime support](docs/NODE_RUNTIME.md).

@@ -1,3 +1,4 @@
+import { runtimeKind, nodeMajor, nodePath, nodeArguments } from "./node-runtime.ts";
 import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
 import { platform } from "./platforms.ts";
@@ -73,6 +74,7 @@ export interface BuildOptions {
   assetCache?: string;
   runtimeInject?: string;
   runtimeLibc?: string;
+  runtimeKind?: string;
   base?: string;
   baseLayout?: string;
   platform?: string;
@@ -118,6 +120,8 @@ export interface Project {
   bunPath: string;
   runtimeInject?: "release";
   runtimeLibc: Libc;
+  runtimeKind?: "node";
+  nodeVersion?: string;
   user?: string;
   env: Record<string, string>;
   labels: Record<string, string>;
@@ -257,7 +261,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const replaced = [
     ...(options.mode !== undefined ? ["mode"] : []), ...(options.base !== undefined || options.baseLayout !== undefined || process.env.BUNKO_DEFAULT_BASE !== undefined ? ["base"] : []),
     ...(options.platform !== undefined || process.env.BUNKO_DEFAULT_PLATFORMS !== undefined ? ["platforms"] : []), ...(options.imageUser !== undefined ? ["user"] : []),
-    ...(options.runtimeLibc !== undefined ? ["runtime.libc"] : []), ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
+    ...(options.runtimeKind !== undefined ? ["runtime.kind"] : []), ...(options.runtimeLibc !== undefined ? ["runtime.libc"] : []), ...(options.runtimeArgs !== undefined ? ["runtime.args"] : []), ...(options.runtimeInject !== undefined ? ["runtime.inject"] : []),
     ...(options.depsStrategy !== undefined ? ["deps.strategy"] : []), ...(options.moduleLocations !== undefined ? ["build.moduleLocations"] : []),
     ...Object.keys(options.define ?? {}).map((name) => `build.define.${name}`),
     ...Object.keys(options.imageLabels ?? {}).map((name) => `labels.${name}`), ...Object.keys(options.imageAnnotations ?? {}).map((name) => `annotations.${name}`),
@@ -290,18 +294,23 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const moduleLocations = options.moduleLocations ?? build.moduleLocations ?? "warn";
   if (moduleLocations !== "warn" && moduleLocations !== "error") throw new Error("build.moduleLocations must be warn or error");
   if (build.allowUnresolved !== undefined && (!Array.isArray(build.allowUnresolved) || !build.allowUnresolved.every((value) => typeof value === "string" && !/[\x00-\x1f]/.test(value)))) throw new Error("build.allowUnresolved must be an array of specifier patterns");
-  if (build.target !== undefined && build.target !== "bun") throw new Error("build.target must be bun");
   if (build.bytecode !== undefined && build.bytecode !== false) throw new Error("Bytecode is not supported");
   if (build.minify !== undefined && typeof build.minify !== "boolean") throw new Error("build.minify must be boolean");
   if (build.sourcemap !== undefined && !["none", "external"].includes(String(build.sourcemap))) throw new Error("Supported sourcemaps: none, external");
   if (mode === "compile" && build.sourcemap && build.sourcemap !== "none") throw new Error("Compile mode does not support external sourcemaps");
   const runtime = config.runtime === undefined ? {} : object(config.runtime, "runtime");
-  knownKeys(runtime, ["caCertificates", "systemCaTrust", "args", "bunPath", "libc", "inject"], "runtime");
+  knownKeys(runtime, ["caCertificates", "systemCaTrust", "args", "bunPath", "libc", "inject", "kind", "node", "nodePath"], "runtime");
+  const kind = runtimeKind(options.runtimeKind ?? runtime.kind);
+  if (build.target !== undefined && build.target !== kind) throw new Error("build.target must match runtime.kind");
+  if (kind === "node" && (mode === "compile" || options.runtimeInject || runtime.inject || runtime.bunPath !== undefined)) throw new Error("Node runtime does not support compile, runtime injection or runtime.bunPath");
+  if (kind === "bun" && (runtime.node !== undefined || runtime.nodePath !== undefined)) throw new Error("runtime.node and runtime.nodePath require runtime.kind node");
+  const nodeVersion = kind === "node" ? nodeMajor(runtime.node, object(manifest.engines ?? {}, "engines").node) : undefined;
+
   const runtimeCAs = strings(runtime.caCertificates, "runtime.caCertificates").map((path) => relativePath(path, "runtime CA path"));
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
   if (runtime.systemCaTrust !== undefined && typeof runtime.systemCaTrust !== "boolean") throw new Error("runtime.systemCaTrust must be boolean");
   if (runtime.systemCaTrust && !runtimeCAs.length) throw new Error("runtime.systemCaTrust requires runtime.caCertificates");
-  const runtimeArgs = validateRuntimeArgs(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
+  const runtimeArgs = (kind === "node" ? nodeArguments : validateRuntimeArgs)(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
   if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
@@ -378,7 +387,8 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     if (env.BUNKO_DATA_PATH !== undefined && env.BUNKO_DATA_PATH !== dataPath) throw new Error("BUNKO_DATA_PATH is reserved when bunkodata exists");
     env.BUNKO_DATA_PATH = dataPath;
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  const runtimePath = absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath");
+  if (kind === "node" && mode === "source" && Object.values(entrypoints ?? { default: entrypoint }).some((path) => !/\.[cm]?js$/.test(path))) throw new Error("Node source mode requires JavaScript entrypoints; prebuild TypeScript or use bundle mode");
+  const runtimePath = kind === "node" ? absolutePath(nodePath(options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"), options.baseLayout, runtime.nodePath, libc), "runtime.nodePath") : absolutePath(optionalString(runtime.bunPath, "runtime.bunPath") ?? "/usr/local/bin/bun", "runtime.bunPath");
   if (runtimeInject && (runtimePath === workdir || ["node_modules", ".bunko-workspace", ".bunko-deps"].some((part) => runtimePath === `${workdir}/${part}` || runtimePath.startsWith(`${workdir}/${part}/`)))) throw new Error("Runtime injection overlaps an application dependency namespace");
   return {
     inheritBaseOciLabels: config.inheritBaseOciLabels as boolean | undefined, allowIgnoredScripts, undeclaredImports, acknowledgedImports: acknowledged,
@@ -388,6 +398,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     mode, moduleLocations, directory, manifestText, workspace, targetPath: workspace ? relative(workspace.directory, directory) : "", name, entrypoint, entrypoints, defaultEntrypoint, platform: selected[0]!, platforms: selected, external, depsStrategy,
     base: options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"),
     workdir, dataPath, annotations,
+    ...(kind === "node" ? { runtimeKind: "node" as const, nodeVersion } : {}),
     runtimeLibc: libc,
     runtimeInject: runtimeInject as "release" | undefined,
     bunPath: runtimePath,

@@ -24,3 +24,7 @@ Bunko builds Linux OCI images directly from Bun applications. It runs Bun depend
 The [release notes](RELEASE_NOTES.md) describe the 0.8.3 release. Validation reports identify their tested revisions, fixture scope and environments; a historical passing result is not a claim that every provider or workload is supported.
 
 For configuration snippets organized by task, start with the [cookbook](COOKBOOK.md).
+
+## Node runtime output
+
+Bun-built applications can opt into Node execution with `runtime.kind: "node"` (or `--runtime-kind node`). Bundle and JavaScript source modes support glibc and musl; compile and runtime injection remain Bun-only. The build toolchain and dependency lock remain Bun. See [Node runtime support](NODE_RUNTIME.md).

@@ -35,9 +35,11 @@ function parseContext(value: unknown): RebaseBuildContext {
   const c = record(value, "context"); exactKeys(c, ["mode", "libc", "buildToolchain", "runtime"], "context");
   if (!["bundle", "source", "compile"].includes(c.mode as string) || !["glibc", "musl"].includes(c.libc as string)) fail("unsupported context policy");
   const tool = record(c.buildToolchain, "buildToolchain"); exactKeys(tool, ["version", "revision"], "buildToolchain");
-  const runtime = record(c.runtime, "runtime"); exactKeys(runtime, ["origin"], "runtime");
+  const runtime = record(c.runtime, "runtime"); exactKeys(runtime, ["origin", "kind"], "runtime");
+  if (runtime.kind !== undefined && runtime.kind !== "node") fail("unsupported runtime kind");
+  if (runtime.kind === "node" && (runtime.origin !== "base" || c.mode === "compile")) fail("Node runtime requires base origin and bundle/source mode");
   if (!["base", "injected", "compiled"].includes(runtime.origin as string)) fail("unsupported runtime policy");
-  return { mode: c.mode as RebaseBuildContext["mode"], libc: c.libc as RebaseBuildContext["libc"], bunVersion: string(tool.version, "toolchain.version"), bunRevision: string(tool.revision, "toolchain.revision"), runtimeOrigin: runtime.origin as RebaseBuildContext["runtimeOrigin"] };
+  return { ...(runtime.kind === "node" ? { runtimeKind: "node" as const } : {}), mode: c.mode as RebaseBuildContext["mode"], libc: c.libc as RebaseBuildContext["libc"], bunVersion: string(tool.version, "toolchain.version"), bunRevision: string(tool.revision, "toolchain.revision"), runtimeOrigin: runtime.origin as RebaseBuildContext["runtimeOrigin"] };
 }
 
 function parsePorts(value: unknown, explicit: boolean): number[] | undefined {
@@ -106,9 +108,10 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   });
   const platform = record(root.platform, "platform"); exactKeys(platform, ["os", "architecture", "variant"], "platform");
   if (platform.os !== image.config.os || platform.architecture !== image.config.architecture || (platform.architecture === "arm64" ? (platform.variant ?? "v8") : platform.variant) !== (image.config.variant ?? (image.config.architecture === "arm64" ? "v8" : undefined))) fail("platform mismatch");
+  const context = parseContext(root.context);
   const ownership = record(root.ownership, "ownership"); exactKeys(ownership, ["env", "labels", "user", "ports", "entrypoint", "cmd", "workdir", "volumes", "stopSignal", "platform"], "ownership");
   const envOwn = record(ownership.env, "env ownership"); const labelOwn = record(ownership.labels, "label ownership");
-  if (!same(envOwn.defaults, { NODE_ENV: { value: "production", policy: "always" }, BUN_RUNTIME_TRANSPILER_CACHE_PATH: { value: "0", policy: "if-missing" } }) || !same(envOwn.applicationOrder, ["inherited", "defaults", "explicit"])) fail("unknown environment policy");
+  if (!same(envOwn.defaults, { NODE_ENV: { value: "production", policy: "always" }, ...(context.runtimeKind === "node" ? {} : { BUN_RUNTIME_TRANSPILER_CACHE_PATH: { value: "0", policy: "if-missing" } }) }) || !same(envOwn.applicationOrder, ["inherited", "defaults", "explicit"])) fail("unknown environment policy");
   if (!Array.isArray(envOwn.explicitKeys) || envOwn.explicitKeys.some((k: unknown) => typeof k !== "string" || !k)) fail("invalid explicit environment keys");
   const env = Object.fromEntries((envOwn.explicitKeys as string[]).map((k) => [k, ""])) as Record<string, string>;
   const effectiveEnv = image.config.config?.Env ?? []; const seenEnv = new Set<string>();
@@ -121,8 +124,9 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   const runtime = image.config.config!;
   const explicitUser = record(ownership.user, "user ownership").explicit === true; const explicitPorts = record(ownership.ports, "ports ownership").explicit === true;
   const epochText = string(image.config.created, "created"); const epochDate = Date.parse(epochText); if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(epochText) || !Number.isSafeInteger(epochDate / 1000)) fail("created must be strict epoch seconds");
-  const options: ImageOptions = { platform: platform as unknown as ImageOptions["platform"], epoch: epochDate / 1000, entrypoint: [...runtime.Entrypoint!], args: [...runtime.Cmd!], workdir: runtime.WorkingDir!, env, labels: labelsOut, inheritBaseOciLabels: labelOwn.inheritBaseOciLabels === true, user: explicitUser ? runtime.User : undefined, ports: parsePorts(runtime.ExposedPorts, explicitPorts) };
-  const context = parseContext(root.context);
+  const options: ImageOptions = { runtimeKind: context.runtimeKind, platform: platform as unknown as ImageOptions["platform"], epoch: epochDate / 1000, entrypoint: [...runtime.Entrypoint!], args: [...runtime.Cmd!], workdir: runtime.WorkingDir!, env, labels: labelsOut, inheritBaseOciLabels: labelOwn.inheritBaseOciLabels === true, user: explicitUser ? runtime.User : undefined, ports: parsePorts(runtime.ExposedPorts, explicitPorts) };
+  if (context.runtimeKind === "node" && labels["org.bunko.runtime.kind"] !== "node" || context.runtimeKind !== "node" && labels["org.bunko.runtime.kind"] !== undefined) fail("runtime kind label mismatch");
+  if (context.runtimeKind === "node" && !["22", "24"].includes(labels["org.bunko.node.version"] ?? "")) fail("invalid declared Node major");
   const order = ["runtime", "deps", "assets", "app"]; let previous = -1;
   for (const layer of layers) { const index = order.indexOf(layer.kind); if (index <= previous) fail("generated layer roles are out of order or duplicated"); previous = index; }
   if (context.mode === "compile" && context.runtimeOrigin !== "compiled") fail("compile mode requires compiled runtime");
