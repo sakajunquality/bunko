@@ -1,8 +1,5 @@
 name: Keyless signing (staging)
 on:
-  push:
-    branches: [feat/keyless-signing]
-    paths: [.github/workflows/keyless-staging.yml]
   workflow_dispatch:
 permissions:
   contents: read
