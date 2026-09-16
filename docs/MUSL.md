@@ -15,7 +15,7 @@ With no explicit base, musl selects `oven/bun:<selected Bun version>-alpine`; gl
 
 ## Runtime and compiler selection
 
-Supported verified runtime assets are Bun 1.3.13, 1.4.0, 1.4.1 and 1.4.2 for Linux amd64 and arm64. amd64 selects `bun-linux-x64-musl-baseline`; arm64 selects `bun-linux-aarch64-musl`. Every archive digest is pinned and checked against the official clear-signed checksum document with the embedded Bun release key. Custom compiler revisions and unavailable artifacts fail verification.
+Supported verified runtime assets are Bun 1.3.13 and 1.4.2 for Linux amd64 and arm64. amd64 selects `bun-linux-x64-musl-baseline`; arm64 selects `bun-linux-aarch64-musl`. Every archive digest is pinned and checked against the official clear-signed checksum document with the embedded Bun release key. Custom compiler revisions and unavailable artifacts fail verification.
 
 Bundle and source modes can use a compatible Bun already in the base or inject a verified release. Compile mode uses the authenticated musl executable through `--compile-executable-path`; the result must retain the matching architecture, interpreter and release revision. Compile mode keeps its existing restrictions on external dependencies and emitted assets. GnuPG's `gpgv` is required for compile and injection.
 

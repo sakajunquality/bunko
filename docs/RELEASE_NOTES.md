@@ -1,3 +1,7 @@
+# Unreleased
+
+Retire Bun 1.4.0/1.4.1 and retain Bun 1.3.13 and 1.4.2 in CI and verified compile/injection pins. The host range becomes `>=1.3.13 <1.4 || >=1.4.2 <1.5`. Upgrade Bun to 1.4.2 or keep bunko v0.10.0 when an older 1.4 runtime is required. This change is not included in the immutable v0.10.0 artifacts.
+
 # v0.10.0
 
 This release adds opt-in native AWS registry authentication with `--auth-source aws`. Private ECR supports environment credentials, Web Identity token files (the STS path used by IRSA), ECS/EKS container credentials and IMDSv2. ECR Public authorization is also implemented. Docker-compatible authentication remains the default; profiles and SSO continue to use a credential helper.

@@ -6,7 +6,7 @@ on:
       version:
         description: Published CLI release to package
         required: true
-        default: v0.9.0
+        default: v0.10.0
 
 permissions:
   contents: read

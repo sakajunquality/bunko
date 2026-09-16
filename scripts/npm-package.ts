@@ -1,3 +1,4 @@
+import { supportedBunRange } from "../packages/bunko/bun-version.ts";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assetNames, localAsset, releaseTag, verifyAssets } from "./distribution.ts";
@@ -8,9 +9,10 @@ export const npmPackageFiles = ["package.json", "README.md", "bunko.js", "LICENS
 /** Package previously verified release bytes; provenance verification belongs to the caller. */
 export async function prepareNpmPackage(distribution: string, output: string, version: string) {
   const tag = releaseTag(version), normalized = tag.slice(1);
-  // Preserve metadata when preparing an already published pre-0.2 release.
-  const [major, minor] = normalized.split(/[.-]/).map(Number);
-  const bunRange = major === 0 && minor! < 2 ? ">=1.3.11 <1.5" : ">=1.3.13 <1.5";
+  // Preserve compatibility metadata for immutable releases through 0.10.0.
+  const [major, minor, patch] = normalized.split(/[.-]/).map(Number);
+  const bunRange = major === 0 && minor! < 2 ? ">=1.3.11 <1.5"
+    : major === 0 && (minor! < 10 || minor === 10 && patch === 0) ? ">=1.3.13 <1.5" : supportedBunRange;
   const assets = new Map<string, Uint8Array>();
   for (const name of [...assetNames, "SHA256SUMS", "PROVENANCE.jsonl"]) assets.set(name, await localAsset(distribution, name));
   verifyAssets(Buffer.from(assets.get("SHA256SUMS")!).toString(), assets);
