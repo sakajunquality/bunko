@@ -44,8 +44,9 @@ try {
         await command([...cli, "build", app, "--base-layout", oldDirectory, "--platform", name, "--oci-layout", layout, "--push=false", "--git-metadata=false", "--sbom", "--provenance", "--report", report]);
         const before = JSON.parse(await readFile(report, "utf8"));
         await rm(app, { recursive: true });
-        await command([...cli, "rebase", `layout:${layout}`, "--old-base", `layout:${oldDirectory}`, "--base-layout", newDirectory, "--compatibility-policy", policy, "--oci-layout", output, "--sbom", "--provenance", "--report", rebaseReport]);
+        await command([...cli, "rebase", `layout:${layout}`, "--old-base", `layout:${oldDirectory}`, "--base-layout", newDirectory, "--compatibility-policy", policy, "--smoke-command", JSON.stringify(["/usr/local/bin/bun", "--version"]), "--oci-layout", output, "--sbom", "--provenance", "--report", rebaseReport]);
         const after = JSON.parse(await readFile(rebaseReport, "utf8"));
+        if (after.smoke !== "passed") throw new Error("Rebase acceptance command did not pass");
         if (JSON.stringify(before.layers.map((layer: any) => layer.descriptor.digest)) !== JSON.stringify(after.platforms[0].preservedLayers)) throw new Error("Rebase changed generated layers");
         const finalStore = new BlobStore(join(directory, `${id}-run`)), final = await resolveBase(new LayoutSource(output), platform, finalStore);
         const tag = `bunko.local/rebase-validation:${randomUUID()}`, archive = join(directory, `${id}.tar`);

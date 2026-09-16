@@ -93,3 +93,5 @@ Run `bun run build && bun run test:rebase` with Docker, OpenSSL and gpgv. This e
 `BUNKO_COSIGN_PATH=/path/to/cosign bun run test:rebase-registry` uses a disposable local Distribution registry and key pair to publish the new artifacts and cryptographically verify every signed subject. Synthetic binary fixtures in that test validate registry/signature handling; executable runtime coverage comes from the separate runtime smoke test. Unit and integration tests cover metadata tampering, repeated rebasing, unsupported transitions, whiteouts, all-platform preflight, authenticated sources, immutable tag policies and failure reports.
 
 With `--sbom`, existing [build evidence](SBOM_EVIDENCE.md) is validated and preserved. Unsupported evidence versions, duplicate annotations or inconsistent package membership fail; rebase cannot collect new build observations.
+
+See [Rebase operations](REBASE_OPERATIONS.md) for base discovery, typed dry-run decisions, reviewed policy templates, acceptance commands and CI integration.
