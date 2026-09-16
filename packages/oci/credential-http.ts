@@ -1,24 +1,40 @@
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { Readable } from "node:stream";
-import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
+import { invocationSignal, throwIfCancelled, pause, spawn } from "../runtime/invocation.ts";
 import type { Fetcher } from "./registry.ts";
 
-/** Bun's fetch inherits cached proxy settings even with an empty proxy option.
- * Native HTTP requests keep metadata and local credential services off that path. */
+/** Older Bun releases also route node:http through cached proxy settings. A small
+ * isolated worker starts with no proxy environment and never reloads project .env files. */
+const directWorker = String.raw`
+try {
+  const input = JSON.parse(await Bun.stdin.text());
+  const response = await fetch(input.url, { ...input.init, redirect: "error", verbose: false, signal: AbortSignal.timeout(input.timeout) });
+  const chunks = []; let length = 0;
+  if (response.ok && response.body) {
+    const reader = response.body.getReader();
+    while (true) { const {value,done}=await reader.read(); if(done)break; length+=value.length; if(length>1048576)throw new Error(); chunks.push(value); }
+  } else await response.body?.cancel();
+  process.stdout.write(JSON.stringify({status:response.status,headers:[...response.headers],body:Buffer.concat(chunks).toString("base64")}));
+} catch { process.exitCode=1; }
+`;
 async function directFetch(url: string, init: RequestInit): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const request = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, {
-      method: init.method ?? "GET", headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
-    }, (response) => {
-      const headers = new Headers();
-      for (const [key, value] of Object.entries(response.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
-      resolve(new Response(Readable.toWeb(response) as unknown as ReadableStream<Uint8Array>, { status: response.statusCode ?? 500, headers }));
-    });
-    request.on("error", reject);
-    request.end(typeof init.body === "string" ? init.body : undefined);
-  });
+  const env: Record<string, string> = {};
+  for (const key of ["SYSTEMROOT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
+  const child = spawn([process.execPath, "--no-env-file", "-e", directWorker], { env, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const cancel = () => { child.kill("SIGKILL"); };
+  init.signal?.addEventListener("abort", cancel, { once: true });
+  const reader = child.stdout.getReader();
+  try {
+    init.signal?.throwIfAborted();
+    child.stdin.write(JSON.stringify({url,timeout:5000,init:{method:init.method,headers:Object.fromEntries(new Headers(init.headers)),body:init.body}}));
+    await child.stdin.end();
+    const chunks: Uint8Array[] = []; let length = 0;
+    while (true) { const {value,done}=await reader.read(); if(done)break; length+=value.length; if(length>2*1024*1024)throw new Error(); chunks.push(value); }
+    if (await child.exited !== 0 || child.signalCode) throw new Error("Direct credential transport failed");
+    const value = JSON.parse(Buffer.concat(chunks).toString());
+    return new Response(value.status === 204 ? null : Buffer.from(value.body, "base64"), {status:value.status,headers:value.headers});
+  } finally {
+    init.signal?.removeEventListener("abort", cancel); cancel();
+    void reader.cancel().catch(() => {}); reader.releaseLock();
+  }
 }
 
 export interface CredentialTransport { fetcher?: Fetcher; timeoutMs?: number }
