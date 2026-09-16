@@ -103,3 +103,11 @@ test("keyless rebase signing failure leaves tags pending even without smoke", as
   expect(mock.requests.some((r) => r.method === "PUT" && r.url.pathname.endsWith("/manifests/stable"))).toBe(false);
   expect(JSON.parse(await readFile(report, "utf8"))).toMatchObject({ signed: false, publication: { pendingTags: ["stable"] } });
 });
+
+test("Actions pass keyless profile options as argv and omit signing during rebase assessment", async () => {
+  const { rebaseArguments } = await import("../rebase/run.ts"), { buildArguments } = await import("../build/run.ts");
+  const input = { image: "image", "old-base": "old", base: "base", repo: "registry.test/app", sign: "keyless", "sigstore-config": "$(literal).json", "smoke-command": '["/app/check"]' };
+  expect(rebaseArguments(input, "/report")).not.toContain("--sign");
+  const args = rebaseArguments({ ...input, "dry-run": "false" }, "/report"); expect(args).toContain("--sign"); expect(args).toContain("$(literal).json");
+  expect(buildArguments({ sign: "keyless", "sigstore-config": "$(literal).json", push: "true", repo: "registry.test/app" }, "/tmp/keyless-action").args).toContain("$(literal).json");
+});
