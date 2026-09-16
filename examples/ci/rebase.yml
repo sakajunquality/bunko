@@ -1,0 +1,33 @@
+# Copy into .github/workflows and use a CLI release containing base-status.
+# Configure REBASE_TARGETS_JSON as a reviewed repository variable. This read-only
+# workflow intentionally does not grant package writes or dispatch workflows.
+name: Assess base updates
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: rebase-assessment
+  cancel-in-progress: false
+jobs:
+  assess:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sakajunquality/setup-bunko@v0.1.1
+        with:
+          version: latest
+      - name: Assess reviewed targets
+        env:
+          TARGETS: ${{ vars.REBASE_TARGETS_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$TARGETS" > "$RUNNER_TEMP/rebase-targets.json"
+          bunko base-status --targets "$RUNNER_TEMP/rebase-targets.json" --json > "$RUNNER_TEMP/base-status.json"
+          jq -r '.results[] | [.platform // "unknown", .status, .decision // .reason // ""] | @tsv' "$RUNNER_TEMP/base-status.json" >> "$GITHUB_STEP_SUMMARY"
+# Feed only explicit outdated/compatible records into a separately authorized
+# publication job using bunko/rebase. requires-policy needs a reviewed policy PR;
+# requires-rebuild needs your normal build pipeline. Unknown never means current.

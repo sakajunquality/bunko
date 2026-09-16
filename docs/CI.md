@@ -136,3 +136,5 @@ The build Action accepts newline-separated `cache-from` and `cache-to` locations
 ### OIDC signing
 
 Grant `permissions: id-token: write` and configure registry authentication, then use `sign: keyless` on the build or rebase Action. Install stable cosign 3.x first. See [keyless signing](KEYLESS_SIGNING.md) for exact-identity bunko/cosign verification commands and staging validation.
+
+For scheduled base assessment and gated publication, see [Rebase operations](REBASE_OPERATIONS.md) and the [rebase Action](../rebase/action.yml).

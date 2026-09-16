@@ -1,0 +1,91 @@
+name: Rebase with bunko
+description: Assess or rebase an image with an installed bunko CLI and explicit acceptance command
+inputs:
+  image:
+    description: Digest-pinned source image
+    required: true
+  old-base:
+    description: Digest-pinned original base
+    required: true
+  base:
+    description: Digest-pinned replacement base
+    required: true
+  repo:
+    description: Exact output repository (required for publication)
+    default: ''
+  platforms:
+    description: Comma-separated Linux platforms
+    default: ''
+  policy:
+    description: Reviewed ABI compatibility policy path
+    default: ''
+  tags:
+    description: Output tags, one per line; promoted after acceptance
+    default: ''
+  tag-conflict:
+    description: Registry tag conflict handling; skipped tags still prevent an accepted-reference output
+    default: 'fail'
+  sign:
+    description: "none, key or keyless; keyless needs workflow id-token: write"
+    default: none
+  sigstore-config:
+    description: Custom Sigstore profile path
+    default: ""
+  sign-key:
+    description: Private signing key path or KMS URI
+    default: ''
+  smoke-command:
+    description: JSON argv array for a finite acceptance command inside each candidate container
+    default: ''
+  dry-run:
+    description: Assess only (default); publication requires false and an explicit smoke-command
+    default: 'true'
+  report:
+    description: Optional report destination
+    default: ''
+outputs:
+  candidate-reference:
+    description: Published candidate digest, which may not have passed acceptance
+    value: ${{ steps.rebase.outputs.candidate-reference }}
+  tags:
+    description: JSON array of promoted tags
+    value: ${{ steps.rebase.outputs.tags }}
+  skipped-tags:
+    description: JSON array of skipped immutable tags
+    value: ${{ steps.rebase.outputs.skipped-tags }}
+  pending-tags:
+    description: JSON array of tags awaiting promotion
+    value: ${{ steps.rebase.outputs.pending-tags }}
+  decision:
+    description: compatible, requires-policy, requires-rebuild, or error
+    value: ${{ steps.rebase.outputs.decision }}
+  digest:
+    description: Candidate root digest when assessment succeeds
+    value: ${{ steps.rebase.outputs.digest }}
+  reference:
+    description: Published immutable reference when available
+    value: ${{ steps.rebase.outputs.reference }}
+  report:
+    description: JSON report path
+    value: ${{ steps.rebase.outputs.report }}
+runs:
+  using: composite
+  steps:
+    - id: rebase
+      shell: bash
+      env:
+        BUNKO_INPUT_IMAGE: ${{ inputs.image }}
+        BUNKO_INPUT_OLD_BASE: ${{ inputs.old-base }}
+        BUNKO_INPUT_BASE: ${{ inputs.base }}
+        BUNKO_INPUT_REPO: ${{ inputs.repo }}
+        BUNKO_INPUT_PLATFORMS: ${{ inputs.platforms }}
+        BUNKO_INPUT_POLICY: ${{ inputs.policy }}
+        BUNKO_INPUT_TAG_CONFLICT: ${{ inputs.tag-conflict }}
+        BUNKO_INPUT_TAGS: ${{ inputs.tags }}
+        BUNKO_INPUT_SIGN: ${{ inputs.sign }}
+        BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}
+        BUNKO_INPUT_SIGN_KEY: ${{ inputs.sign-key }}
+        BUNKO_INPUT_SMOKE_COMMAND: ${{ inputs.smoke-command }}
+        BUNKO_INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        BUNKO_INPUT_REPORT: ${{ inputs.report }}
+      run: bun "$GITHUB_ACTION_PATH/run.ts"
