@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { runInvocation } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
+import { RebaseDecisionError } from "./rebase-decision.ts";
+import { baseStatus, rebaseTargets, rebasePolicyTemplate } from "./rebase-operations.ts";
 import { rebase } from "./rebase.ts";
 import { prepareBase } from "./prepare-base.ts";
 import { selectRegistryMirrors } from "../oci/mirrors.ts";
@@ -61,6 +63,9 @@ Usage:
   bunko cache-info [--cache-dir <directory>]
   bunko prune [--cache-dir <directory> | --cache-repo <repository>] [--execute]
   bunko pack-deps <prepared-directory> --lockfile <bun.lock> --oci-layout <directory>
+  bunko base-status <image> --base-tag <reference> [--json]
+  bunko base-status --targets <file> [--json]
+  bunko rebase-policy --old-base <reference> --base <reference> --out <file>
   bunko rebase <image@digest|layout:DIR> --old-base <reference> --base <reference> [--oci-layout <dir> | --repo <repository>]
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
@@ -144,6 +149,7 @@ Options:
   --jobs <count>          Concurrent target builds, 1–32 (default: 1 or BUNKO_JOBS)
   --mode <mode>           bundle (default) or compile (Linux executable)
   --module-locations <warn|error>  Fail on BUNKO_MODULE_LOCATION diagnostics (default: warn)
+  --smoke-command <JSON>   Rebase acceptance argv; tags advance only after success
   --sbom                   Attach per-platform SPDX package inventories
   --sbom-evidence          Include lock declarations and build states (requires --sbom)
   --provenance             Attach SLSA provenance to the image root
@@ -203,7 +209,7 @@ export function booleanArguments(argv: string[], options: Record<string, { type:
 }
 
 export async function main(argv: string[]): Promise<number> {
-  let jsonProgress = false;
+  let jsonProgress = false, rebaseDryRun = false;
   try {
     if (!supportedBunVersion(Bun.version)) throw new Error(`Bunko requires Bun >=1.3.13 <1.5 (received ${Bun.version}). Upgrade Bun, or use bunko 0.1.4 for Bun 1.3.11/1.3.12.`);
     const options = {
@@ -290,6 +296,8 @@ export async function main(argv: string[]): Promise<number> {
       "oci-layout": { type: "string" },
       "base-layout": { type: "string" },
       "old-base": { type: "string" },
+      "base-tag": { type: "string" }, targets: { type: "string" }, out: { type: "string" },
+      "smoke-command": { type: "string" },
       "compatibility-policy": { type: "string" },
       base: { type: "string" },
       platform: { type: "string" },
@@ -353,7 +361,19 @@ export async function main(argv: string[]): Promise<number> {
       if (positionals.length !== 2 || !values["metadata-dir"]) throw new Error("metadata requires an image@digest or layout:DIR and --metadata-dir");
       process.stdout.write(JSON.stringify(await exportMetadata(path, values["metadata-dir"], registry)) + "\n"); return 0;
     }
+    if (command === "base-status") {
+      if (values.targets ? positionals.length !== 1 || values["base-tag"] || values["old-base"] || values.platform || values["compatibility-policy"] : positionals.length !== 2) throw new Error("base-status requires one image or --targets FILE");
+      const targets = values.targets ? await rebaseTargets(values.targets) : [{ image: path, base: values["base-tag"], oldBase: values["old-base"], platforms: values.platform, policy: values["compatibility-policy"] }];
+      process.stdout.write(JSON.stringify(await baseStatus(targets, registry)) + "\n"); return 0;
+    }
+    if (command === "rebase-policy") {
+      if (positionals.length !== 1 || !values["old-base"] || !values.base || !values.out) throw new Error("rebase-policy requires --old-base, --base and --out");
+      if (values["runtime-libc"] !== undefined && !["glibc", "musl"].includes(values["runtime-libc"])) throw new Error("runtime libc must be glibc or musl");
+      const result = await rebasePolicyTemplate({ oldBase: values["old-base"], base: values.base, out: values.out, platform: values.platform, libc: values["runtime-libc"] as "glibc" | "musl" | undefined, registry });
+      process.stderr.write(JSON.stringify(result.review) + "\n"); process.stdout.write(JSON.stringify(result.policy) + "\n"); return 0;
+    }
     if (command === "rebase") {
+      rebaseDryRun = Boolean(values["dry-run"]);
       if (positionals.length !== 2 || !values["old-base"] || Boolean(values.base) === Boolean(values["base-layout"])) throw new Error("rebase requires one image, --old-base, and exactly one of --base or --base-layout");
       const baseSBOMs: Record<string, string> = {};
       for (const value of values["base-sbom"] ?? []) {
@@ -363,7 +383,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       const result = await rebase({ image: path, oldBase: values["old-base"], base: values.base ?? `layout:${values["base-layout"]}`, platform: values.platform, output: values["oci-layout"], repo: values.repo,
         push: supplied("push") ? values.push : undefined, tags: values.tag, dryRun: values["dry-run"], report: values.report, policy: values["compatibility-policy"], registry, tagConflict,
-        sbom: values.sbom, baseSBOMs, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"] });
+        smokeCommand: values["smoke-command"] ? JSON.parse(values["smoke-command"]) : undefined, sbom: values.sbom, baseSBOMs, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"] });
       process.stdout.write(result.publication?.published ? `${result.publication.reference}\n` : JSON.stringify(result) + "\n"); return 0;
     }
     if (command === "push-layout") {
@@ -489,7 +509,7 @@ export async function main(argv: string[]): Promise<number> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(jsonProgress ? JSON.stringify({ schemaVersion: 1, type: "error", message }) + "\n" : `bunko: ${message}\n`);
-    return 1;
+    return rebaseDryRun && error instanceof RebaseDecisionError ? error.exitCode : 1;
   }
 }
 

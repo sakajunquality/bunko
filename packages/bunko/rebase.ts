@@ -1,3 +1,5 @@
+import { RebaseDecisionError } from "./rebase-decision.ts";
+import { smokeRebase, smokeArguments } from "./rebase-smoke.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,10 +28,11 @@ export interface RebaseOptions {
   platform?: string; output?: string; repo?: string; push?: boolean; tags?: string[];
   dryRun?: boolean; report?: string; policy?: string; registry?: RegistryOptions;
   tagConflict?: TagConflict; sbom?: boolean; baseSBOMs?: Record<string, string>; provenance?: boolean;
-  signKey?: string; cosignPath?: string;
+  signKey?: string; cosignPath?: string; smokeCommand?: string[];
 }
 export interface RebasePolicy {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  reviewed?: boolean;
   transitions: { platform: string; oldBase: Digest; newBase: Digest; libc: "glibc" | "musl" }[];
 }
 
@@ -39,7 +42,7 @@ export async function readRebasePolicy(path: string): Promise<{ value: RebasePol
   const bytes = await readFile(path);
   if (bytes.length > 64 * 1024) throw new Error("Rebase policy exceeds 64 KiB");
   const value = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), "Rebase policy");
-  if (value.schemaVersion !== 1 || Object.keys(value).some((key) => !["schemaVersion", "transitions"].includes(key)) || !Array.isArray(value.transitions) || !value.transitions.length || value.transitions.length > 64) throw new Error("Invalid rebase compatibility policy");
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2 || value.schemaVersion === 2 && value.reviewed !== true || Object.keys(value).some((key) => !["schemaVersion", "transitions", ...(value.schemaVersion === 2 ? ["reviewed"] : [])].includes(key)) || !Array.isArray(value.transitions) || !value.transitions.length || value.transitions.length > 64) throw new Error("Invalid rebase compatibility policy");
   const seen = new Set<string>();
   for (const raw of value.transitions) {
     const item = object(raw, "Rebase transition");
@@ -55,14 +58,15 @@ export async function readRebasePolicy(path: string): Promise<{ value: RebasePol
 /** Changes to loader controls, users, mounts or signals require a full rebuild. */
 function safeRuntimeConfig(original: ImageConfig, replacement: ImageConfig): void {
   const env = (config: ImageConfig) => Object.fromEntries((config.config?.Env ?? []).map((entry) => { const i = entry.indexOf("="); return [entry.slice(0, i), entry.slice(i + 1)]; }).filter(([key]) => /^(?:PATH$|GLIBC_TUNABLES$|LD_|DYLD_|BUN_|NODE_OPTIONS$|NODE_EXTRA_CA_CERTS$|SSL_CERT_(?:FILE|DIR)$)/.test(key!)));
-  if (Buffer.compare(Buffer.from(canonicalJSON(env(original))), Buffer.from(canonicalJSON(env(replacement))))) throw new Error("Rebase changes runtime loader or trust environment; rebuild instead");
-  for (const key of ["User", "Volumes", "StopSignal"] as const) if (Buffer.compare(canonicalJSON(original.config?.[key] ?? null), canonicalJSON(replacement.config?.[key] ?? null)) !== 0) throw new Error(`Rebase changes runtime ${key}; rebuild instead`);
+  if (Buffer.compare(Buffer.from(canonicalJSON(env(original))), Buffer.from(canonicalJSON(env(replacement))))) throw new RebaseDecisionError("requires-rebuild", "runtime-environment", "Rebase changes runtime loader or trust environment; rebuild instead");
+  for (const key of ["User", "Volumes", "StopSignal"] as const) if (Buffer.compare(canonicalJSON(original.config?.[key] ?? null), canonicalJSON(replacement.config?.[key] ?? null)) !== 0) throw new RebaseDecisionError("requires-rebuild", "runtime-config", `Rebase changes runtime ${key}; rebuild instead`);
 }
 
 /** Plan every selected platform before exports, registry writes or signing. */
 export async function rebase(options: RebaseOptions) {
   if (!options.image || !options.oldBase || !options.base) throw new Error("rebase requires an image, --old-base and a replacement --base or --base-layout");
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
+  if (options.smokeCommand) smokeArguments(options.smokeCommand);
   const push = options.push ?? Boolean(options.repo);
   if (push && !options.repo) throw new Error("Rebase publication requires an exact --repo");
   if (!push && !options.output && !options.dryRun) throw new Error("Rebase requires --oci-layout, --repo or --dry-run");
@@ -90,6 +94,7 @@ export async function rebase(options: RebaseOptions) {
   const directory = await mkdtemp(join(tmpdir(), "bunko-rebase-")), store = new BlobStore(directory);
   const written = new Set<string>(); let publication: Publication | undefined;
   let signed = false;
+  let smoke: "not-requested" | "pending" | "passed" | "failed" = options.smokeCommand ? "pending" : "not-requested";
   try {
     const policy = options.policy ? await readRebasePolicy(options.policy) : undefined;
     const input = await rebaseInput(options.image, registry, store);
@@ -105,11 +110,12 @@ export async function rebase(options: RebaseOptions) {
     const results = [], attachments: Artifact[] = [], descriptors: Descriptor[] = [];
     for (const platform of selected) {
       const image = await input.image(platform), oldBase = await oldInput.image(platform), newBase = await newInput.image(platform);
+      if (!image.config.config?.Labels?.["org.bunko.rebase.metadata"]) throw new RebaseDecisionError("requires-rebuild", "metadata-missing", "Image has no rebase ownership metadata capsule; rebuild instead");
       const { options: owned, context, layers } = inspectRebase(image, oldBase);
-      const compatibility = await checkRebaseSafety(store, image, oldBase, newBase, owned, context, directory, policy?.value);
       const transformed = await rebaseImage(store, image, oldBase, newBase);
       const config = JSON.parse(Buffer.from(await store.read(transformed.config)).toString()) as ImageConfig;
       safeRuntimeConfig(image.config, config);
+      const compatibility = await checkRebaseSafety(store, image, oldBase, newBase, owned, context, directory, policy?.value);
       // The core cannot infer registry names from content-addressed BaseImage values.
       const manifest = object(JSON.parse(Buffer.from(await store.read(transformed.manifest)).toString()), "Rebased manifest");
       const annotations = { ...object(manifest.annotations ?? {}, "Rebased annotations"), ...(newInput.origin instanceof RegistrySource ? { "org.opencontainers.image.base.name": `${repositoryName(newInput.origin.ref)}@${newBase.descriptor.digest}` } : {}) };
@@ -140,22 +146,41 @@ export async function rebase(options: RebaseOptions) {
     descriptors.push(...attachments.flatMap((item) => [item.manifest, ...item.blobs]));
     if (options.signKey && !options.dryRun) await assertCosign(options.cosignPath);
     if (publisher) {
-      publication = await publisher.publish(store, root, tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
+      publication = await publisher.publish(store, root, options.smokeCommand ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
+      if (options.smokeCommand) publication.pendingTags = [...tags];
       if (!options.dryRun) {
         await publishArtifacts(publisher, store, attachments, (part, elapsed) => accumulate(publication!, part, elapsed));
-        if (options.signKey) {
+        if (options.signKey && !options.smokeCommand) {
           await signImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), options.signKey, options.cosignPath, registry.insecure);
           signed = true;
         }
       }
     }
+    if (options.smokeCommand && !options.dryRun) {
+      if (publication) publication.pendingTags = [...tags];
+      try { await smokeRebase(store, results, options.smokeCommand, directory); smoke = "passed"; }
+      catch (error) { smoke = "failed"; throw error; }
+      if (publisher && options.signKey) {
+        await signImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), options.signKey, options.cosignPath, registry.insecure);
+        signed = true;
+      }
+      if (publisher && tags.length) {
+        try {
+          const promoted = await publisher.publish(store, root, tags, undefined, false, options.tagConflict);
+          accumulate(promoted, publication!); publication = promoted;
+        } catch (error) {
+          if (error instanceof PublicationError) { accumulate(error.result, publication!); publication = error.result; }
+          throw error;
+        }
+      }
+    }
     if (output && !options.dryRun) await exportLayout(store, output, root, descriptors, `${options.repo ?? "bunko.local/rebased"}@${root.digest}`);
-    const result = { schemaVersion: 1, command: "rebase", status: "success", dryRun: Boolean(options.dryRun), source: input.subject, root, platforms: results, policyDigest: policy?.digest, layout: options.dryRun ? undefined : output, publication, attestations: attachments.map(({ subject, manifest }) => ({ subject, manifest })), signed };
+    const result = { schemaVersion: 1, command: "rebase", status: "success", decision: "compatible" as const, smoke, dryRun: Boolean(options.dryRun), source: input.subject, root, platforms: results, policyDigest: policy?.digest, layout: options.dryRun ? undefined : output, publication, attestations: attachments.map(({ subject, manifest }) => ({ subject, manifest })), signed };
     if (report) await writeReport(report, result, written);
     return result;
   } catch (error) {
     if (!publication && error instanceof PublicationError) publication = error.result;
-    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "rebase", status: "failed", publication, signed, error: error instanceof Error ? error.message : "Rebase failed" }, error);
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "rebase", status: "failed", decision: error instanceof RebaseDecisionError ? error.decision : "error", reason: error instanceof RebaseDecisionError ? error.reason : undefined, changes: error instanceof RebaseDecisionError ? error.changes : undefined, requires: error instanceof RebaseDecisionError ? error.decision === "requires-policy" ? "compatibility-policy" : "rebuild" : undefined, smoke, publication, signed, error: error instanceof Error ? error.message : "Rebase failed" }, error);
     if (publication?.published) throw new PublicationError(`Rebase incomplete after image publication at ${publication.reference}: ${error instanceof Error ? error.message : "output failure"}`, publication, error);
     throw error;
   } finally { await rm(directory, { recursive: true, force: true }); }

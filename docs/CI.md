@@ -132,3 +132,5 @@ The Dockerfile pins its Bun base and installs Debian packages from the signed sn
 
 
 The build Action accepts newline-separated `cache-from` and `cache-to` locations, including `type=registry,repo=...` and `type=local,src=...` / `type=local,dest=...`. Set `cache-export-error: fail` when cache export failure must fail the job. See [cache distribution](CACHE_RETENTION.md) for ordering, trust, offline and retention behavior.
+
+For scheduled base assessment and gated publication, see [Rebase operations](REBASE_OPERATIONS.md) and the [rebase Action](../rebase/action.yml).
