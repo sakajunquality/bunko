@@ -18,7 +18,9 @@ try {
 async function directFetch(url: string, init: RequestInit): Promise<Response> {
   const env: Record<string, string> = {};
   for (const key of ["SYSTEMROOT", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
-  const child = spawn([process.execPath, "--no-env-file", "-e", directWorker], { env, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const executable = Bun.which("bun");
+  if (!executable) throw new Error("Direct credential transport requires Bun on PATH");
+  const child = spawn([executable, "--no-env-file", "-e", directWorker], { env, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
   const cancel = () => { child.kill("SIGKILL"); };
   init.signal?.addEventListener("abort", cancel, { once: true });
   const reader = child.stdout.getReader();

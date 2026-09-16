@@ -84,3 +84,37 @@ test("cosign rejects non-finite credential expiry before invoking its process", 
     await expect(cosignCommand("never-executed", ["verify", `ghcr.io/org/app@sha256:${"a".repeat(64)}`], 1000, false, async () => ({ username: "u", password: "p", expires }))).rejects.toThrow("expired");
   }
 });
+
+test("refresh does not join or get overwritten by an older lookup", async () => {
+  const file = join(await directory(), "config.json");
+  await writeFile(file, JSON.stringify({ credsStore: "test" }));
+  const started = Promise.withResolvers<void>(), old = Promise.withResolvers<void>();
+  let calls = 0;
+  const provider = registryCredentials(["docker"], { env: { BUNKO_DOCKER_CONFIG: file }, helper: async () => {
+    if (++calls === 1) { started.resolve(); await old.promise; return { username: "u", password: "old" }; }
+    return { username: "u", password: "new" };
+  } });
+  const initial = provider("ghcr.io"); await started.promise;
+  try {
+    expect((await provider("ghcr.io", true))?.password).toBe("new");
+  } finally { old.resolve(); }
+  expect((await initial)?.password).toBe("old");
+  expect((await provider("ghcr.io"))?.password).toBe("new");
+  expect(calls).toBe(2);
+});
+
+test.each(["docker", "podman"])("%s repository credentials never become host credentials", async (source) => {
+  const file = join(await directory(), "config.json");
+  await writeFile(file, JSON.stringify({ auths: { "ghcr.io/private": { auth: "dTpw" } } }));
+  const provider = registryCredentials([source], { env: { BUNKO_DOCKER_CONFIG: file, REGISTRY_AUTH_FILE: file } });
+  await expect(provider("ghcr.io")).rejects.toThrow("Repository-scoped");
+});
+
+test.each(["docker", "podman"])("mixed %s sources preserve helper references for cosign", async (source) => {
+  const root = await directory(), file = join(root, "config.json"), executable = join(root, "cosign"), capture = join(root, "capture.json");
+  await writeFile(file, JSON.stringify({ credHelpers: { "ghcr.io": "test" } }));
+  await writeFile(executable, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(capture)},await Bun.file(process.env.DOCKER_CONFIG+'/config.json').text());`, { mode: 0o755 });
+  const provider = registryCredentials([source, "github"], { env: { BUNKO_DOCKER_CONFIG: file, REGISTRY_AUTH_FILE: file, GITHUB_TOKEN: "OTHER" }, helper: async () => ({ username: "u", password: "HELPER_SECRET" }) });
+  await cosignCommand(executable, ["verify", `ghcr.io/org/app@sha256:${"a".repeat(64)}`], 5000, false, provider);
+  expect(JSON.parse(await readFile(capture, "utf8"))).toEqual({ credHelpers: { "ghcr.io": "test" } });
+});

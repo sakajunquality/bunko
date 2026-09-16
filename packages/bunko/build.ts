@@ -670,9 +670,9 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
 /** Prepare independently from publication so resolve can validate/build every
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
-  options = offlineOptions(options);
   const credentials = options.registry?.credentials ?? registryCredentials();
   options = { ...options, registry: { ...options.registry, credentials, sensitivePaths: [...options.registry?.sensitivePaths ?? [], ...credentials.sensitivePaths ?? []] } };
+  options = offlineOptions(options);
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
