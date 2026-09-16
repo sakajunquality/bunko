@@ -62,10 +62,13 @@ export async function configuredCredentials(config: Record<string, unknown>, reg
     const matchingEntry = (entries: Record<string, unknown>): [string, unknown] | undefined => {
       const found = Object.entries(entries).filter(([key]) => matches(key));
       if (normalizeHosts && found.length > 1) throw new Error("Ambiguous credential entries for registry");
-      if (found.some(([key]) => key.replace(/^https?:\/\//, "").replace(/\/$/, "").includes("/") && key !== "https://index.docker.io/v1/") ) throw new Error("Repository-scoped credentials cannot be used as host-wide credentials");
       return found[0];
     };
     const helpers = config.credHelpers === undefined ? {} : object(config.credHelpers, "credHelpers");
+    const auths = config.auths === undefined ? {} : object(config.auths, "auths");
+    for (const key of [...Object.keys(helpers), ...Object.keys(auths)]) {
+      if (matches(key) && key.replace(/^https?:\/\//, "").replace(/\/$/, "").includes("/") && key !== "https://index.docker.io/v1/") throw new Error("Repository-scoped credentials cannot be used as host-wide credentials");
+    }
     const perRegistry = matchingEntry(helpers)?.[1];
     const selected = perRegistry === "" || perRegistry === undefined ? (config.credsStore === "" ? undefined : config.credsStore) : perRegistry;
     if (selected !== undefined) {
@@ -75,7 +78,6 @@ export async function configuredCredentials(config: Record<string, unknown>, reg
       const credential = await helper(selected, server);
       return credential && normalizeHosts ? { ...credential, helper: { name: selected, server } } : credential;
     }
-    const auths = config.auths === undefined ? {} : object(config.auths, "auths");
     const entry = matchingEntry(auths);
     if (!entry) return;
     configured?.();

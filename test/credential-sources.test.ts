@@ -105,7 +105,7 @@ test("refresh does not join or get overwritten by an older lookup", async () => 
 
 test.each(["docker", "podman"])("%s repository credentials never become host credentials", async (source) => {
   const file = join(await directory(), "config.json");
-  await writeFile(file, JSON.stringify({ auths: { "ghcr.io/private": { auth: "dTpw" } } }));
+  await writeFile(file, JSON.stringify({ credsStore: "test", auths: { "ghcr.io/private": { auth: "dTpw" } } }));
   const provider = registryCredentials([source], { env: { BUNKO_DOCKER_CONFIG: file, REGISTRY_AUTH_FILE: file } });
   await expect(provider("ghcr.io")).rejects.toThrow("Repository-scoped");
 });
