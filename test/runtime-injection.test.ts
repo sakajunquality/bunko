@@ -39,7 +39,7 @@ test("runtime injection rejects unsupported modes, libc, versions and destinatio
 test.skipIf(!Bun.which("gpgv"))("official clear-signed checksums verify offline and reject tampering", async () => {
   const signed = await readFile(new URL("./fixtures/runtime/bun-1.3.13-checksums.asc", import.meta.url));
   const checksums = await verifiedChecksums(signed);
-  expect(() => pinnedArchiveChecksum("1.4.0","bun-linux-aarch64",checksums)).toThrow("pinned release version");
+  expect(() => pinnedArchiveChecksum("1.4.2","bun-linux-aarch64",checksums)).toThrow("pinned release version");
   expect(archiveChecksum(checksums, "bun-linux-aarch64")).toBe("sha256:70bae41b3908b0a120e1e58c5c8af30e74afae3b8d11b0d3fdd8e787ddfb4b22");
   await expect(verifiedChecksums(Buffer.from(signed.toString().replace("bun-linux-aarch64.zip", "bun-linux-unknown.zip")))).rejects.toThrow("signature verification");
   await expect(verifiedChecksums(Buffer.from(checksums))).rejects.toThrow();

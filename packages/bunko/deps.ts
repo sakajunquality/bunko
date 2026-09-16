@@ -221,7 +221,7 @@ export async function dependencyPlan(project: Project, root: string, validateCre
 }
 
 export function assertLockToolchain(plan: Pick<DependencyPlan, "lock">, toolchain: Toolchain): void {
-  if (plan.lock?.lockfileVersion === 2 && !Bun.semver.satisfies(toolchain.version, ">=1.4.0")) throw new Error("bun.lock version 2 requires Bun >=1.4.0; select a compatible --bun-path");
+  if (plan.lock?.lockfileVersion === 2 && !Bun.semver.satisfies(toolchain.version, ">=1.4.2")) throw new Error("bun.lock version 2 requires Bun >=1.4.2; select a compatible --bun-path");
 }
 
 /**

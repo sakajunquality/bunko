@@ -66,9 +66,9 @@ test("lock v2 retains integrity/source validation and fails on old toolchains be
   await writeFile(join(fixture.source, "bun.lock"), JSON.stringify(lock));
   const old = join(root, "old-bun"); await writeFile(old, '#!/bin/sh\nprintf "1.3.13+bf2e2cecf\\n"\n'); await chmod(old, 0o755);
   expect((await checkConfig({ path: fixture.source })).targets[0]!.lockfileVersion).toBe(2);
-  await expect(doctor({ path: fixture.source, bunPath: old })).rejects.toThrow("version 2 requires Bun >=1.4.0");
+  await expect(doctor({ path: fixture.source, bunPath: old })).rejects.toThrow("version 2 requires Bun >=1.4.2");
   let requests = 0;
-  await expect(build({ path: fixture.source, bunPath: old, push: false, output: join(root, "out"), registry: { fetcher: async () => { requests++; throw new Error("No network expected"); } } })).rejects.toThrow("version 2 requires Bun >=1.4.0");
+  await expect(build({ path: fixture.source, bunPath: old, push: false, output: join(root, "out"), registry: { fetcher: async () => { requests++; throw new Error("No network expected"); } } })).rejects.toThrow("version 2 requires Bun >=1.4.2");
   expect(requests).toBe(0);
 });
 
