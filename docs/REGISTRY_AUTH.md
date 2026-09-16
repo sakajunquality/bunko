@@ -12,7 +12,7 @@ The configuration file is selected in this order:
 
 Inside that file, a matching `credHelpers` entry takes precedence over `credsStore`, which takes precedence over `auths`. A selected helper is authoritative: Bunko does not fall through to an old inline password when it fails or returns no credentials. Helper executables must be on the Bunko process's `PATH`. Containers and CI runners need their own configuration and helper installation; a host login alone does not configure a container.
 
-Bunko caches credential lookups during an invocation and asks the provider again during authentication refresh. Helpers can obtain fresh credentials; an expired token stored in `auths` needs a new login. Bunko does not automatically discover ambient AWS, Google, Azure, or GitHub credentials without a configured helper or login. Keep the current provider precedence when migrating from ko's built-in keychains.
+Bunko caches credential lookups during an invocation and asks the provider again during authentication refresh. Helpers can obtain fresh credentials; an expired token stored in `auths` needs a new login. Ambient credential discovery is opt-in: `--auth-source aws`, `google`, or `github` enables the supported native identity paths described below. The default remains Docker-compatible configuration; Azure and unsupported identity paths require a configured helper or login. Keep the current provider precedence when migrating from ko's built-in keychains.
 
 ## GitHub Container Registry
 
@@ -115,6 +115,18 @@ On GKE or Cloud Build, grant the workload identity access to the intended Artifa
 `google-github-actions/auth` does not automatically populate `GOOGLE_OAUTH_ACCESS_TOKEN`. Configure its `token_format: access_token`, then explicitly pass `${{ steps.auth.outputs.access_token }}` as this environment variable to the build step. Keep generated credential files outside build inputs (or exclude them). See the [Action's documented token outputs](https://github.com/google-github-actions/auth).
 
 The build and rebase Actions accept `auth-sources`. They do not export credentials globally or automatically expose `${{ github.token }}`; pass token environment variables in the caller. The independently versioned setup Action remains responsible for installation.
+
+### AWS ECR
+
+Enable `--auth-source aws` for private ECR account/region hosts or `public.ecr.aws`. Source order is static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` with optional `AWS_SESSION_TOKEN`, then `AWS_WEB_IDENTITY_TOKEN_FILE` with `AWS_ROLE_ARN` (IRSA), then container credentials (ECS task roles/EKS Pod Identity), then IMDSv2. Partially configured or failed identities stop the chain. `AWS_EC2_METADATA_DISABLED=true` disables the final metadata path. Profiles, SSO, credential_process, FIPS/dual-stack registry aliases and IMDSv1 are unsupported; use the official Docker credential helper for those configurations.
+
+Private ECR derives region/account/partition from the destination hostname. ECR Public uses `us-east-1` and requires both `ecr-public:GetAuthorizationToken` and `sts:GetServiceBearerToken`, plus repository operation permissions. Returned credentials are cached until near expiry and refresh re-reads projected identity token files. Short-lived environment credentials cannot renew themselves. AWS access keys and web-identity tokens are never sent to registry hosts; registries receive the ECR authorization token.
+
+`AWS_ENDPOINT_URL_STS`, `AWS_ENDPOINT_URL_ECR` and `AWS_ENDPOINT_URL_ECR_PUBLIC` are explicit service endpoint overrides. They require HTTPS, except HTTP loopback addresses for local emulators. Overrides are trust decisions and receive credentials/signatures; generic endpoint overrides are not consumed. Container credential HTTP endpoints are restricted to loopback and the documented ECS/EKS link-local addresses; HTTPS endpoints are explicit operator configuration. Redirects are rejected. Proxy settings are bypassed for metadata/container credential requests. IMDSv2 always uses its fixed link-local endpoint.
+
+On EKS configure the Job's service account for IRSA or Pod Identity, use a container version containing this feature, and pass `--auth-source aws`. No helper, AWS CLI or Docker daemon is needed for supported identity paths. A standard CLI container cannot prove IAM configuration. [Live private ECR acceptance](validation/aws-registry-credentials.md) verifies native authorization and registry push/pull with a local temporary session and a dedicated GitHub OIDC role, including native STS exchange. Deployed EKS IRSA/Pod Identity acceptance remains pending. Account-free tests verify protocol handling and signature vectors, not AWS authorization or deployed workload identity.
+
+References: [container credentials](https://docs.aws.amazon.com/sdkref/latest/guide/feature-container-credentials.html), [ECR authorization](https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_GetAuthorizationToken.html), [ECR Public](https://docs.aws.amazon.com/AmazonECRPublic/latest/APIReference/API_GetAuthorizationToken.html).
 
 ### Podman configuration
 

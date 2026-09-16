@@ -138,7 +138,10 @@ export class Publisher {
             body: bytes,
           }, [this.scope]);
           await response.body?.cancel();
-          if (response.status !== 202) throw new Error("Registry did not accept upload chunk");
+          // Private ECR returns 201 for accepted PATCH chunks. This is not blob
+          // completion: retain the upload location and require the final digest PUT.
+          const ecrChunk = response.status === 201 && /^\d{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/.test(host);
+          if (response.status !== 202 && !ecrChunk) throw new Error("Registry did not accept upload chunk");
           location = this.location(response, location);
           offset = end;
           failures = 0;
