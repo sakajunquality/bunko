@@ -13,7 +13,7 @@ The default keyless service is Sigstore public good. Signing records image repos
 
 ## Identity and verification
 
-On GitHub Actions, grant `id-token: write` and configure registry write credentials. Bunko forwards the request URL/token only for keyless signing. Additional provider paths are implemented but have not been validated against live provider services. These include Buildkite's agent identity, explicit tokens via `SIGSTORE_ID_TOKEN`, `CI_JOB_JWT_V2`, or `--sign-identity-token @FILE`. A literal token is supported but shell history/process inspection can expose CLI arguments; prefer environment or a file. Bunko rejects unavailable identity before publishing instead of launching an interactive browser. Google credential files do not automatically select an OIDC provider; obtain an identity token separately and supply it explicitly. Unconfigured GCE metadata identity is not automatically selected.
+On GitHub Actions, grant `id-token: write` and configure registry write credentials. Bunko forwards the request URL/token only for keyless signing. Additional provider paths are implemented but have not been validated against live provider services. These include Buildkite's agent identity, explicit tokens via `SIGSTORE_ID_TOKEN` or `--sign-identity-token @FILE`. A literal token is supported but shell history/process inspection can expose CLI arguments; prefer environment or a file. Bunko rejects unavailable identity before publishing instead of launching an interactive browser. Google credential files do not automatically select an OIDC provider; obtain an identity token separately and supply it explicitly. Unconfigured GCE metadata identity is not automatically selected.
 
 Explicit token files and profile files are excluded from application snapshots. Tokens are frozen into mode-0600 temporary files for cosign and removed after execution. Captured cosign output is bounded and never printed; failures contain fixed diagnostic categories. Reports/provenance contain signing mode, public/custom service, configured tlog policy and optional profile digest. They do not contain tokens, certificate values, or a claimed verified subject/issuer. These records describe intended signing configuration; inspect completion status and independently verify signatures.
 
@@ -61,3 +61,19 @@ On September 16, 2026, [GitHub Actions staging validation](https://github.com/sa
 The staging signing configuration and trusted root came from `sigstore/root-signing-staging` commit `4493975f1fc41ca6d7f558454947d61365335675`, in `targets/signing_config.v0.2.json` and `targets/trusted_root.json`. The TSA-only case explicitly removed Rekor endpoints and their selection policy. The temporary branch-push trigger used for pre-merge validation was removed afterward; subsequent runs require manual dispatch and the repository's staging environment controls.
 
 This establishes the GitHub Actions provider and staging service paths. It does not certify public production services, Buildkite, Google-issued explicit tokens, or every custom Sigstore deployment. Staging trust material and service availability can change; review the configured trust before rerunning.
+
+
+`--sign-identity-token @FILE` supports Kubernetes projected-volume symlinks. Bunko resolves the selected file, validates the opened target as a regular file, reads at most 64 KiB, and excludes both the supplied path and resolved target from build inputs. A signing operation freezes its token; a later operation observes rotation. Directories, devices, broken links, and oversized files fail before publication. Empty `SIGSTORE_ID_TOKEN` is treated as absent so GitHub/Buildkite discovery can continue; an explicitly empty CLI token remains an error.
+
+GitLab removed `CI_JOB_JWT_V2` in 17.0. Configure an [ID token](https://docs.gitlab.com/ci/cloud_services/) with the audience required by your Sigstore issuer instead:
+
+```yaml
+sign:
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - bunko build . --repo "$IMAGE_REPOSITORY" --sign keyless
+```
+
+The legacy variable is no longer discovered automatically. Provider-side issuer and identity trust must still be configured for the selected Sigstore service.

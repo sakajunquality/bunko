@@ -1,5 +1,6 @@
+import { constants } from "node:fs";
 import { type CredentialProvider } from "../oci/credentials.ts";
-import { lstat, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, open, realpath, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "../runtime/invocation.ts";
@@ -24,6 +25,24 @@ async function bytes(path: string, limit: number): Promise<Uint8Array> {
     if (!info.isFile() || info.size > limit) throw new Error();
     const data = await readFile(path); if (data.length > limit) throw new Error(); return data;
   } catch { throw new Error("Signing input must be a bounded regular file"); }
+}
+/** Follow projected-token symlinks, then validate and bound reads from the opened file. */
+async function identityFile(path: string): Promise<{ token: string; target: string }> {
+  let file;
+  try {
+    const target = await realpath(path);
+    file = await open(target, constants.O_RDONLY | constants.O_NONBLOCK);
+    if (!(await file.stat()).isFile()) throw new Error();
+    const data = Buffer.alloc(64 * 1024 + 1); let length = 0;
+    while (length < data.length) {
+      const { bytesRead } = await file.read(data, length, data.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length === data.length) throw new Error();
+    return { token: new TextDecoder("utf-8", { fatal: true }).decode(data.subarray(0, length)).trim(), target };
+  } catch { throw new Error("Signing identity must resolve to a bounded regular file"); }
+  finally { await file?.close(); }
 }
 function json(data: Uint8Array): Record<string, unknown> {
   try { return object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(data)), "Signing configuration"); }
@@ -61,8 +80,8 @@ export async function prepareSigning(options: SigningOptions): Promise<PreparedS
   if (tlog && profile && !profile.tlog) throw new Error("A TSA-only profile requires explicit --sign-tlog=false");
   if (!tlog && (!profile?.tsa || profile.tlog)) throw new Error("Disabling keyless tlog requires a custom config with TSA and no Rekor services");
   const paths = [...profile?.paths ?? []];
-  let token = options.signIdentityToken ?? process.env.SIGSTORE_ID_TOKEN ?? process.env.CI_JOB_JWT_V2;
-  if (options.signIdentityToken?.startsWith("@")) { const path = resolve(options.signIdentityToken.slice(1)); token = Buffer.from(await bytes(path, 64 * 1024)).toString().trim(); paths.push(path); }
+  let token = options.signIdentityToken ?? (process.env.SIGSTORE_ID_TOKEN || undefined);
+  if (options.signIdentityToken?.startsWith("@")) { const path = resolve(options.signIdentityToken.slice(1)); const identity = await identityFile(path); token = identity.token; paths.push(path, ...identity.target === path ? [] : [identity.target]); }
   if (token !== undefined && (!token || token.length > 64 * 1024 || /\s/.test(token))) throw new Error("Invalid explicit identity token");
   const provider = !token ? process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ? "github-actions"
     : process.env.BUILDKITE_AGENT_ACCESS_TOKEN ? "buildkite-agent" : undefined : undefined;
