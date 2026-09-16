@@ -358,3 +358,12 @@ Version 0.4.0 also rejects explicitly selected credential/internal names (such a
 ## Node runtime output
 
 `runtime.kind` defaults to Bun; `node` selects Node execution with the same Bun build and dependency toolchain. Node supports bundled ESM and JavaScript source with glibc/musl bases. Compile, type stripping and runtime injection are unsupported. See [Node runtime support](NODE_RUNTIME.md) for the configuration, static guard, cache identity, declared-version inventory and rebase contracts.
+
+
+## Registry credential sources
+
+Docker-compatible configuration remains the default. `--auth-source` (repeatable or comma-separated) replaces `BUNKO_AUTH_SOURCES`; explicit chains may select `docker`, `github`, `google`, and `podman`. Sources are evaluated in order for the exact registry host. A selected identity is authoritative: failures do not silently switch accounts, and an empty selected helper result allows anonymous access without trying another source. Expiring credentials refresh through the same source. Offline operations do not acquire cloud credentials.
+
+`auth-check REGISTRY [--scope repository:NAME:pull,push]` probes authentication through the normal registry client and reports redacted JSON. It never claims repository authorization from a successful `/v2/` probe. `doctor` remains offline.
+
+`login REGISTRY --username USER --password-stdin [--config FILE]` updates local Docker-compatible credentials, or stores them through the selected helper. `login REGISTRY --helper NAME` registers a helper without acquiring credentials. `logout REGISTRY [--config FILE]` erases the selected helper secret and inline aliases while preserving helper selection policy. These commands do not contact the registry or revoke remote credentials. Configuration updates preserve unrelated keys, use private atomic writes, and reject unsafe links or concurrent edits. See [registry authentication](REGISTRY_AUTH.md) for provider boundaries and operational limitations.

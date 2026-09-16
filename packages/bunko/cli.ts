@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { registryCredentials } from "../oci/credential-sources.ts";
+import { credentialLogin, passwordFromStdin } from "../oci/credential-config.ts";
 import { authCheck } from "./auth-check.ts";
 import { verifyKeylessImage } from "./keyless.ts";
 import { runInvocation } from "../runtime/invocation.ts";
@@ -74,6 +75,9 @@ Usage:
   bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
   bunko verify <image@digest> [--verify-key <public-key> | certificate constraints]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
+  bunko login <registry-host> --username <user> --password-stdin [--config FILE]
+  bunko login <registry-host> --helper <name> [--config FILE]
+  bunko logout <registry-host> [--config FILE]
   bunko auth-check <registry-host> [--auth-source docker,github] [--scope repository:org/app:pull]
   bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
   bunko why <package> [path] [--target <name/path>] [--json]
@@ -280,6 +284,7 @@ export async function main(argv: string[]): Promise<number> {
       sbom: { type: "boolean" },
       "sbom-evidence": { type: "boolean" },
       provenance: { type: "boolean" },
+      config: { type: "string" }, username: { type: "string" }, "password-stdin": { type: "boolean" }, helper: { type: "string" },
       "auth-source": { type: "string", multiple: true }, scope: { type: "string" },
       sign: { type: "string" },
       "sign-identity-token": { type: "string" }, "sigstore-config": { type: "string" }, "sign-tlog": { type: "boolean" },
@@ -343,6 +348,13 @@ export async function main(argv: string[]): Promise<number> {
     if (values["tag-conflict"] !== undefined && !["fail", "skip"].includes(values["tag-conflict"])) throw new Error("Tag conflict policy must be fail or skip");
     const tagConflict = values["tag-conflict"] as "fail" | "skip" | undefined;
     if (values["module-locations"] !== undefined && !["warn", "error"].includes(values["module-locations"])) throw new Error("--module-locations must be warn or error");
+    if (command === "login" || command === "logout") {
+      if (positionals.length !== 2) throw new Error(`${command} requires one registry host`);
+      if (command === "login" && (values.helper ? values["password-stdin"] || values.username !== undefined : !values["password-stdin"] || !values.username)) throw new Error("Use --username and --password-stdin, or --helper for registration");
+      const password = values["password-stdin"] ? await passwordFromStdin(Bun.stdin.stream()) : undefined;
+      await credentialLogin(path, { config: values.config, username: values.username, password, helper: values.helper }, command === "logout");
+      process.stdout.write(command === "logout" ? "Credentials removed (remote tokens are not revoked)\n" : values.helper ? "Credential helper configured\n" : "Credentials stored (registry access not verified)\n"); return 0;
+    }
     const tlsConfig = values["registry-config"] ? await registryTLS(values["registry-config"]) : undefined;
     const concurrencyText = values["publish-concurrency"] ?? process.env.BUNKO_PUBLISH_CONCURRENCY;
     if (concurrencyText !== undefined && (!/^\d+$/.test(concurrencyText) || Number(concurrencyText) < 1 || Number(concurrencyText) > 32)) throw new Error("Publication concurrency must be an integer from 1 to 32");
