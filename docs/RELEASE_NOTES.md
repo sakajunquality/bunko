@@ -1,7 +1,14 @@
-# v0.8.3
+# v0.9.0
 
-This patch updates bunko's bundled TypeScript parser from 5.9.3 to 6.0.3. TypeScript 6 retains the JavaScript compiler APIs used for syntax analysis, macro detection, input discovery and module-location diagnostics. TypeScript 7 remains excluded pending the API migration tracked in [#185](https://github.com/sakajunquality/bunko/issues/185).
+This release adds explicit registry credential sources and local credential management while preserving Docker-compatible authentication by default. Enable `github`, `google`, or `podman` with `--auth-source` or `BUNKO_AUTH_SOURCES`; native cloud discovery remains opt-in. `auth-check` reports authentication without claiming repository permissions, and `login`/`logout` safely update local credentials or the selected helper. Build and rebase Actions accept `auth-sources`. Native AWS/ECR authentication is deferred in #198; existing Docker ECR helpers remain supported.
 
-A new [prebuilt application example](https://github.com/sakajunquality/bunko/tree/v0.8.3/examples/prebuilt) demonstrates building with npm or pnpm and packaging the generated JavaScript and static assets with bunko. The resulting image runs with Bun; bunko does not consume npm/pnpm lockfiles or run their build scripts.
+Changes since v0.8.3 also include:
 
-Supported Bun versions and runtime/rebase compatibility boundaries are unchanged. The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; select `version: v0.8.3` explicitly. See the [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.8.3.md).
+- Opt-in SBOM build evidence with package inclusion states and lock checksums. Evidence does not claim tree-shaken code reachability or replace an OS scanner.
+- Expanded rebase operations and safety/acceptance checks. Runtime identity and ABI compatibility boundaries remain enforced; rebase is not a runtime upgrade mechanism.
+- Node runtime images with explicit runtime selection and documented compatibility boundaries.
+- Keyless signing and certificate-identity verification through cosign, with explicit trust and OIDC configuration.
+
+Bun >=1.3.13 <1.5 remains supported. GHCR and Artifact Registry token-based publication were verified; Google workload metadata and AWS workload identity are not certified by those checks. See [registry validation](https://github.com/sakajunquality/bunko/blob/main/docs/validation/registry-credentials.md) and [release evidence](https://github.com/sakajunquality/bunko/blob/main/docs/validation/v0.9.0.md).
+
+The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0. Select `version: v0.9.0` explicitly after publication.

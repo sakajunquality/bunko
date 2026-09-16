@@ -1,5 +1,5 @@
 # Set _BUNKO_IMAGE to a reviewed container digest containing --auth-source.
-# The published 0.8.3 container does not support this example.
+# Requires bunko v0.9.0 or newer.
 # Grant the Cloud Build service account Artifact Registry writer permission.
 steps:
   - name: '${_BUNKO_IMAGE}'

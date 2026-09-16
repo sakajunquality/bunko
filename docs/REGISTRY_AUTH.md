@@ -128,3 +128,25 @@ On EKS configure the Job's service account for IRSA or Pod Identity, use a conta
 
 References: [container credentials](https://docs.aws.amazon.com/sdkref/latest/guide/feature-container-credentials.html), [ECR authorization](https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_GetAuthorizationToken.html), [ECR Public](https://docs.aws.amazon.com/AmazonECRPublic/latest/APIReference/API_GetAuthorizationToken.html).
 
+### Podman configuration
+
+Enable `--auth-source podman` explicitly. `REGISTRY_AUTH_FILE` selects a single authoritative file; otherwise Linux checks `$XDG_RUNTIME_DIR/containers/auth.json` (or `/run/user/UID/containers/auth.json`) then `$XDG_CONFIG_HOME/containers/auth.json` (default `~/.config/containers/auth.json`). On macOS the persistent path is used unless `XDG_RUNTIME_DIR` is configured. Add `docker` explicitly to the source list if Docker fallback is desired.
+
+The source accepts host-level Docker-compatible `auths` and credential helpers. Repository-scoped Podman entries are rejected for that host rather than broadened into host-wide credentials; the current registry credential interface does not carry a repository scope. Missing explicitly selected files, malformed entries and failed helpers stop the chain.
+
+## Store and remove credentials
+
+These commands configure local credentials without contacting the registry; successful login does not prove authorization. Password arguments are deliberately unsupported.
+
+```sh
+printf '%s' "$TOKEN" | bunko login ghcr.io --username USER --password-stdin
+bunko login 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com --helper ecr-login
+bunko logout ghcr.io
+```
+
+`--config FILE` overrides the selected Docker configuration file. Otherwise the normal `BUNKO_DOCKER_CONFIG`, `DOCKER_CONFIG`, home-directory precedence applies. Other configuration keys and unrelated registries are preserved. Inline credentials are base64-encoded, **not encrypted**. Writes use an exclusive advisory lock, mode-0600 temporary file and same-directory atomic rename. Existing symlinks, hard links, read-only and malformed files are rejected. A stale `.bunko-lock` must be removed manually only after confirming that no writer remains. Only cooperating bunko writers are serialized. External Docker/Podman writers do not honor this lock; detected concurrent content changes abort the update, but a change between the final comparison and rename can still be overwritten. Do not run other credential writers concurrently against this file.
+
+If a helper or global credential store is selected, login uses its `store` operation instead of writing an ignored inline password. Logout runs `erase` before removing inline aliases; per-host helper mappings and global store policy remain authoritative. Helper failures leave the configuration unchanged and never expose helper output. `login --helper NAME` replaces host-specific helper aliases and clears stale inline credentials, using Docker's canonical Docker Hub server key when applicable; it does not acquire cloud credentials or accept a password. Configure that helper's identity externally. Helper and filesystem writes cannot form one transaction: if a helper succeeds but a later file update fails, bunko reports the completed helper operation explicitly; inspect the configuration and retry.
+
+Logout removes locally stored credentials; it does not revoke the remote token or unset ambient credential environment variables. An enabled GitHub/Google source can still authenticate afterward. Use a writable config path for login/logout when the CLI container mounts its normal Docker configuration read-only.
+

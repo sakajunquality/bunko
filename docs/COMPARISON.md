@@ -42,3 +42,5 @@ BuildKit capabilities depend on frontend, exporter, worker and configuration. Bu
 ### Runtime selection
 
 Bunko can build with Bun and execute on Bun (default) or Node. Node supports bundled ESM and prebuilt JavaScript source on glibc/musl bases; signed runtime injection and compile remain Bun-only. See [Node runtime](NODE_RUNTIME.md).
+
+Registry credentials retain Docker-compatible defaults, with opt-in host-bound GitHub, Google and Podman sources. See [registry authentication](REGISTRY_AUTH.md) for supported identity flows, helper precedence, local login/logout, and limits of authentication probes.

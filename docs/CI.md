@@ -12,25 +12,24 @@ steps:
       persist-credentials: false
   - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
     with:
-      version: v0.8.3
+      version: v0.9.0
       bun-version: 1.4.2
-  - name: Authenticate to GHCR
+  - uses: sakajunquality/bunko/build@5d140475499615246998df479276e50e5b0f006d # v0.9.0
     env:
-      GHCR_TOKEN: ${{ github.token }}
-    run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-  - uses: sakajunquality/bunko/build@ab6d35eb7c39369b1c2491c4b94c20e656b4548b
+      GITHUB_TOKEN: ${{ github.token }}
     id: image
     with:
       path: .
       repo: ghcr.io/${{ github.repository_owner }}/applications
       platforms: linux/amd64,linux/arm64
       push: 'true'
+      auth-sources: github
       targets: |
         services/api
         services/worker
 ```
 
-For pull requests without publication, omit `repo`, `push` and write permissions. The default is `push: 'false'`, and the Action exports a local OCI layout. Upload `${{ steps.image.outputs.layout }}` and `${{ steps.image.outputs.report }}` with your artifact retention policy. Reports may be absent for failures before build preparation; upload with an explicit missing-file policy. A re-run on the same runner path replaces an earlier report atomically; a failure before report creation leaves the earlier file, so the process exit code is authoritative: neither an existing file nor a success status proves this invocation succeeded. Build scripts do not require a Docker daemon. The authentication example uses Docker's credential configuration, not its daemon.
+For pull requests without publication, omit `repo`, `push` and write permissions. The default is `push: 'false'`, and the Action exports a local OCI layout. Upload `${{ steps.image.outputs.layout }}` and `${{ steps.image.outputs.report }}` with your artifact retention policy. Reports may be absent for failures before build preparation; upload with an explicit missing-file policy. A re-run on the same runner path replaces an earlier report atomically; a failure before report creation leaves the earlier file, so the process exit code is authoritative: neither an existing file nor a success status proves this invocation succeeded. Build scripts do not require a Docker daemon. The authentication example passes the workflow token explicitly to the opt-in GitHub source.
 
 The `images` output is a JSON array containing every selected target, its root digest and a published reference when available. `digest` and `reference` are populated only for exactly one target; they are empty for multi-target builds. `report` points to the detailed build report. `image-refs` is the successful immutable reference file for published builds. `layout` is set for local-only builds or when `export-layout: 'true'` is requested. `cache-hit`, `cache-key` and `cache-matched-key` describe the GitHub Actions cache when `cache: github` is set. Publishing without layout export avoids writing an exported layout; build-time base filesystem validation still reads the selected base layers. Failed builds expose no successful image outputs; the report, when written, retains the underlying failure/partial-publication state.
 
