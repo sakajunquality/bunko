@@ -168,7 +168,8 @@ export class RegistryClient {
       const origin = new URL(url).origin;
       const tls = options.tls?.[origin];
       throwIfCancelled();
-      return transport(url, { ...init, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
+      // Never let ambient Bun fetch diagnostics print registry or token-service credentials.
+      return transport(url, { ...init, verbose: false, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
     };
     this.credentials = options.credentials ?? registryCredentials();
     const configured = options.authOrigins === undefined ? undefined : registryAuthOrigins(options.authOrigins)[registryHost(registry)];
