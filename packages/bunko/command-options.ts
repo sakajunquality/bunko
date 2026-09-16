@@ -9,6 +9,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const closure = "target platform deps-strategy shared-deps bun-path install-cache cache local-cache json";
   const allowed: Record<string, string> = {
     build: `offline ${build} ${signing} deps-artifact`, resolve: `${build} ${signing} ${input}`, apply: `${build} ${signing} ${input} ${kube}`,
+    login: "username password-stdin helper config", logout: "config",
     "auth-check": "auth-source scope registry-config insecure-registry",
     "cache-info": "cache-dir",
     "base-status": "targets base-tag old-base platform compatibility-policy json registry-mirror insecure-registry registry-config",
