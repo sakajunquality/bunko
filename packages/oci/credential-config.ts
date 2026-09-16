@@ -82,7 +82,7 @@ export async function credentialLogin(input: string, options: LoginOptions, logo
     }
     for (const key of Object.keys(auths)) if (sameHost(key, registry)) delete auths[key];
     if (options.helper !== undefined) for (const key of Object.keys(helpers)) if (sameHost(key, registry)) delete helpers[key];
-    if (options.helper !== undefined) helpers[registry] = options.helper;
+    if (options.helper !== undefined) helpers[server] = options.helper;
     else if (!logout && !selected) auths[server] = { auth: Buffer.from(`${options.username}:${options.password}`).toString("base64") };
     config.auths = auths;
     if (config.credHelpers !== undefined || options.helper !== undefined) config.credHelpers = helpers;

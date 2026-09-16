@@ -114,3 +114,12 @@ test("a failed configuration commit reports the completed helper operation witho
     expect(await readFile(config, "utf8")).toBe('{"external":true}');
   }
 });
+
+
+test("Docker Hub helper registration uses Docker CLI's canonical server key", async () => {
+  const config = await file(); await credentialLogin("docker.io", { config, helper: "test" });
+  expect(JSON.parse(await readFile(config, "utf8")).credHelpers).toEqual({ "https://index.docker.io/v1/": "test" });
+  let server: string | undefined;
+  expect(await registryCredentials(["docker"], { env: { BUNKO_DOCKER_CONFIG: config }, helper: async (_helper, value) => { server = value; return { username: "u", password: "p" }; } })("registry-1.docker.io")).toMatchObject({ username: "u" });
+  expect(server).toBe("https://index.docker.io/v1/");
+});
