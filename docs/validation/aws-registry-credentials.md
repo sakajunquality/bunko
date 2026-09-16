@@ -23,6 +23,15 @@ Private ECR returned HTTP 201 for accepted PATCH chunks, rather than the Distrib
 
 Regression coverage in `test/registry-recovery.test.ts` verifies multiple ECR chunks, final digest completion and rejection of PATCH 201 from an unrelated registry. The standard protocol expects 202: [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-in-chunks).
 
+## GitHub OIDC acceptance
+
+[Workflow run 35157819828](https://github.com/sakajunquality/bunko/actions/runs/35157819828) passed both identity jobs on 2026-09-17. The manual workflow ran from main and checked out reviewed implementation commit `193befbde7819e417d967a4f13ae1553cbfdad7e`. Subsequent changes in this PR only clarify documentation.
+
+- `web-identity`: GitHub supplied an audience-bound OIDC token file; bunko itself called regional STS `AssumeRoleWithWebIdentity`, signed the ECR token request and refreshed both credentials. Explicit request counts verified the native STS path and cached lookups.
+- `environment`: AWS CLI exchanged the GitHub token for a temporary session in the same dedicated role; bunko consumed the three environment credential values and performed its own ECR authorization. No Docker credential helper or `docker login` was used.
+
+Both jobs passed 24 MiB synthetic-layer publication, digest/size-verified pull, blob reuse, a real CLI build of `examples/hello`, and private-base inspection through the CLI. They used the dedicated repository-scoped role rather than the local administrative session. No long-lived AWS credentials were stored in GitHub. The workflow verifies a fixed implementation SHA; future implementation changes require a reviewed pin update before acceptance is rerun.
+
 ## Remaining live acceptance
 
-This local session does not prove the GitHub OIDC trust policy or its restricted role permissions. GitHub OIDC to STS and private ECR publication with the dedicated role remain pending. Deployed EKS IRSA, EKS Pod Identity, EC2 IMDSv2 and ECR Public are also not certified by this result; their current coverage is mocked/protocol-level. Do not describe the local test as a deployed workload identity test.
+Deployed EKS IRSA, EKS Pod Identity, EC2 IMDSv2 and ECR Public are not certified by these results; their current coverage is mocked/protocol-level. The GitHub token-file test verifies the same STS exchange implementation used by IRSA, but does not prove EKS service-account projection or cluster IAM configuration.
