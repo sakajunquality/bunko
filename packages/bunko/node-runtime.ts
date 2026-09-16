@@ -8,7 +8,18 @@ export function runtimeKind(value: unknown): "bun" | "node" {
   return value;
 }
 /** Select a declared major, not a verified version of arbitrary base contents. */
-export function nodeMajor(value: unknown, engine?: unknown): string {
+export function nodeMajor(value: unknown, engine?: unknown, base?: string, layout?: string): string {
+  let inferred: string | undefined;
+  if (base && !layout) {
+    const ref = parseReference(base);
+    if (ref.registry === "registry-1.docker.io" && ref.repository === "library/node") inferred = /^(\d+)(?:[.-]|$)/.exec(ref.reference)?.[1];
+    if (ref.registry === "gcr.io") inferred = /^distroless\/nodejs(\d+)-debian\d+$/.exec(ref.repository)?.[1];
+  }
+  if (inferred && !["22", "24"].includes(inferred)) throw new Error("Selected Node base major is unsupported; use 22 or 24");
+  if (inferred && value !== undefined && value !== inferred) throw new Error("runtime.node conflicts with the selected Node base major");
+  if (inferred && engine !== undefined && (typeof engine !== "string" || !Bun.semver.satisfies(`${inferred}.0.0`, engine))) throw new Error("Node base major conflicts with engines.node; select a matching base");
+  if (value === undefined && inferred) return inferred;
+
   if (value !== undefined) {
     if (value !== "22" && value !== "24") throw new Error("runtime.node must be the supported major 22 or 24");
     return value;
@@ -18,6 +29,7 @@ export function nodeMajor(value: unknown, engine?: unknown): string {
     for (const major of ["24", "22"]) if (Bun.semver.satisfies(`${major}.0.0`, engine)) return major;
     throw new Error("Cannot select a Node major from engines.node; set runtime.node explicitly and verify the base version");
   }
+  if (base || layout) throw new Error("Custom or unversioned Node bases require runtime.node or a supported engines.node range");
   return "24";
 }
 export function nodeBase(major: string, libc: Libc): string { return libc === "musl" ? `node:${major}-alpine` : `gcr.io/distroless/nodejs${major}-debian13`; }

@@ -308,7 +308,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (build.target !== undefined && build.target !== kind) throw new Error("build.target must match runtime.kind");
   if (kind === "node" && (mode === "compile" || options.runtimeInject || runtime.inject || runtime.bunPath !== undefined)) throw new Error("Node runtime does not support compile, runtime injection or runtime.bunPath");
   if (kind === "bun" && (runtime.node !== undefined || runtime.nodePath !== undefined)) throw new Error("runtime.node and runtime.nodePath require runtime.kind node");
-  const nodeVersion = kind === "node" ? nodeMajor(runtime.node, object(manifest.engines ?? {}, "engines").node) : undefined;
+  const nodeVersion = kind === "node" ? nodeMajor(runtime.node, object(manifest.engines ?? {}, "engines").node, options.base ?? process.env.BUNKO_DEFAULT_BASE ?? optionalString(config.base, "base"), options.baseLayout) : undefined;
 
   const runtimeCAs = strings(runtime.caCertificates, "runtime.caCertificates").map((path) => relativePath(path, "runtime CA path"));
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
