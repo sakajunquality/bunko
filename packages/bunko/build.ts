@@ -1,3 +1,4 @@
+import { prepareSigning, signingMode, signConfiguredImages, type PreparedSigning, type SigningMetadata } from "./keyless.ts";
 import { checkNodeApplication, checkNodeDependencyLayer } from "./node-syntax.ts";
 import { nodeBase, assertNodeExecutable } from "./node-runtime.ts";
 import { buildEvidence } from "./sbom-evidence.ts";
@@ -79,6 +80,7 @@ export interface PlatformResult {
   baseDigest: Digest; inventory: InventoryEntry[]; native: NativeBinary[];
 }
 export interface BuildResult {
+  signing?: SigningMetadata;
   schemaVersion: 2;
   defaultEntrypoint?: string;
   builder?: Awaited<ReturnType<typeof builderIdentity>>;
@@ -191,6 +193,7 @@ function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndecla
 }
 
 interface BuildContext {
+  signing?: PreparedSigning;
   mappedAssets: Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>;
   syntax: SyntaxCache;
   toolchainDigest: Digest;
@@ -233,7 +236,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const timestamp = epoch();
   const project = context.project;
   const push = options.local || options.kind ? false : options.push ?? (!output && !archive);
-  if (options.signKey && !push) throw new Error("Signing requires registry publication");
+  if (signingMode(options) && !push) throw new Error("Signing requires registry publication");
   const repo = options.repo ?? process.env.BUNKO_REPO;
   if (push && !repo) throw new Error("Registry push requires --repo or BUNKO_REPO");
   if (!push && !output && !archive && !options.local && !options.kind && !options.dryRun) throw new Error("--push=false requires --oci-layout, --tarball, --local, or --kind");
@@ -581,6 +584,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const root = options.noIndex ? first.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, annotations: { ...project.annotations, ...baseAnnotations(pinned.descriptor.digest) }, manifests: images.map((image) => ({ ...image.manifest, platform: image.platform })) }), media.index);
     const localReference = options.local || options.kind ? localImageReference(project.name, root.digest, options.kind) : undefined;
     const result: BuildResult = {
+      ...(context.signing ? { signing: context.signing.metadata } : {}),
       imageRepository: destination ?? `bunko.local/${project.name}`, buildParameters: buildParameters(project),
       schemaVersion: 2, timings, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, target: project.name, targetPath: project.targetPath || ".", layout: options.dryRun ? undefined : output, tarball: options.dryRun ? undefined : archive,
       platform: project.platforms.map((p) => `${p.os}/${p.architecture}`).join(","), root, manifest: first.manifest, config: first.config,
@@ -590,7 +594,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const attestations: Artifact[] = [];
     if (options.sbom) for (const image of images) attestations.push(await artifact(store, image.manifest, sbomType, spdx(project.name, image, timestamp, { version: toolchain.version, revision: toolchain.revision, embedded: project.mode === "compile" }, options.sbomEvidence ? buildEvidence(image, plan.lock) : undefined)));
     if (options.provenance) attestations.push(await artifact(store, root, provenanceType, provenance(result, plan.lock ? sha256(canonicalJSON(plan.lock)) : undefined)));
-    if (attestations.length || options.signKey) result.supplyChain = { status: "prepared" };
+    if (attestations.length || context.signing) result.supplyChain = { status: "prepared" };
     if (attestations.length) result.attestations = attestations.map(({ subject, manifest }) => ({ subject, manifest }));
     const descriptors = [...attestations.flatMap((item) => [item.manifest, ...item.blobs]), ...bases.flatMap((base) => base.manifest.layers), ...images.flatMap((image) => [...image.layers.map((l) => l.descriptor), image.config, image.manifest])];
     const refName = `${destination ?? `bunko.local/${project.name}`}:${tags[0] ?? "latest"}`;
@@ -618,8 +622,8 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             } else {
               if (result.supplyChain) result.supplyChain.status = "attaching";
               await publishArtifacts(publisher, store, attestations, (publication, elapsedMs) => accumulate(result.publication!, publication, elapsedMs));
-              if (options.signKey && result.supplyChain) result.supplyChain.status = "signing";
-              if (options.signKey) await signImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), options.signKey, options.cosignPath, options.registry?.insecure);
+              if (context.signing && result.supplyChain) result.supplyChain.status = "signing";
+              if (context.signing) await signConfiguredImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), context.signing, options.cosignPath, options.registry?.insecure);
               if (result.supplyChain) result.supplyChain.status = "complete";
             }
           }
@@ -675,10 +679,12 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const jobs = options.jobs ?? 1;
   if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 32) throw new Error("--jobs must be an integer from 1 to 32");
   if ((options.sbom || options.provenance) && (options.local || options.kind || options.tarball) && !options.output) throw new Error("SBOM/provenance output requires an OCI layout or registry-only publication");
-  if (options.signKey && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
-  if (options.signKey && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
-  if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
-  if (options.signKey || options.depsVerifyKey) await assertCosign(options.cosignPath);
+  if (signingMode(options) && options.registry?.tls && Object.keys(options.registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration; publish first and sign with a separately configured cosign client");
+  if (signingMode(options) && (options.push === false || options.local || options.kind || options.tarball || options.dryRun)) throw new Error("Signing requires registry publication and cannot be used with dry-run");
+  if (options.cosignPath && !signingMode(options) && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
+  if (signingMode(options) || options.depsVerifyKey) await assertCosign(options.cosignPath, signingMode(options) === "keyless");
+  const signing = await prepareSigning(options);
+  const signingPaths = await Promise.all((signing?.paths ?? []).map(canonicalOutput));
   const configuration = await configurationPlan(options, single);
   const { discovered, projects, sharedDeps, multiple } = configuration;
   options = configuration.options;
@@ -701,12 +707,12 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const runtimeCAInputs = new Set([...runtimeCertificates.values()].flatMap((value) => value?.files ?? []));
   for (const path of explicitCachePaths) {
     if (cacheDirectory && cacheDirectory !== path && (path.startsWith(`${cacheDirectory}/`) || cacheDirectory.startsWith(`${path}/`))) throw new Error("Explicit cache paths must not contain or be inside the managed cache");
-    for (const other of [output, report, archive, imageRefs, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, signingFile, installCache, assetCache, await runtimeCachePath(options.runtimeCache), ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), ...runtimeCAInputs, ...(installCertificate?.files ?? [])]) {
+    for (const other of [output, report, archive, imageRefs, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, signingFile, ...signingPaths, installCache, assetCache, await runtimeCachePath(options.runtimeCache), ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), ...runtimeCAInputs, ...(installCertificate?.files ?? [])]) {
       if (other && (path === other || path.startsWith(`${other}/`) || other.startsWith(`${path}/`))) throw new Error("Explicit cache paths overlap another input, output or cache");
     }
   }
   for (const path of explicitCachePaths) for (const other of explicitCachePaths) if (path !== other && path.startsWith(`${other}/`)) throw new Error("Explicit cache paths must not contain another cache");
-  const exclusions = [...explicitCachePaths, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), assetCache, signingFile, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
+  const exclusions = [...explicitCachePaths, options.baseLayout ? await canonicalOutput(options.baseLayout) : undefined, ...(installCertificate?.files ?? []), ...await Promise.all([network.NODE_EXTRA_CA_CERTS, network.SSL_CERT_FILE].filter((path): path is string => Boolean(path)).map(canonicalOutput)), await runtimeCachePath(options.runtimeCache), assetCache, signingFile, ...signingPaths, ...await Promise.all((options.registry?.sensitivePaths ?? []).map(canonicalOutput)), output, report, archive, imageRefs, cacheDirectory, ...Object.values(options.externalDepsByTarget ?? {}).flatMap((map) => Object.values(map)).concat(Object.values(options.externalDeps ?? {}), Object.values(options.baseSBOMs ?? {})).filter((value) => value.startsWith("layout:")).map((value) => resolve(value.slice(7))), installCache].filter((p): p is string => Boolean(p) && !runtimeCAInputs.has(p!));
   if (exclusions.some((path) => discovered.directory === path || discovered.directory.startsWith(`${path}/`))) throw new Error("Output/cache paths must not contain the source project");
   await assertReportNotInput(report, [
     ...["package.json", "bun.lock", "tsconfig.json", "jsconfig.json", ".npmrc", "bunfig.toml", ".bunkoignore"].map((name) => join(discovered.directory, name)),
@@ -794,7 +800,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
     const cachePersistence = {};
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

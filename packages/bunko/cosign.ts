@@ -5,16 +5,20 @@ import { join } from "node:path";
 
 /** Preserve credential-helper and proxy settings, but not alternate signature
  * destinations or public-service overrides. Never expose raw helper output. */
-export function signingEnvironment(): Record<string, string> {
+export function signingEnvironment(keyless = false): Record<string, string> {
   const env: Record<string, string> = { HOME: homedir(), PATH: process.env.PATH ?? "" };
   const allowed = ["HOME", "PATH", "COSIGN_PASSWORD", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"];
   for (const key of allowed) if (process.env[key] !== undefined) env[key] = process.env[key]!;
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined &&
     /^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key)) env[key] = value;
+  if (keyless) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "BUILDKITE_AGENT_ENDPOINT", "BUILDKITE_AGENT_NAME", "BUILDKITE_JOB_ID"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
   return env;
 }
 
 function diagnostic(stderr: string): string {
+  if (/failed to verify certificate identity|no matching CertificateIdentity/i.test(stderr)) return "certificate identity or issuer constraint mismatch";
+  if (/identity token|oidc|id-token/i.test(stderr)) return "OIDC identity unavailable; check token configuration and Actions id-token: write";
+  if (/fulcio|rekor|timestamp/i.test(stderr)) return "Sigstore service or trust configuration failure";
   if (/x509|certificate|tls handshake/i.test(stderr)) return "TLS trust failure";
   if (/unauthorized|authentication required|access denied|forbidden/i.test(stderr)) return "registry authentication or permission failure";
   if (/no matching signatures|signature verification|invalid signature/i.test(stderr)) return "signature verification failure";
@@ -22,8 +26,8 @@ function diagnostic(stderr: string): string {
   return "check key configuration, registry credentials and cosign compatibility";
 }
 
-export async function cosignCommand(executable: string, args: string[], timeoutMs = 120_000): Promise<string> {
-  const env = signingEnvironment();
+export async function cosignCommand(executable: string, args: string[], timeoutMs = 120_000, keyless = false): Promise<string> {
+  const env = signingEnvironment(keyless);
   let directory: string | undefined;
   try {
     if (args[0] !== "version" && process.env.BUNKO_DOCKER_CONFIG) {
@@ -60,10 +64,11 @@ export async function cosignCommand(executable: string, args: string[], timeoutM
   } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
 }
 
-export async function assertCosign(executable = "cosign"): Promise<void> {
+export async function assertCosign(executable = "cosign", keyless = false): Promise<void> {
   const stdout = await cosignCommand(executable, ["version", "--json"], 10_000);
   let version: unknown;
   try { version = JSON.parse(stdout).gitVersion; } catch { /* Invalid helper output must not be reflected. */ }
   const match = typeof version === "string" && /^v?(\d+)\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/.exec(version);
+  if (keyless && (!match || Number(match[1]) !== 3)) throw new Error("Keyless signing and verification require stable cosign 3.x (validated with 3.1.3)");
   if (!match || Number(match[1]) < 3) throw new Error("Signing and verification require a stable cosign version 3 or newer (validated with 3.1.3)");
 }

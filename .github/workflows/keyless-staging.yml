@@ -1,0 +1,90 @@
+name: Keyless signing (staging)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  keyless:
+    # This acceptance job executes the trusted CLI under test with publication permissions.
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        tlog: ["true", "false"]
+    runs-on: ubuntu-latest
+    environment: sigstore-staging
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Prepare reviewed staging trust
+        env:
+          TLOG: ${{ matrix.tlog }}
+          SIGNING_CONFIG: ${{ vars.SIGSTORE_SIGNING_CONFIG }}
+          TRUSTED_ROOT: ${{ vars.SIGSTORE_TRUSTED_ROOT }}
+        run: |
+          bun -e '
+            const c = JSON.parse(process.env.SIGNING_CONFIG || "null");
+            if (!c) throw new Error("Configure the sigstore-staging environment first");
+            for (const key of ["caUrls", "rekorTlogUrls", "tsaUrls"]) for (const endpoint of c[key] || []) {
+              const u = new URL(endpoint.url);
+              if (u.protocol !== "https:" || !u.hostname.endsWith(".sigstage.dev")) throw new Error("Only Sigstore staging endpoints are permitted");
+            }
+            if (process.env.TLOG === "false") {
+              if (!(c.tsaUrls?.length > 0)) throw new Error("TSA-only validation requires a timestamp authority");
+              c.rekorTlogUrls = [];
+              delete c.rekorTlogConfig;
+            }
+            const dir = process.env.RUNNER_TEMP;
+            await Bun.write(`${dir}/signing-config.json`, JSON.stringify(c));
+            await Bun.write(`${dir}/trusted-root.json`, JSON.stringify(JSON.parse(process.env.TRUSTED_ROOT || "null")));
+            await Bun.write(`${dir}/sigstore.json`, JSON.stringify({schemaVersion:1, signingConfig:"signing-config.json", trustedRoot:"trusted-root.json"}));
+          '
+      - name: Install checksum-verified cosign
+        run: |
+          curl --fail --location --retry 3 https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64 --output "$RUNNER_TEMP/cosign"
+          echo "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71  $RUNNER_TEMP/cosign" | sha256sum --check
+          chmod 755 "$RUNNER_TEMP/cosign"
+      - name: Registry authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build, sign and independently verify
+        env:
+          TLOG: ${{ matrix.tlog }}
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}-keyless-staging/${TLOG}"
+          bun packages/bunko/cli.ts build examples/hello --repo "$repo" --bare --platform linux/amd64 --no-cache \
+            --sign keyless --sign-tlog="$TLOG" --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign" \
+            --sbom --provenance --report "$RUNNER_TEMP/keyless-report.json"
+          ref=$(bun -e 'const r=await Bun.file(process.argv[1]).json(); if(!r.publication?.reference)throw new Error("Missing published reference");console.log(r.publication.reference)' "$RUNNER_TEMP/keyless-report.json")
+          identity="https://github.com/$GITHUB_WORKFLOW_REF"
+          bun packages/bunko/cli.ts verify "$ref" --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"
+          timestamp_flags=()
+          if [[ "$TLOG" == false ]]; then timestamp_flags=(--insecure-ignore-tlog --use-signed-timestamps); fi
+          "$RUNNER_TEMP/cosign" verify "$ref" --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com --trusted-root "$RUNNER_TEMP/trusted-root.json" "${timestamp_flags[@]}" >/dev/null
+          if bun packages/bunko/cli.ts verify "$ref" --certificate-identity "https://github.com/invalid/keyless-identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"; then
+            echo "Verification incorrectly accepted a different certificate identity" >&2
+            exit 1
+          fi
+          if bun packages/bunko/cli.ts verify "$ref" --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://invalid.example.com \
+            --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"; then
+            echo "Verification incorrectly accepted a different OIDC issuer" >&2
+            exit 1
+          fi
+          printf 'Verified staging keyless signature and rejected mismatched identity/issuer: `%s`\n' "$ref" >> "$GITHUB_STEP_SUMMARY"

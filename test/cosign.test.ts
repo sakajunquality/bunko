@@ -34,13 +34,15 @@ test("all signing references are validated before any helper runs", async () => 
 
 test.each([
   ["x509 certificate unknown authority", "TLS trust failure"],
+  ['no matching attestations: failed to verify certificate identity: no matching CertificateIdentity found, last error: expected SAN value "SECRET_IDENTITY"', "certificate identity or issuer constraint mismatch"],
+  ["failed to verify certificate identity: no matching CertificateIdentity found: OIDC issuer did not match SECRET_ISSUER", "certificate identity or issuer constraint mismatch"],
   ["UNAUTHORIZED", "registry authentication or permission failure"],
   ["no matching signatures", "signature verification failure"],
   ["decrypt private key", "key loading or password failure"],
 ])("cosign diagnostics classify %s without reflecting helper text", async (detail, expected) => {
   const executable = await helper(`console.error(${JSON.stringify(`SECRET_TOKEN ${detail}`)}); process.exit(1);`);
   try { await cosignCommand(executable, ["verify"]); throw new Error("Expected failure"); }
-  catch (error) { expect(String(error)).toContain(expected); expect(String(error)).not.toContain("SECRET_TOKEN"); }
+  catch (error) { expect(String(error)).toContain(expected); expect(String(error)).not.toContain("SECRET_TOKEN"); expect(String(error)).not.toContain("SECRET_IDENTITY"); expect(String(error)).not.toContain("SECRET_ISSUER"); }
 });
 
 test("cosign output capture is bounded and deadline or signal termination cannot report success", async () => {
