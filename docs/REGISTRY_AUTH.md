@@ -104,8 +104,7 @@ An absent source can fall through. A configured Docker helper or inline entry is
 
 `bunko auth-check ghcr.io --auth-source github --scope repository:example/app:pull,push` probes `/v2/` and its challenge using the normal origin restrictions. Its JSON identifies the source and credential kind without exposing values. An unchallenged response is reported separately. Authentication success does **not** prove repository pull or push permissions; scopes are requested, not asserted as granted. `doctor` remains offline.
 
-<<<<<<< HEAD
-Signing and verification pass explicitly selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure, without changing the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.
+When non-Docker sources are enabled, signing and verification pass selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure; an uncatchable termination such as SIGKILL can leave a private temporary directory requiring cleanup. Docker-only selection keeps cosign's existing helper behavior. The bridge does not change the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.
 
 ### Google and workload identity
 
@@ -116,8 +115,4 @@ On GKE or Cloud Build, grant the workload identity access to the intended Artifa
 `google-github-actions/auth` does not automatically populate `GOOGLE_OAUTH_ACCESS_TOKEN`. Configure its `token_format: access_token`, then explicitly pass `${{ steps.auth.outputs.access_token }}` as this environment variable to the build step. Keep generated credential files outside build inputs (or exclude them). See the [Action's documented token outputs](https://github.com/google-github-actions/auth).
 
 The build and rebase Actions accept `auth-sources`. They do not export credentials globally or automatically expose `${{ github.token }}`; pass token environment variables in the caller. The independently versioned setup Action remains responsible for installation.
-||||||| c316376
-Signing and verification pass explicitly selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure, without changing the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.
-=======
-When non-Docker sources are enabled, signing and verification pass selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure; an uncatchable termination such as SIGKILL can leave a private temporary directory requiring cleanup. Docker-only selection keeps cosign's existing helper behavior. The bridge does not change the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.
->>>>>>> feat/registry-credentials
+
