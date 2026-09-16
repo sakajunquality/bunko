@@ -1,3 +1,4 @@
+import { signingMode } from "./keyless.ts";
 import { assertCosign } from "./cosign.ts";
 import { validateCacheOptions } from "./cache-options.ts";
 import { supplyChainOptions } from "./policy.ts";
@@ -170,8 +171,8 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
   if (options.jobs !== undefined && (!Number.isSafeInteger(options.jobs) || options.jobs < 1 || options.jobs > 32)) throw new Error("--jobs must be an integer from 1 to 32");
-  if (options.cosignPath && !options.signKey && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
-  if (options.signKey || options.depsVerifyKey) await assertCosign(options.cosignPath);
+  if (options.cosignPath && !signingMode(options) && !options.depsVerifyKey) throw new Error("cosignPath requires signing or dependency verification");
+  if (signingMode(options) || options.depsVerifyKey) await assertCosign(options.cosignPath, signingMode(options) === "keyless");
   const configuredRepo = options.repo ?? process.env.BUNKO_REPO;
   if (configuredRepo !== undefined) repository(options.bare ? configuredRepo : `${configuredRepo}/bunko-validation`);
   if (options.externalDeps) throw new Error("External dependency artifacts require build; resolve needs per-target mappings");

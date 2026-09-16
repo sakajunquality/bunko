@@ -34,7 +34,7 @@ bunko build . --repo ghcr.io/OWNER --sbom --provenance --sign-key /secure/cosign
 bunko verify ghcr.io/OWNER/app@sha256:DIGEST --verify-key /secure/cosign.pub --private-signatures
 ```
 
-Signing explicitly disables cosign's public signing configuration and transparency-log upload. The root, platform manifests, and metadata artifact manifests are each signed by immutable digest. This signs the OCI artifact; it does not create a DSSE-signed in-toto envelope. Verification of private signatures requires the explicit `--private-signatures` option, which skips the public transparency-log requirement. Without it, cosign's normal log verification applies. Use COSIGN_PASSWORD through the environment when the selected key requires it. `--cosign-path` selects an executable.
+Private key signing explicitly disables cosign's public signing configuration and transparency-log upload. The root, platform manifests, and metadata artifact manifests are each signed by immutable digest. This signs the OCI artifact; it does not create a DSSE-signed in-toto envelope. Verification of private signatures requires the explicit `--private-signatures` option, which skips the public transparency-log requirement. Without it, cosign's normal log verification applies. Use COSIGN_PASSWORD through the environment when the selected key requires it. `--cosign-path` selects an executable.
 
 ## Compile and base checks
 
@@ -57,3 +57,7 @@ References: [OCI manifests](https://github.com/opencontainers/image-spec/blob/v1
 ## Metadata extraction and policy
 
 See [Metadata and policy](METADATA.md) for exact-payload export, base SPDX linkage, prepared dependency signature verification, runtime/license coverage, and the opt-in CI profile. The builder artifact/source fingerprint now participates in image identity; using a different CLI bundle or source tree changes image digests even when the version string is identical. Reproducibility comparisons must hold that fingerprint constant.
+
+## Keyless signing
+
+[Keyless signing and verification](KEYLESS_SIGNING.md) add opt-in OIDC identities with Sigstore public good or custom trust. Public keyless signing records repository/digest and certificate identity in Rekor; existing private key signing never uploads to transparency logs.
