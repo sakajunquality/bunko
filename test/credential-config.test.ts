@@ -88,3 +88,29 @@ test("CLI login accepts password stdin and logout removes inline credentials wit
   expect(await logout.exited).toBe(0);
   expect(JSON.parse(await readFile(config, "utf8")).auths).toEqual({});
 });
+
+
+test("repository-scoped Podman helpers are rejected before helper execution", async () => {
+  const config = await file(); await writeFile(config, JSON.stringify({ credHelpers: { "ghcr.io/org/repo": "test" } }));
+  let calls = 0;
+  await expect(registryCredentials(["podman"], { env: { REGISTRY_AUTH_FILE: config }, helper: async () => { calls++; return { username: "u", password: "p" }; } })("ghcr.io")).rejects.toThrow("Repository-scoped");
+  expect(calls).toBe(0);
+});
+
+test("explicit sources reject ambiguous normalized helper and auth entries", async () => {
+  const config = await file();
+  for (const key of ["auths", "credHelpers"]) {
+    const value = key === "auths" ? { auth: "dTpw" } : "test";
+    await writeFile(config, JSON.stringify({ [key]: { "ghcr.io": value, "ghcr.io:443": value } }));
+    for (const source of ["docker", "podman"]) await expect(registryCredentials([source], { env: { BUNKO_DOCKER_CONFIG: config, REGISTRY_AUTH_FILE: config } })("ghcr.io")).rejects.toThrow("Ambiguous");
+  }
+});
+
+test("a failed configuration commit reports the completed helper operation without exposing secrets", async () => {
+  const config = await file();
+  for (const logout of [false, true]) {
+    await writeFile(config, JSON.stringify({ credHelpers: { "ghcr.io": "test" } }));
+    await expect(credentialLogin("ghcr.io", { config, username: "user", password: "SECRET", helperWriter: async () => { await writeFile(config, '{"external":true}'); } }, logout)).rejects.toThrow(`Credential helper ${logout ? "erase" : "store"} completed, but the configuration update did not finish successfully`);
+    expect(await readFile(config, "utf8")).toBe('{"external":true}');
+  }
+});

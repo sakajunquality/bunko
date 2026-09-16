@@ -59,8 +59,13 @@ export async function configuredCredentials(config: Record<string, unknown>, reg
     const matches = (key: string): boolean => {
       try { return (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry; } catch { return false; }
     };
+    const matchingEntry = (entries: Record<string, unknown>): [string, unknown] | undefined => {
+      const found = Object.entries(entries).filter(([key]) => matches(key));
+      if (normalizeHosts && found.length > 1) throw new Error("Ambiguous credential entries for registry");
+      return found[0];
+    };
     const helpers = config.credHelpers === undefined ? {} : object(config.credHelpers, "credHelpers");
-    const perRegistry = Object.entries(helpers).find(([key]) => matches(key))?.[1];
+    const perRegistry = matchingEntry(helpers)?.[1];
     const selected = perRegistry === "" || perRegistry === undefined ? (config.credsStore === "" ? undefined : config.credsStore) : perRegistry;
     if (selected !== undefined) {
       if (typeof selected !== "string" || !/^[a-zA-Z0-9_.-]+$/.test(selected)) throw new Error("Invalid Docker credential helper name");
@@ -68,7 +73,7 @@ export async function configuredCredentials(config: Record<string, unknown>, reg
       return helper(selected, registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry);
     }
     const auths = config.auths === undefined ? {} : object(config.auths, "auths");
-    const entry = Object.entries(auths).find(([key]) => matches(key));
+    const entry = matchingEntry(auths);
     if (!entry) return;
     configured?.();
     const auth = object(entry[1], "Docker auth entry");

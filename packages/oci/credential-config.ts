@@ -27,7 +27,7 @@ async function helperWrite(helper: string, operation: "store" | "erase", input: 
 function sameHost(key: string, host: string): boolean {
   try { return registryHost(credentialHost(key), true) === host; } catch { return false; }
 }
-/** Advisory lock protects bunko writers; replace atomically without following target symlinks. */
+/** Serialize cooperating bunko writers; external edits are detected best-effort, not atomically. */
 export async function editCredentialConfig(file: string, edit: (config: Record<string, unknown>) => Promise<void>): Promise<void> {
   const path = resolve(file), lock = `${path}.bunko-lock`, temporary = `${path}.bunko-${randomUUID()}.tmp`;
   let acquired = false;
@@ -66,7 +66,8 @@ export async function credentialLogin(input: string, options: LoginOptions, logo
   const registry = registryHost(input, true), server = registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry;
   if (!logout && options.helper === undefined && (typeof options.username !== "string" || !options.username || /[:\x00-\x20\x7f]/.test(options.username) || typeof options.password !== "string" || !options.password || Buffer.byteLength(options.password) > 256 * 1024 || /[\x00\r\n]/.test(options.password))) throw new Error("login requires a valid username and a single password from --password-stdin");
   if (options.helper !== undefined) { helperName(options.helper); if (logout || options.username !== undefined || options.password !== undefined) throw new Error("--helper registration cannot be combined with a password or logout"); }
-  await editCredentialConfig(options.config ?? dockerConfigPath(), async (config) => {
+  let completedHelperOperation: "store" | "erase" | undefined;
+  try { await editCredentialConfig(options.config ?? dockerConfigPath(), async (config) => {
     const auths = config.auths === undefined ? {} : object(config.auths, "auths");
     const helpers = config.credHelpers === undefined ? {} : object(config.credHelpers, "credHelpers");
     const matching = Object.entries(helpers).filter(([key]) => sameHost(key, registry));
@@ -76,7 +77,7 @@ export async function credentialLogin(input: string, options: LoginOptions, logo
     if (selected && options.helper === undefined) {
       const helper = helperName(selected), operation = logout ? "erase" : "store";
       const payload = logout ? server : JSON.stringify({ ServerURL: server, Username: options.username, Secret: options.password });
-      try { await (options.helperWriter ?? helperWrite)(helper, operation, payload); }
+      try { await (options.helperWriter ?? helperWrite)(helper, operation, payload); completedHelperOperation = operation; }
       catch { throw new Error("Credential helper operation failed; configuration was not changed"); }
     }
     for (const key of Object.keys(auths)) if (sameHost(key, registry)) delete auths[key];
@@ -85,7 +86,10 @@ export async function credentialLogin(input: string, options: LoginOptions, logo
     else if (!logout && !selected) auths[server] = { auth: Buffer.from(`${options.username}:${options.password}`).toString("base64") };
     config.auths = auths;
     if (config.credHelpers !== undefined || options.helper !== undefined) config.credHelpers = helpers;
-  });
+  }); } catch (error) {
+    if (completedHelperOperation) throw new Error(`Credential helper ${completedHelperOperation} completed, but the configuration update did not finish successfully; inspect the configuration and retry. Helper changes were not rolled back.`);
+    throw error;
+  }
 }
 export async function passwordFromStdin(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader(); const chunks: Uint8Array[] = []; let length = 0;
