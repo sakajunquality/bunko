@@ -1,8 +1,10 @@
 # Registry credential source validation
 
-These changes require a source build or a release containing the new credential sources. Published bunko 0.8.3 does not contain them.
+GitHub, Google, Podman and local login/logout ship in bunko v0.9.0. Native AWS authentication remains deferred in #198.
 
 ## Live acceptance on September 16, 2026
+
+The final AWS-free main commit also passed [GHCR acceptance run 35076186549](https://github.com/sakajunquality/bunko/actions/runs/35076186549), including publication, pull, private-key signing/verification and a nonroot read-only CLI container.
 
 - [GitHub Actions acceptance run](https://github.com/sakajunquality/bunko/actions/runs/35064942508): native `github` source published and pulled an image on GHCR, signed it with an ephemeral private key, and verified it with cosign through bunko's temporary credential bridge. The Docker configuration started empty and remained unwritten. A bundled CLI in a nonroot, read-only Bun container independently pulled the image with the GitHub source. No Docker login or credential helper was used. The temporary branch-push trigger was removed after the run; the retained workflow is manual and restricted to main.
 - Artifact Registry: the native `google` source published the hello fixture and pulled it using an explicit short-lived access token obtained from the existing gcloud identity. gcloud was used only to acquire that token; bunko did not invoke gcloud or a Docker helper. This validates the environment-token path, not GKE/Cloud Build metadata or WIF exchange.
