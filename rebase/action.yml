@@ -28,6 +28,10 @@ inputs:
   sign:
     description: "none, key or keyless; keyless needs workflow id-token: write"
     default: none
+  sign-tlog:
+    description: Keyless transparency log policy (false requires a TSA-only profile)
+    required: false
+    default: ""
   sigstore-config:
     description: Custom Sigstore profile path
     default: ""
@@ -83,6 +87,7 @@ runs:
         BUNKO_INPUT_TAG_CONFLICT: ${{ inputs.tag-conflict }}
         BUNKO_INPUT_TAGS: ${{ inputs.tags }}
         BUNKO_INPUT_SIGN: ${{ inputs.sign }}
+        BUNKO_INPUT_SIGN_TLOG: ${{ inputs.sign-tlog }}
         BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}
         BUNKO_INPUT_SIGN_KEY: ${{ inputs.sign-key }}
         BUNKO_INPUT_SMOKE_COMMAND: ${{ inputs.smoke-command }}

@@ -64,7 +64,7 @@ export async function prepareSigning(options: SigningOptions): Promise<PreparedS
   if (options.signIdentityToken?.startsWith("@")) { const path = resolve(options.signIdentityToken.slice(1)); token = Buffer.from(await bytes(path, 64 * 1024)).toString().trim(); paths.push(path); }
   if (token !== undefined && (!token || token.length > 64 * 1024 || /\s/.test(token))) throw new Error("Invalid explicit identity token");
   const provider = !token ? process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ? "github-actions"
-    : process.env.BUILDKITE_AGENT_ACCESS_TOKEN ? "buildkite-agent" : process.env.GOOGLE_APPLICATION_CREDENTIALS ? "google" : undefined : undefined;
+    : process.env.BUILDKITE_AGENT_ACCESS_TOKEN ? "buildkite-agent" : undefined : undefined;
   if (!token && !provider) throw new Error("No keyless identity: configure Actions id-token: write, an ambient provider, or an explicit identity token");
   return { metadata: { mode, service: profile ? "custom" : "public", tlog, ...(profile ? { configDigest: profile.digest } : {}) }, paths, token, provider, config: profile?.config, root: profile?.root, client: profile?.client };
 }

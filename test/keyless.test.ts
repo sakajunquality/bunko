@@ -111,3 +111,31 @@ test("Actions pass keyless profile options as argv and omit signing during rebas
   const args = rebaseArguments({ ...input, "dry-run": "false" }, "/report"); expect(args).toContain("--sign"); expect(args).toContain("$(literal).json");
   expect(buildArguments({ sign: "keyless", "sigstore-config": "$(literal).json", push: "true", repo: "registry.test/app" }, "/tmp/keyless-action").args).toContain("$(literal).json");
 });
+
+
+test("Google credential files do not select a nonexistent cosign provider", async () => {
+  const names = ["SIGSTORE_ID_TOKEN", "CI_JOB_JWT_V2", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS"];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/unused/credentials.json";
+    await expect(prepareSigning({ sign: "keyless" })).rejects.toThrow("No keyless identity");
+    expect((await prepareSigning({ sign: "keyless", signIdentityToken: "explicit-token" }))?.provider).toBeUndefined();
+  } finally {
+    for (const name of names) if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name];
+  }
+});
+
+test("Actions forward explicit TSA-only policy and retain unspecified signing defaults", async () => {
+  const { buildArguments } = await import("../build/run.ts");
+  const { rebaseArguments } = await import("../rebase/run.ts");
+  const input = { image: "image", "old-base": "old", base: "base", repo: "registry.test/app", sign: "keyless", "smoke-command": '["/app/check"]' };
+  for (const value of ["true", "false"]) {
+    expect(buildArguments({ ...input, "sign-tlog": value }, "/tmp/action").args).toContain(`--sign-tlog=${value}`);
+    expect(rebaseArguments({ ...input, "dry-run": "false", "sign-tlog": value }, "/report")).toContain(`--sign-tlog=${value}`);
+    expect(rebaseArguments({ ...input, "sign-tlog": value }, "/report").some((arg) => arg.startsWith("--sign-tlog"))).toBe(false);
+  }
+  expect(buildArguments(input, "/tmp/action").args.some((arg) => arg.startsWith("--sign-tlog"))).toBe(false);
+  expect(() => buildArguments({ ...input, "sign-tlog": "invalid" }, "/tmp/action")).toThrow("Boolean");
+  expect(() => rebaseArguments({ ...input, "sign-tlog": "invalid" }, "/report")).toThrow("sign-tlog");
+});

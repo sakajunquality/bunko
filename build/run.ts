@@ -22,6 +22,7 @@ export function buildArguments(inputs: Inputs, root: string): { args: string[]; 
   if (inputs.sign && inputs.sign !== "none") args.push("--sign", inputs.sign);
   for (const name of ["sign-key", "sigstore-config"]) if (inputs[name]) args.push(`--${name}`, inputs[name]!);
   for (const name of ["sbom", "provenance"]) if (boolean(inputs[name], false)) args.push(`--${name}`);
+  if (inputs["sign-tlog"]) args.push(`--sign-tlog=${boolean(inputs["sign-tlog"], true)}`);
   if (layout) args.push("--oci-layout", layout);
   if (references) args.push("--image-refs", references);
   if (boolean(inputs.bare, false)) args.push("--bare");

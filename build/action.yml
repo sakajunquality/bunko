@@ -25,6 +25,10 @@ inputs:
   sign-key:
     description: 'Private key path or KMS URI for key signing'
     default: ''
+  sign-tlog:
+    description: Keyless transparency log policy (false requires a TSA-only profile)
+    required: false
+    default: ""
   sigstore-config:
     description: 'Custom Sigstore profile path (keyless only)'
     default: ''
@@ -187,6 +191,7 @@ runs:
         BUNKO_INPUT_EXPORT_LAYOUT: ${{ inputs.export-layout }}
         BUNKO_INPUT_SIGN: ${{ inputs.sign }}
         BUNKO_INPUT_SIGN_KEY: ${{ inputs.sign-key }}
+        BUNKO_INPUT_SIGN_TLOG: ${{ inputs.sign-tlog }}
         BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}
         BUNKO_INPUT_SBOM: ${{ inputs.sbom }}
         BUNKO_INPUT_PROVENANCE: ${{ inputs.provenance }}

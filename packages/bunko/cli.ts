@@ -70,7 +70,7 @@ Usage:
   bunko rebase <image@digest|layout:DIR> --old-base <reference> --base <reference> [--oci-layout <dir> | --repo <repository>]
   bunko prepare-base --base <reference> --oci-layout <dir> [--platform <list>]
   bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
-  bunko verify <image@digest> --verify-key <public-key> [--private-signatures]
+  bunko verify <image@digest> [--verify-key <public-key> | certificate constraints]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
   bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
   bunko why <package> [path] [--target <name/path>] [--json]
