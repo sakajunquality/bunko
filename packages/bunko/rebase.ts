@@ -133,7 +133,7 @@ export async function rebase(options: RebaseOptions) {
         const baseRef = options.baseSBOMs?.[`${platform.os}/${platform.architecture}`];
         const baseDocument = baseRef ? await baseInventory(baseRef, [newBase.descriptor.digest], registry) : undefined;
         inventoryDigests.push(record.payload.digest, ...(baseDocument ? [baseDocument.payload.digest] : []));
-        attachments.push(await artifact(store, outputManifest, sbomType, rebaseSpdx(document, image.descriptor, outputManifest, platform, owned.epoch, baseDocument ? { namespace: String(baseDocument.document.documentNamespace), digest: baseDocument.payload.digest, described: baseDocument.described } : undefined)));
+        attachments.push(await artifact(store, outputManifest, sbomType, rebaseSpdx(document, image.descriptor, outputManifest, platform, owned.epoch, baseDocument ? { namespace: String(baseDocument.document.documentNamespace), digest: baseDocument.payload.digest, described: baseDocument.described } : undefined, { kind: context.runtimeKind ?? "bun", version: image.config.config?.Labels?.["org.bunko.node.version"] })));
       }
       descriptors.push(outputManifest, transformed.config, ...newBase.manifest.layers, ...layers.map((layer) => layer.descriptor));
       results.push({ platform, original: image.descriptor, manifest: outputManifest, config: transformed.config, oldBase: oldBase.descriptor.digest, newBase: newBase.descriptor.digest, preservedLayers: layers.map((layer) => layer.descriptor.digest), policy: compatibility.policy, compatibility });

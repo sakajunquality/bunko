@@ -103,6 +103,7 @@ Options:
   --workdir <path>        Image workdir for pack-deps (default: /app)
   --requirements-report <file>  Compare check-base capabilities with a build report
   --run                  Execute check-base runtime validation through Docker
+  --runtime-kind <bun|node>   Select output runtime (build toolchain remains Bun)
   --runtime-libc <glibc|musl>  Select runtime libc (default glibc)
   --runtime-inject release  Inject a signed official Bun release (requires explicit base and gpgv)
   --runtime-cache <dir>    Verified Bun release download cache
@@ -303,7 +304,7 @@ export async function main(argv: string[]): Promise<number> {
       "cache-export-error": { type: "string" },
       "keep-bytes": { type: "string" },
       "install-cache": { type: "string" }, "asset-cache": { type: "string" },
-      "runtime-libc": { type: "string" }, "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
+      "runtime-kind": { type: "string" }, "runtime-libc": { type: "string" }, "runtime-inject": { type: "string" }, "runtime-cache": { type: "string" },
       top: { type: "string" },
       json: { type: "boolean" },
       "insecure-registry": { type: "string", multiple: true },
@@ -435,7 +436,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === "check-base") {
       if (positionals.length !== 1) throw new Error("Use --base or --base-layout for check-base");
-      const result = await checkBase({ requirementsReport: values["requirements-report"], base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeLibc: values["runtime-libc"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
+      const result = await checkBase({ requirementsReport: values["requirements-report"], base: values.base, baseLayout: values["base-layout"], platform: values.platform, bunPath: values["bun-path"], run: values.run, runtimePath: values["runtime-path"], runtimeKind: values["runtime-kind"], runtimeLibc: values["runtime-libc"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry });
       process.stdout.write(JSON.stringify(result) + "\n");
       return 0;
     }
@@ -496,7 +497,7 @@ export async function main(argv: string[]): Promise<number> {
       kind: values.kind ? values["kind-cluster"] ?? process.env.KIND_CLUSTER_NAME ?? "kind" : undefined,
       cacheDir: values["cache-dir"], cacheRepo: values["cache-repo"], cacheFrom: values["cache-from"], cacheTo: values["cache-to"], cacheWrite: values["cache-write"], cacheExportError: values["cache-export-error"] as "warn" | "fail" | undefined,
       localCache: values.cache && values["local-cache"], registryCache: values.cache && (values.offline && !supplied("registry-cache") ? false : values["registry-cache"]),
-      installCache: values["install-cache"], assetCache: values["asset-cache"], runtimeLibc: values["runtime-libc"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
+      installCache: values["install-cache"], assetCache: values["asset-cache"], runtimeKind: values["runtime-kind"], runtimeLibc: values["runtime-libc"], runtimeInject: values["runtime-inject"], runtimeCache: values["runtime-cache"], registry: registry, dryRun: values["dry-run"],
       path, output: values["oci-layout"], base: values.base,
       baseLayout: values["base-layout"], platform: values.platform,
       bunPath: values["bun-path"], report: values.report,

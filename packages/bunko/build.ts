@@ -1,3 +1,5 @@
+import { checkNodeApplication, checkNodeDependencyLayer } from "./node-syntax.ts";
+import { nodeBase, assertNodeExecutable } from "./node-runtime.ts";
 import { prepareSigning, signingMode, signConfiguredImages, type PreparedSigning, type SigningMetadata } from "./keyless.ts";
 import { buildEvidence } from "./sbom-evidence.ts";
 import { assertBaseLibc, assertNativeLibc } from "./libc.ts";
@@ -62,6 +64,7 @@ import { artifact, publishArtifacts, type Artifact } from "../oci/artifacts.ts";
 import { spdx, provenance, sbomType, provenanceType, signImages, verifyImage } from "./attest.ts";
 
 export interface PlatformResult {
+  nodeRuntime?: { version: string; path: string; verified: false };
   baseCapabilities?: ReturnType<typeof baseCapabilities>;
   runtimeCA?: RuntimeCA;
   runtime?: InjectedRuntime;
@@ -244,7 +247,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const installCache = await installCachePath(options);
   const toolchain = context.toolchain;
-  const baseRef = project.base ?? `oven/bun:${toolchain.version}-${project.runtimeLibc === "musl" ? "alpine" : "distroless"}`;
+  const baseRef = project.base ?? (project.runtimeKind === "node" ? nodeBase(project.nodeVersion!, project.runtimeLibc) : `oven/bun:${toolchain.version}-${project.runtimeLibc === "musl" ? "alpine" : "distroless"}`);
   if (options.reproducible && !options.baseLayout && !/@sha256:[a-f0-9]{64}$/.test(baseRef)) throw new Error("--reproducible requires --base with a sha256 digest, or --base-layout");
   const temporary = await realpath(await mkdtemp(join(tmpdir(), "bunko-")));
   try {
@@ -254,6 +257,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       metric("bunko.base.read.bytes", "By", descriptor.size, { "bunko.source": options.baseLayout ? "layout" : "registry" });
     }, basePlatforms.get(descriptor.digest)));
     const snapshotRoot = context.source;
+    if (project.runtimeKind === "node") await checkNodeApplication(join(snapshotRoot, project.targetPath), Object.values(project.entrypoints ?? { default: project.entrypoint }), project.mode === "source");
     const sourceDigest = context.sourceDigest;
     const plan = context.plan;
     const git = context.git;
@@ -306,6 +310,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     for (const [index, base] of bases.entries()) {
       const tree = await filesystem(base);
       assertBaseWorkdir(tree, project.workdir);
+      if (project.runtimeKind === "node") assertNodeExecutable(tree, project.bunPath);
       assertBaseLibc(tree, project.runtimeLibc, project.platforms[index]!);
     }
     const libraryPath = (base: BaseImage) => project.env.LD_LIBRARY_PATH ?? base.config.config?.Env?.findLast((value) => value.startsWith("LD_LIBRARY_PATH="))?.slice(16) ?? "";
@@ -348,6 +353,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       materialsByIdentity.get(identity)!.platforms.push(`${target.os}/${target.architecture}`);
     }
     const assetMaterials = [...materialsByIdentity.values()];
+    const validatedNodeLayers = new Set<Digest>();
     const records: CacheRecord[] = [];
     const plans: ClosurePlanRecord[] = [];
     async function runBuild(iteration: number): Promise<PlatformResult[]> {
@@ -438,7 +444,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             noteOmittedAddons(content.omitted.length);
             const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination,
               strategy: closureStrategy, entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
-              toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: project.runtimeLibc, scripts: false });
+              toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: project.runtimeLibc, scripts: false, ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}) });
             // A plan candidate that already resolved this exact key needs no second lookup or event.
             const hit = attemptedDeps.has(key) ? attemptedDeps.get(key) : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
             depsEntries = content.entries;
@@ -467,7 +473,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           compileRuntime: compileRuntimes[index]?.metadata, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
-        const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, project.mode === "source" ? join(project.targetPath, path) : path.replace(/\.[^.]+$/, ".js")])) : undefined;
+        const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, project.mode === "source" ? join(project.targetPath, path) : path.replace(/\.[^.]+$/, project.runtimeKind === "node" ? ".mjs" : ".js")])) : undefined;
         const appHit = await cache.get(appKey, "app", options.appCache === false || options.verifyDeterministic, { destination: project.workdir, platform, ...(namedOutputs ? { application: { entry: namedOutputs[project.defaultEntrypoint!]!, entrypoints: namedOutputs } } : {}) });
         let application: { locations?: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; inventory: InventoryEntry[] };
         let app: Awaited<ReturnType<typeof fileEntries>>;
@@ -540,22 +546,25 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
         if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
+        if (project.runtimeKind === "node" && depsLayer && !validatedNodeLayers.has(depsLayer.descriptor.digest)) {
+          await checkNodeDependencyLayer(store, base, depsLayer, temporary); validatedNodeLayers.add(depsLayer.descriptor.digest);
+        }
         const baseUser = base.config.config?.User;
         if (iteration === 1 && project.user === undefined && baseUser && isRootUser(baseUser)) log(`Base image declares User ${baseUser}; running as ${nonrootUser} (${platform.architecture}; set bunko.user to override)\n`);
         const capabilities = baseCapabilities(tree, base.config.config ?? {}, project.workdir, native);
         assertNativeLibc(project.runtimeLibc, native, new Set(capabilities.inactiveNativeVariants.map((item) => item.path)));
         const image = await assembleImage(store, base, layers, {
-          rebase: { mode: project.mode, libc: project.runtimeLibc, bunVersion: toolchain.version, bunRevision: toolchain.revision, runtimeOrigin: project.mode === "compile" ? "compiled" : runtime ? "injected" : "base" },
-          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
+          runtimeKind: project.runtimeKind, rebase: { runtimeKind: project.runtimeKind, mode: project.mode, libc: project.runtimeLibc, bunVersion: toolchain.version, bunRevision: toolchain.revision, runtimeOrigin: project.mode === "compile" ? "compiled" : runtime ? "injected" : "base" },
+          platform, epoch: timestamp, entrypoint: project.mode === "compile" ? [`${project.workdir}/${application.entry}`] : project.entrypoints ? [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" && project.runtimeKind !== "node" ? ["--no-install"] : [])] : [project.bunPath, ...project.runtimeArgs, ...(project.mode === "source" && project.runtimeKind !== "node" ? ["--no-install"] : []), `${project.workdir}/${application.entry}`],
           inheritBaseOciLabels: project.inheritBaseOciLabels, annotations: { ...project.annotations, ...baseAnnotations(base.descriptor.digest) }, args: project.entrypoints ? [`${project.workdir}/${application.entry}`, ...project.args] : project.args, workdir: project.mode === "source" ? join(project.workdir, project.targetPath) : project.workdir, user: project.user, env: { ...project.env, ...caEnvironment }, ports: project.ports,
-          labels: { ...project.labels, ...git, "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode, "org.bunko.runtime.libc": project.runtimeLibc,
+          labels: { ...project.labels, ...git, ...(project.runtimeKind === "node" ? { "org.bunko.runtime.kind": "node", "org.bunko.node.version": project.nodeVersion! } : {}), "org.bunko.version": VERSION, "org.bunko.builder.digest": context.builder.digest, "org.bunko.mode": project.mode, "org.bunko.runtime.libc": project.runtimeLibc,
             "org.bunko.base.digest": base.descriptor.digest, ...(base.indexDigest ? { "org.bunko.base.index.digest": base.indexDigest } : {}),
             "org.bunko.source.digest": sourceDigest, "org.bunko.bun.version": toolchain.version, "org.bunko.bun.revision": toolchain.revision, "org.bunko.pack.format": packFormat },
         }, true);
         if (iteration === 1) for (const missing of capabilities.missingFromBase) log(`BUNKO_MISSING_BASE_LIBRARY: base lacks ${missing.name}, required by ${missing.requiredBy}; application libraries and runtime loader compatibility remain unchecked\n`);
         const baseMetadata = baseInventories[index];
         const compileRuntime = compileRuntimes[index] ? (({ path, ...metadata }) => metadata)(compileRuntimes[index]!.metadata) : undefined;
-        result.push({ baseCapabilities: capabilities, runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, closure: closureSizes, dependencyArtifact: dependencyArtifactDigest });
+        result.push({ ...(project.runtimeKind === "node" ? { nodeRuntime: { version: project.nodeVersion!, path: project.bunPath, verified: false as const } } : {}), baseCapabilities: capabilities, runtimeCA: ca?.metadata, compileRuntime, runtime: runtime?.metadata, locations: application.locations, entrypoints: application.entrypoints ? Object.fromEntries(Object.entries(application.entrypoints).map(([name, path]) => [name, `${project.workdir}/${path}`])) : undefined, baseInventory: baseMetadata ? { described: baseMetadata.described, namespace: baseMetadata.document.documentNamespace as string, digest: baseMetadata.payload.digest, artifactDigest: baseMetadata.manifest.digest, reference: baseMetadata.reference! } : undefined, platform, manifest: image.manifest, config: image.config, layers, baseDigest: base.descriptor.digest, inventory, native, bundledInventory: application.inventory, closure: closureSizes, dependencyArtifact: dependencyArtifactDigest });
         }, platform);
       }
       return result;

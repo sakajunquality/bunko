@@ -1,3 +1,4 @@
+import { rejectBunRuntime } from "./node-syntax.ts";
 import { sourceAnalysis } from "./source-analysis.ts";
 import { moduleLocations, diagnosticLimit, locationPackage, locationPackages, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { readFile, realpath } from "node:fs/promises";
@@ -6,6 +7,7 @@ import { rejectApplicationImports, rejectMacroSyntax } from "./syntax.ts";
 import { validateInputTsconfig } from "./tsconfig.ts";
 
 export interface WorkerOptions {
+  target?: "node";
   root: string;
   contextRoot: string;
   entrypoint: string;
@@ -38,8 +40,8 @@ export async function guardedBuild(options: WorkerOptions) {
   const validation = { parsed: 0, reused: 0, bytes: 0 };
   const result = await Bun.build({
     throw: false, entrypoints, splitting: options.entrypoints !== undefined, root: options.root,
-    outdir: options.outdir, target: "bun", format: "esm", packages: "bundle", metafile: true,
-    naming: "[dir]/[name].[ext]", env: "disable", allowUnresolved: options.allowUnresolved ?? [],
+    outdir: options.outdir, target: options.target ?? "bun", format: "esm", packages: "bundle", metafile: true,
+    naming: options.target === "node" ? { entry: "[dir]/[name].mjs", chunk: "[name]-[hash].mjs", asset: "[name]-[hash].[ext]" } : "[dir]/[name].[ext]", env: "disable", allowUnresolved: options.allowUnresolved ?? [],
     external: options.external.flatMap((name) => [name, `${name}/*`]),
     minify: options.minify, sourcemap: options.sourcemap, define: options.define,
     plugins: [{ name: "bunko-input-validation", setup(builder) {
@@ -53,6 +55,7 @@ export async function guardedBuild(options: WorkerOptions) {
         if (["js", "jsx", "ts", "tsx"].includes(loader)) {
           const code = contents.toString("utf8");
           const analysis = sourceAnalysis(code, path);
+          if (options.target === "node") rejectBunRuntime(code, local, analysis);
           if (!warned.has(path)) {
             warned.add(path);
             const warnings = moduleLocations(code, local.split(sep).join("/"), analysis);

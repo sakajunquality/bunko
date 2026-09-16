@@ -25,6 +25,9 @@ jobs:
         with:
           bun-version: ${{ matrix.bun }}
       - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
       - run: bun run check
       - run: bun run build
       - run: bun dist/bunko.js version
@@ -414,4 +417,26 @@ jobs:
       - run: bun run build
       - run: bun run test:rebase
         env:
+          BUNKO_SMOKE_PLATFORMS: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+
+  node-runtime:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build
+      - run: bun run test:node
+        env:
+          BUNKO_NODE_MAJOR: ${{ matrix.node }}
           BUNKO_SMOKE_PLATFORMS: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
