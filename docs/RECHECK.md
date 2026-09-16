@@ -22,6 +22,8 @@ Reviews combine local Codex inspection, Claude review and CodeRabbit when availa
 
 ## Retained contracts
 
+- Private key signing never uploads to transparency logs. Explicit keyless signing uses public Rekor by default; a custom TSA-only profile may opt out. See [keyless signing](KEYLESS_SIGNING.md).
+
 - Source mode packages all permitted project source inputs. Bundle/compile mode can still use an asset-excluded file as a build input. Neither ignore rules nor these checks make host execution a security sandbox.
 - Mirror authentication and content-integrity failures are fatal. An availability fallback does not weaken origin or mirror credential scope. Mirror header budgets do not cover a separate token-service exchange; exhausted stalled-body recovery remains fatal.
 - Runtime CA injection extends Bun/Node trust through `NODE_EXTRA_CA_CERTS`. It does not install a system certificate store or promise trust for arbitrary native subprocesses. Automatically replacing `SSL_CERT_FILE` could discard a consumer's existing public roots; that behavior is not added implicitly.

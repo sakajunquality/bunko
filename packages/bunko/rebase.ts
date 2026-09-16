@@ -1,3 +1,4 @@
+import { prepareSigning, signingMode, signConfiguredImages, type SigningOptions } from "./keyless.ts";
 import { RebaseDecisionError } from "./rebase-decision.ts";
 import { smokeRebase, smokeArguments } from "./rebase-smoke.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
@@ -23,7 +24,7 @@ import { rebaseInput } from "./rebase-input.ts";
 import { checkRebaseSafety } from "./rebase-safety.ts";
 import { rebaseProvenance, rebaseSpdx } from "./rebase-attest.ts";
 
-export interface RebaseOptions {
+export interface RebaseOptions extends SigningOptions {
   image: string; oldBase: string; base: string;
   platform?: string; output?: string; repo?: string; push?: boolean; tags?: string[];
   dryRun?: boolean; report?: string; policy?: string; registry?: RegistryOptions;
@@ -66,18 +67,22 @@ function safeRuntimeConfig(original: ImageConfig, replacement: ImageConfig): voi
 export async function rebase(options: RebaseOptions) {
   if (!options.image || !options.oldBase || !options.base) throw new Error("rebase requires an image, --old-base and a replacement --base or --base-layout");
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
+  const mode = signingMode(options);
   if (options.smokeCommand) smokeArguments(options.smokeCommand);
   const push = options.push ?? Boolean(options.repo);
   if (push && !options.repo) throw new Error("Rebase publication requires an exact --repo");
   if (!push && !options.output && !options.dryRun) throw new Error("Rebase requires --oci-layout, --repo or --dry-run");
-  if (options.signKey && !push) throw new Error("Rebase signing requires registry publication");
-  if (options.cosignPath && !options.signKey) throw new Error("--cosign-path requires --sign-key for rebase");
+  if (mode && !push) throw new Error("Rebase signing requires registry publication");
+  if (options.cosignPath && !mode) throw new Error("--cosign-path requires signing for rebase");
   if (options.tags?.length && !push) throw new Error("Rebase tags require registry publication");
   if (Object.keys(options.baseSBOMs ?? {}).length && !options.sbom) throw new Error("Rebase --base-sbom requires --sbom");
   const registry = options.registry ?? {};
+  if (mode && registry.tls && Object.keys(registry.tls).length) throw new Error("Integrated signing cannot use Registry TLS configuration");
+  const signing = options.dryRun ? undefined : await prepareSigning(options);
   const output = options.output ? await canonicalOutput(options.output) : undefined;
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   const inputs = [options.image, options.oldBase, options.base, ...Object.values(options.baseSBOMs ?? {})].filter((input) => input.startsWith("layout:")).map((input) => input.slice(7));
+  inputs.push(...signing?.paths ?? []);
   if (options.policy) inputs.push(options.policy);
   if (options.signKey && !options.signKey.includes("://")) inputs.push(options.signKey);
   inputs.push(...registry.sensitivePaths ?? []);
@@ -141,17 +146,18 @@ export async function rebase(options: RebaseOptions) {
       ? results[0]!.manifest : await store.put(canonicalJSON({ schemaVersion: 2, mediaType: media.index, annotations, manifests: results.map((result) => ({ ...result.manifest, platform: result.platform })) }), media.index);
     if (options.provenance) {
       const builder = await builderIdentity(); assertDigest(builder.digest);
-      attachments.push(await artifact(store, root, provenanceType, rebaseProvenance({ source: input.subject, root, platforms: results, builder: { ...builder, digest: builder.digest }, policyDigest: policy?.digest, inventoryDigests })));
+      attachments.push(await artifact(store, root, provenanceType, rebaseProvenance({ source: input.subject, root, platforms: results, builder: { ...builder, digest: builder.digest }, policyDigest: policy?.digest, inventoryDigests, signing: signing?.metadata })));
     }
     descriptors.push(...attachments.flatMap((item) => [item.manifest, ...item.blobs]));
-    if (options.signKey && !options.dryRun) await assertCosign(options.cosignPath);
+    if (signing) await assertCosign(options.cosignPath, mode === "keyless");
+    const delayedTags = Boolean(options.smokeCommand || mode === "keyless");
     if (publisher) {
-      publication = await publisher.publish(store, root, options.smokeCommand ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
-      if (options.smokeCommand) publication.pendingTags = [...tags];
+      publication = await publisher.publish(store, root, delayedTags ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
+      if (delayedTags) publication.pendingTags = [...tags];
       if (!options.dryRun) {
         await publishArtifacts(publisher, store, attachments, (part, elapsed) => accumulate(publication!, part, elapsed));
-        if (options.signKey && !options.smokeCommand) {
-          await signImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), options.signKey, options.cosignPath, registry.insecure);
+        if (signing && !options.smokeCommand) {
+          await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure);
           signed = true;
         }
       }
@@ -160,10 +166,12 @@ export async function rebase(options: RebaseOptions) {
       if (publication) publication.pendingTags = [...tags];
       try { await smokeRebase(store, results, options.smokeCommand, directory); smoke = "passed"; }
       catch (error) { smoke = "failed"; throw error; }
-      if (publisher && options.signKey) {
-        await signImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), options.signKey, options.cosignPath, registry.insecure);
+      if (publisher && signing) {
+        await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure);
         signed = true;
       }
+    }
+    if (delayedTags && !options.dryRun) {
       if (publisher && tags.length) {
         try {
           const promoted = await publisher.publish(store, root, tags, undefined, false, options.tagConflict);
@@ -175,12 +183,12 @@ export async function rebase(options: RebaseOptions) {
       }
     }
     if (output && !options.dryRun) await exportLayout(store, output, root, descriptors, `${options.repo ?? "bunko.local/rebased"}@${root.digest}`);
-    const result = { schemaVersion: 1, command: "rebase", status: "success", decision: "compatible" as const, smoke, dryRun: Boolean(options.dryRun), source: input.subject, root, platforms: results, policyDigest: policy?.digest, layout: options.dryRun ? undefined : output, publication, attestations: attachments.map(({ subject, manifest }) => ({ subject, manifest })), signed };
+    const result = { schemaVersion: 1, command: "rebase", status: "success", signing: signing?.metadata, decision: "compatible" as const, smoke, dryRun: Boolean(options.dryRun), source: input.subject, root, platforms: results, policyDigest: policy?.digest, layout: options.dryRun ? undefined : output, publication, attestations: attachments.map(({ subject, manifest }) => ({ subject, manifest })), signed };
     if (report) await writeReport(report, result, written);
     return result;
   } catch (error) {
     if (!publication && error instanceof PublicationError) publication = error.result;
-    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "rebase", status: "failed", decision: error instanceof RebaseDecisionError ? error.decision : "error", reason: error instanceof RebaseDecisionError ? error.reason : undefined, changes: error instanceof RebaseDecisionError ? error.changes : undefined, requires: error instanceof RebaseDecisionError ? error.decision === "requires-policy" ? "compatibility-policy" : "rebuild" : undefined, smoke, publication, signed, error: error instanceof Error ? error.message : "Rebase failed" }, error);
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 1, command: "rebase", status: "failed", signing: signing?.metadata, decision: error instanceof RebaseDecisionError ? error.decision : "error", reason: error instanceof RebaseDecisionError ? error.reason : undefined, changes: error instanceof RebaseDecisionError ? error.changes : undefined, requires: error instanceof RebaseDecisionError ? error.decision === "requires-policy" ? "compatibility-policy" : "rebuild" : undefined, smoke, publication, signed, error: error instanceof Error ? error.message : "Rebase failed" }, error);
     if (publication?.published) throw new PublicationError(`Rebase incomplete after image publication at ${publication.reference}: ${error instanceof Error ? error.message : "output failure"}`, publication, error);
     throw error;
   } finally { await rm(directory, { recursive: true, force: true }); }

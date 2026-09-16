@@ -42,6 +42,10 @@ export interface BuildOptions {
   depsVerifyKey?: string;
   supplyChainPolicy?: "ci";
   provenance?: boolean;
+  sign?: "key" | "keyless";
+  signIdentityToken?: string;
+  sigstoreConfig?: string;
+  signTlog?: boolean;
   signKey?: string;
   cosignPath?: string;
   depsStrategy?: string;
