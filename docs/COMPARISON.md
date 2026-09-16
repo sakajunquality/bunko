@@ -38,3 +38,7 @@ Prioritize additional changes only with workload evidence: finer install/build/t
 - BuildKit: [release-tag feature/cache/export documentation](https://github.com/moby/buildkit/blob/v0.33.0/README.md), [architecture](https://docs.docker.com/build/buildkit/), [contexts](https://docs.docker.com/build/concepts/context/), [cache backends](https://docs.docker.com/build/cache/backends/), [secret mounts](https://docs.docker.com/build/building/secrets/), [SBOM scope](https://docs.docker.com/build/metadata/attestations/sbom/), [provenance](https://docs.docker.com/build/metadata/attestations/slsa-provenance/), [registry TLS and worker configuration](https://docs.docker.com/build/buildkit/toml-configuration/).
 
 BuildKit capabilities depend on frontend, exporter, worker and configuration. Buildx defaults are not unconditional standalone BuildKit defaults. A common SPDX format does not by itself establish common OCI discovery or signature verification behavior.
+
+### Runtime selection
+
+Bunko can build with Bun and execute on Bun (default) or Node. Node supports bundled ESM and prebuilt JavaScript source on glibc/musl bases; signed runtime injection and compile remain Bun-only. See [Node runtime](NODE_RUNTIME.md).

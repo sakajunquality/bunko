@@ -1,6 +1,10 @@
+import { checkNodeApplication } from "./node-syntax.ts";
+import { nodeBase } from "./node-runtime.ts";
+import { mkdtemp } from "../runtime/invocation.ts";
+import { tmpdir } from "node:os";
 import { publicAssetMapping } from "./asset-contexts.ts";
 import { configurationPlan } from "./configuration-plan.ts";
-import { lstat } from "node:fs/promises";
+import { lstat, rm } from "node:fs/promises";
 import { snapshot } from "./files.ts";
 import { requiredInputs } from "./ignore.ts";
 import { assertToolchain, type ToolchainRequirements } from "./toolchain-policy.ts";
@@ -14,6 +18,9 @@ import type { Platform } from "../oci/types.ts";
 
 /** One selected target as reported by check-config and doctor. Rendered by diagnostics-format.ts. */
 export interface DiagnosticTarget {
+  runtimeKind?: "node";
+  nodeVersion?: string;
+  sourceTypeScript?: false;
   inheritedDefaults: string[];
   lockfileVersion?: number;
   entrypoints?: Record<string, string>;
@@ -59,7 +66,12 @@ export async function checkConfig(options: BuildOptions) {
       const info = await lstat(join(project.directory, entry)).catch(() => undefined);
       if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Entrypoint must be a regular file: ${entry}`);
     }
-    await snapshot(discovery.directory, "", [], undefined, selected.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, selected.some((project) => project.mode === "source"), explicitAssets, true);
+    const nodeTargets = selected.filter((p) => p.runtimeKind === "node");
+    const directory = nodeTargets.length ? await mkdtemp(join(tmpdir(), "bunko-node-diagnostics-")) : "";
+    try {
+      await snapshot(discovery.directory, directory, [], undefined, selected.filter((project) => project.dataPath).map((project) => join(project.targetPath, "bunkodata")), required, assetExclusions, selected.some((project) => project.mode === "source"), explicitAssets, !directory);
+      for (const project of nodeTargets) await checkNodeApplication(join(directory, project.targetPath), Object.values(project.entrypoints ?? { default: project.entrypoint }), project.mode === "source");
+    } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
   }
   const projects: DiagnosticTarget[] = [];
   for (const [index, project] of selected.entries()) {
@@ -73,8 +85,8 @@ export async function checkConfig(options: BuildOptions) {
     const assetInputs = await inspectAssetMappings(project.assetMappings, contexts, options.deep);
     const locked = lockedPackageNames(plan.lock), unmatchedAllowances = (project.allowIgnoredScripts ?? []).filter((name) => !locked.has(name));
     projects.push({ inheritedDefaults: project.inheritedDefaults, lockfileVersion: plan.lock?.lockfileVersion as number | undefined, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, assetMappings: project.assetMappings.map(publicAssetMapping), assetInputs, name: project.name, path: target.path || ".", entrypoint: project.entrypoint, mode: project.mode,
-      platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base, user: project.user, ports: project.ports,
-      workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, runtimeLibc: project.runtimeLibc, assets: project.assets,
+      platforms: project.platforms, dependencyStrategy: project.depsStrategy, external: project.external, base: project.base ?? (project.runtimeKind === "node" ? nodeBase(project.nodeVersion!, project.runtimeLibc) : undefined), user: project.user, ports: project.ports,
+      ...(project.runtimeKind === "node" ? { runtimeKind: "node" as const, nodeVersion: project.nodeVersion, sourceTypeScript: false as const } : {}), workdir: project.workdir, runtimePath: project.bunPath, runtimeInjection: project.runtimeInject, runtimeLibc: project.runtimeLibc, assets: project.assets,
       runtimeCertificateCount: project.runtimeCAs.length, runtimeSystemCaTrust: project.runtimeSystemCaTrust, explicitAssetsOverrideGitignore: project.mode === "source", assetExcludes: project.assetExcludes, assetMode: project.assetMode, toolchainRequirements: project.toolchainRequirements, runtimeArgumentCount: project.runtimeArgs.length,
       environmentKeys: Object.keys(project.env).sort(), defineKeys: Object.keys(project.build.define).sort(), unmatchedAllowances });
   }

@@ -40,6 +40,7 @@ async function runCLI(argv: string[], environment: Record<string, string> = {}) 
 
 /** Every documented target field, so the rendering snapshot and the coverage check see them all. */
 const fixtureTarget: DiagnosticTarget = {
+  runtimeKind: undefined, nodeVersion: undefined, sourceTypeScript: undefined,
   inheritedDefaults: ["user"], lockfileVersion: 1, runtimeLibc: "glibc",
   entrypoints: { server: "src/server.ts", worker: "src/worker.ts" }, defaultEntrypoint: "server",
   assetMappings: [{ context: "data", from: "config.json", to: "/repo/config.json", mode: "0644", exclude: ["*.tmp"] }],

@@ -1,3 +1,4 @@
+import { runtimeKind, nodeBase, nodeMajor, nodePath, assertNodeExecutable } from "./node-runtime.ts";
 import { spawn, cleanupSpawn, mkdtemp } from "../runtime/invocation.ts";
 import { runtimeLibc, assertBaseLibc } from "./libc.ts";
 import { baseCapabilities } from "./base-capabilities.ts";
@@ -17,15 +18,18 @@ import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { platform, type BuildOptions } from "./config.ts";
 import { selectToolchain } from "./toolchain.ts";
 
-export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout" | "platform" | "registry" | "bunPath" | "runtimeInject" | "runtimeLibc" | "runtimeCache" | "log"> & { run?: boolean; runtimePath?: string; requirementsReport?: string }) {
+export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout" | "platform" | "registry" | "bunPath" | "runtimeInject" | "runtimeLibc" | "runtimeKind" | "runtimeCache" | "log"> & { run?: boolean; runtimePath?: string; requirementsReport?: string }) {
   if (options.base && options.baseLayout) throw new Error("Select --base or --base-layout");
   if (options.runtimeInject !== undefined && options.runtimeInject !== "release") throw new Error("runtime injection must be release");
   if (options.runtimeInject && !options.base && !options.baseLayout) throw new Error("Runtime injection requires an explicit base or base layout");
   if (options.run && options.baseLayout && !options.runtimeInject) throw new Error("Runtime base checks require a registry base reference");
   if (options.run && !Bun.which("docker")) throw new Error("Runtime base checks require Docker");
+  const kind = runtimeKind(options.runtimeKind);
+  if (kind === "node" && options.runtimeInject) throw new Error("Node runtime injection is unsupported");
   const libc = runtimeLibc(options.runtimeLibc);
   const toolchain = await selectToolchain(options.bunPath);
-  const reference = options.base ?? `oven/bun:${toolchain.version}-${libc === "musl" ? "alpine" : "distroless"}`;
+  const reference = options.base ?? (kind === "node" ? nodeBase(nodeMajor(undefined), libc) : `oven/bun:${toolchain.version}-${libc === "musl" ? "alpine" : "distroless"}`);
+  const executable = kind === "node" ? nodePath(options.base, options.baseLayout, options.runtimePath, libc) : options.runtimePath ?? "/usr/local/bin/bun";
   const source = options.baseLayout ? new LayoutSource(resolve(options.baseLayout)) : new RegistrySource(reference,
     { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() });
   const requirements = options.requirementsReport ? await reportRequirements(options.requirementsReport) : undefined;
@@ -40,6 +44,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
       if (requirements && !requirements.has(selected.architecture)) throw new Error(`Requirements report has no ${selected.os}/${selected.architecture} image`);
       const tree = await baseFilesystem(store, base, directory);
       assertBaseLibc(tree, libc, selected);
+      if (kind === "node") assertNodeExecutable(tree, executable);
       const capabilities = baseCapabilities(tree, base.config.config ?? {}, undefined, (requirements?.get(selected.architecture) ?? []));
       let runtimeRevision: string | undefined;
       let runtime: InjectedRuntime | undefined;
@@ -67,12 +72,12 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
           const container = `bunko-check-${randomUUID()}`;
           const child = spawn(["docker", "run", "--name", container, "--rm", "--pull=never", "--platform", `${selected.os}/${selected.architecture}`,
             "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m",
-            "--user=65532:65532", "--entrypoint", options.runtimePath ?? "/usr/local/bin/bun", image, "--revision"],
+            "--user=65532:65532", "--entrypoint", executable, image, kind === "node" ? "--version" : "--revision"],
           { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
           const timer = setTimeout(() => child.kill(), 30_000);
           try {
             const [text, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
-            if (code || text.trim() !== `${toolchain.version}+${toolchain.revision}`) throw new Error("Bun runtime execution failed or revision mismatched; check shared-library/symbol requirements, CPU, permissions and emulation (the loader path check alone is insufficient)");
+            if (code || (kind === "node" ? !/^v(?:22|24)\.\d+\.\d+$/.test(text.trim()) : text.trim() !== `${toolchain.version}+${toolchain.revision}`)) throw new Error("Runtime execution failed or version/revision mismatched; check shared-library/symbol requirements, CPU, permissions and emulation (the loader path check alone is insufficient)");
             runtimeRevision = text.trim();
           } finally {
             clearTimeout(timer);
@@ -80,7 +85,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
             await cleanup.exited;
           }
         }
-        results.push({ runtimeLibc: libc, capabilities, runtime: runtime ? { ...runtime, revisionVerified: Boolean(runtimeRevision) } : undefined, platform: selected, digest: base.descriptor.digest, user: base.config.config?.User ?? "",
+        results.push({ ...(kind === "node" ? { runtimeKind: "node", runtimePath: executable } : {}), runtimeLibc: libc, capabilities, runtime: runtime ? { ...runtime, revisionVerified: Boolean(runtimeRevision) } : undefined, platform: selected, digest: base.descriptor.digest, user: base.config.config?.User ?? "",
           layers: base.manifest.layers.length, runtimeVerified: Boolean(runtimeRevision), runtimeRevision });
       } finally {
         if (composed) { const cleanup = cleanupSpawn(["docker", "image", "rm", composed], { stdout: "ignore", stderr: "ignore" }); await cleanup.exited; }

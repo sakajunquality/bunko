@@ -56,7 +56,7 @@ export function closureCoversTarget(packages: Pick<ClosurePackage, "path">[], pr
  */
 export function closurePlanInputs(plan: DependencyPlan, toolchain: Toolchain, platform: Platform, base: string, projects: Project[]): Record<string, unknown> {
   return { ...dependencyInputs(closureSources(plan, projects), toolchain, platform, base, projects[0]!), strategy: closureStrategy, closureDirectory,
-    targets: projects.map((project) => ({ targetPath: project.targetPath, mode: project.mode, depsStrategy: project.depsStrategy, external: project.external, allowIgnoredScripts: project.allowIgnoredScripts ?? [], undeclaredImports: project.undeclaredImports })),
+    targets: projects.map((project) => ({ ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}), targetPath: project.targetPath, mode: project.mode, depsStrategy: project.depsStrategy, external: project.external, allowIgnoredScripts: project.allowIgnoredScripts ?? [], undeclaredImports: project.undeclaredImports })),
     undeclaredImports: undeclaredImportPolicy(projects) };
 }
 
