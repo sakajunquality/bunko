@@ -2,6 +2,8 @@
 
 Use this checklist for each new version, starting with the next patch release. Copy the evidence table into `docs/validation/<version>.md` and replace example versions and commit placeholders before executing commands. This document does not authorize or trigger a release by itself. See [distribution details](RELEASING.md), [npm publishing](NPM_DISTRIBUTION.md), and the [0.1.0 evidence](validation/v0.1.0.md).
 
+The repository includes an [agent release skill](../.agents/skills/bunko-release/SKILL.md) with publication/recovery guidance and parameterized npm/container consumer verification helpers. Use the current checklist as the release requirements; the skill provides operational guidance.
+
 ## 1. Prepare and merge the release
 
 - [ ] Select a new version; check Git tags, GitHub releases, the GHCR version tag and npm versions. Distinguish an absent version from an authentication, network or service error.
@@ -21,6 +23,7 @@ Use a clean main checkout. Run the following as a Bash script (or save it and in
 (
   set -euo pipefail
   release_version=0.1.1
+  bun -e 'import { releaseTag } from "./scripts/distribution.ts"; releaseTag(process.argv[1]);' "$release_version"
   release_commit=REPLACE_WITH_REVIEWED_MAIN_COMMIT
   [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]]
   test "$(git branch --show-current)" = main

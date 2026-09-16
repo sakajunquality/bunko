@@ -148,3 +148,14 @@ test("attestation verification pins repository, workflow, ref and optional commi
   expect(args).toEqual(["attestation", "verify", "/a path/bunko.js", "--bundle", "/a path/PROVENANCE.jsonl", "--repo", "owner/repo", "--signer-workflow", "owner/repo/.github/workflows/release.yml", "--source-ref", "refs/tags/v1.2.3", "--deny-self-hosted-runners", "--source-digest", commit]);
   for (const [repository, ref, digest] of [["../repo", "refs/heads/main", commit], ["owner/repo", "refs/heads/untrusted", commit], ["owner/repo", "refs/heads/main", "short"]]) expect(() => verificationArguments("file", "bundle", repository!, ref!, digest)).toThrow();
 });
+
+test("release tags validate SemVer prerelease identifiers", () => {
+  for (const version of ["1.2.3", "1.2.3-0", "1.2.3-rc.1", "1.2.3-alpha-1", "1.2.3-01a"]) {
+    expect(releaseTag(version)).toBe(`v${version}`);
+    expect(releaseTag(`v${version}`)).toBe(`v${version}`);
+  }
+  for (const version of ["1.2.3-01", "1.2.3-rc.01", "1.2.3-", "1.2.3-..", "1.2.3-rc..1", "01.2.3"]) {
+    expect(() => releaseTag(version)).toThrow();
+    expect(() => releaseTag(`v${version}`)).toThrow();
+  }
+});
