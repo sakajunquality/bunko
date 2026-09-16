@@ -21,7 +21,7 @@ test("sources default to Docker and explicit selection replaces rather than appe
 test("a selected helper with no credentials prevents fallback to another identity", async () => {
   const file = join(await directory(), "config.json"); await writeFile(file, JSON.stringify({ credHelpers: { "ghcr.io": "test" } }));
   const options = { env: { BUNKO_DOCKER_CONFIG: file, GITHUB_TOKEN: "SECRET" }, helper: async () => undefined };
-  await expect(registryCredentials(["docker", "github"], options)("ghcr.io")).rejects.toThrow("refusing identity fallback");
+  expect(await registryCredentials(["docker", "github"], options)("ghcr.io")).toBeUndefined();
   expect(await registryCredentials(undefined, options)("ghcr.io")).toBeUndefined();
   await writeFile(file, "{}"); expect(await registryCredentials(["docker", "github"], options)("ghcr.io")).toMatchObject({ source: "github" });
 });
@@ -60,4 +60,12 @@ test("cosign receives only the selected host through a private temporary configu
   expect(Object.keys(captured.config.auths)).toEqual(["ghcr.io"]);
   expect(captured.config.auths["ghcr.io"].auth).toBe(Buffer.from("x-access-token:SECRET").toString("base64"));
   await expect(stat(captured.path)).rejects.toThrow();
+});
+
+
+test("explicit Docker hosts normalize HTTPS default ports and do not materialize helper secrets for cosign", async () => {
+  const file = join(await directory(), "config.json");
+  await writeFile(file, JSON.stringify({auths:{"ghcr.io:443":{auth:Buffer.from("user:secret").toString("base64")}}}));
+  const provider = registryCredentials(["docker"], {env:{BUNKO_DOCKER_CONFIG:file}});
+  expect(await provider("ghcr.io")).toMatchObject({username:"user",password:"secret"}); expect(provider.bridge).toBe(false);
 });
