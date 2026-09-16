@@ -1,6 +1,11 @@
 name: Keyless signing (staging)
 on:
   workflow_dispatch:
+    inputs:
+      tlog:
+        description: Enable Rekor (false requires a reviewed TSA-only profile)
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -45,15 +50,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - name: Build, sign and independently verify
+        env:
+          TLOG: ${{ inputs.tlog }}
         run: |
           repo="ghcr.io/${GITHUB_REPOSITORY,,}-keyless-staging"
           bun packages/bunko/cli.ts build examples/hello --repo "$repo" --bare --platform linux/amd64 --no-cache \
-            --sign keyless --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign" \
+            --sign keyless --sign-tlog="$TLOG" --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign" \
             --sbom --provenance --report "$RUNNER_TEMP/keyless-report.json"
           ref=$(bun -e 'const r=await Bun.file(process.argv[1]).json(); if(!r.publication?.reference)throw new Error("Missing published reference");console.log(r.publication.reference)' "$RUNNER_TEMP/keyless-report.json")
           identity="https://github.com/$GITHUB_WORKFLOW_REF"
           bun packages/bunko/cli.ts verify "$ref" --certificate-identity "$identity" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"
+          timestamp_flags=()
+          if [[ "$TLOG" == false ]]; then timestamp_flags=(--insecure-ignore-tlog --use-signed-timestamps); fi
           "$RUNNER_TEMP/cosign" verify "$ref" --certificate-identity "$identity" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com --trusted-root "$RUNNER_TEMP/trusted-root.json" >/dev/null
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com --trusted-root "$RUNNER_TEMP/trusted-root.json" "${timestamp_flags[@]}" >/dev/null

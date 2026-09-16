@@ -11,7 +11,7 @@ export function signingEnvironment(keyless = false): Record<string, string> {
   for (const key of allowed) if (process.env[key] !== undefined) env[key] = process.env[key]!;
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined &&
     /^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key)) env[key] = value;
-  if (keyless) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "BUILDKITE_AGENT_ENDPOINT", "BUILDKITE_AGENT_NAME"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
+  if (keyless) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "BUILDKITE_AGENT_ENDPOINT", "BUILDKITE_AGENT_NAME", "BUILDKITE_JOB_ID"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
   return env;
 }
 

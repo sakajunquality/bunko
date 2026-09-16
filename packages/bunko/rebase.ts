@@ -150,9 +150,10 @@ export async function rebase(options: RebaseOptions) {
     }
     descriptors.push(...attachments.flatMap((item) => [item.manifest, ...item.blobs]));
     if (signing) await assertCosign(options.cosignPath, mode === "keyless");
+    const delayedTags = Boolean(options.smokeCommand || mode === "keyless");
     if (publisher) {
-      publication = await publisher.publish(store, root, options.smokeCommand ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
-      if (options.smokeCommand) publication.pendingTags = [...tags];
+      publication = await publisher.publish(store, root, delayedTags ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
+      if (delayedTags) publication.pendingTags = [...tags];
       if (!options.dryRun) {
         await publishArtifacts(publisher, store, attachments, (part, elapsed) => accumulate(publication!, part, elapsed));
         if (signing && !options.smokeCommand) {
@@ -169,6 +170,8 @@ export async function rebase(options: RebaseOptions) {
         await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure);
         signed = true;
       }
+    }
+    if (delayedTags && !options.dryRun) {
       if (publisher && tags.length) {
         try {
           const promoted = await publisher.publish(store, root, tags, undefined, false, options.tagConflict);

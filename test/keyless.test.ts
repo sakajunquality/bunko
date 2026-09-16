@@ -85,3 +85,21 @@ test("build excludes token input and records only signing policy in report and p
   const calls = JSON.parse(await readFile(f.log, "utf8")); expect(calls.length).toBeGreaterThanOrEqual(2);
   const published = [...mock.blobs.values()]; expect(published.some((data) => Buffer.from(data).includes(Buffer.from("BUILD_SECRET")))).toBe(false);
 });
+
+test("resolve supports keyless with an explicit cosign helper", async () => {
+  const f = await fixture(); await project(join(f.root, "app"));
+  const mock = new MockRegistry(); const { resolveDocuments } = await import("../packages/bunko/resolve.ts");
+  const result = await resolveDocuments({ context: f.root, files: ["-"], stdin: async () => "image: bunko://app\n", baseLayout: await baseLayout(join(f.root, "base")), repo: "registry.test/resolve", localCache: false, registryCache: false, sign: "keyless", signIdentityToken: "token", cosignPath: f.exe, registry: { fetcher: mock.fetch, credentials: async () => undefined } });
+  expect(result.output).toContain("registry.test/resolve/"); expect(result.targets[0]!.signing?.mode).toBe("keyless");
+});
+
+test("keyless rebase signing failure leaves tags pending even without smoke", async () => {
+  const f = await fixture(); const { rebaseBase } = await import("./rebase-fixture.ts"), { rebase } = await import("../packages/bunko/rebase.ts");
+  const base = await rebaseBase(join(f.root, "base")), source = await project(join(f.root, "app"));
+  const built = await build({ path: source, baseLayout: base.directory, output: join(f.root, "image"), localCache: false, gitMetadata: false });
+  await writeFile(f.exe, `#!${process.execPath}\nif(process.argv[2]==="version"){console.log('{"gitVersion":"v3.1.3"}');process.exit(0)}process.exit(1);`, { mode: 0o755 });
+  const mock = new MockRegistry(), report = join(f.root, "rebase.json");
+  await expect(rebase({ image: `layout:${built.layout}`, oldBase: `layout:${base.directory}`, base: `layout:${base.directory}`, repo: "registry.test/app", tags: ["stable"], sign: "keyless", signIdentityToken: "token", cosignPath: f.exe, report, registry: { fetcher: mock.fetch, credentials: async () => undefined } })).rejects.toThrow("cosign");
+  expect(mock.requests.some((r) => r.method === "PUT" && r.url.pathname.endsWith("/manifests/stable"))).toBe(false);
+  expect(JSON.parse(await readFile(report, "utf8"))).toMatchObject({ signed: false, publication: { pendingTags: ["stable"] } });
+});
