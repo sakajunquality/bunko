@@ -158,3 +158,12 @@ test("base-status reuses downloaded image metadata during assessment", async () 
   // One pinning request plus one immutable input snapshot, with no assessment re-fetch.
   expect(roots.length).toBe(2);
 });
+
+
+test("load deadlines are explicit, bounded and forwarded only with smoke acceptance", async () => {
+  const input = { image: "image", "old-base": "old", base: "base", "smoke-load-timeout": "600" };
+  expect(rebaseArguments(input, "/report")).not.toContain("--smoke-load-timeout");
+  const args = rebaseArguments({ ...input, "smoke-command": '["/app/check"]' }, "/report");
+  expect(args[args.indexOf("--smoke-load-timeout") + 1]).toBe("600");
+  for (const value of [0, -1, 1.5, 3601, NaN]) await expect(rebase({ image: "image", oldBase: "old", base: "base", dryRun: true, smokeCommand: ["/app/check"], smokeLoadTimeoutSeconds: value })).rejects.toThrow("1..3600");
+});

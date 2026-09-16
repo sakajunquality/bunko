@@ -29,7 +29,7 @@ export interface RebaseOptions extends SigningOptions {
   platform?: string; output?: string; repo?: string; push?: boolean; tags?: string[];
   dryRun?: boolean; report?: string; policy?: string; registry?: RegistryOptions;
   tagConflict?: TagConflict; sbom?: boolean; baseSBOMs?: Record<string, string>; provenance?: boolean;
-  signKey?: string; cosignPath?: string; smokeCommand?: string[];
+  signKey?: string; cosignPath?: string; smokeCommand?: string[]; smokeLoadTimeoutSeconds?: number;
 }
 export interface RebasePolicy {
   schemaVersion: 1 | 2;
@@ -74,6 +74,7 @@ export async function rebase(options: RebaseOptions, inspection?: RebaseInspecti
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const mode = signingMode(options);
   if (options.smokeCommand) smokeArguments(options.smokeCommand);
+  if (options.smokeLoadTimeoutSeconds !== undefined && (!options.smokeCommand || !Number.isInteger(options.smokeLoadTimeoutSeconds) || options.smokeLoadTimeoutSeconds < 1 || options.smokeLoadTimeoutSeconds > 3600)) throw new Error("Smoke load timeout requires --smoke-command and 1..3600 seconds");
   const push = options.push ?? Boolean(options.repo);
   if (push && !options.repo) throw new Error("Rebase publication requires an exact --repo");
   if (!push && !options.output && !options.dryRun) throw new Error("Rebase requires --oci-layout, --repo or --dry-run");
@@ -158,7 +159,7 @@ export async function rebase(options: RebaseOptions, inspection?: RebaseInspecti
     descriptors.push(...attachments.flatMap((item) => [item.manifest, ...item.blobs]));
     if (signing) await assertCosign(options.cosignPath, mode === "keyless");
     if (options.smokeCommand && !options.dryRun) {
-      try { await smokeRebase(store, results, options.smokeCommand, directory); smoke = "passed"; }
+      try { await smokeRebase(store, results, options.smokeCommand, directory, options.smokeLoadTimeoutSeconds); smoke = "passed"; }
       catch (error) { smoke = "failed"; throw error; }
     }
     const delayedTags = Boolean(options.smokeCommand || mode === "keyless");

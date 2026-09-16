@@ -15,7 +15,7 @@ export function rebaseArguments(inputs: Record<string, string | undefined>, repo
   const dry = inputs["dry-run"] !== "false";
   if (dry) args.push("--dry-run");
   else if (!inputs.repo) throw new Error("Rebase Action requires repo for publication");
-  for (const [name, flag] of [["repo", "repo"], ["platforms", "platform"], ["policy", "compatibility-policy"], ["sign-key", "sign-key"], ["smoke-command", "smoke-command"]]) if (inputs[name!] && (name !== "sign-key" || !dry)) args.push(`--${flag}`, inputs[name!]!);
+  for (const [name, flag] of [["repo", "repo"], ["platforms", "platform"], ["policy", "compatibility-policy"], ["sign-key", "sign-key"], ["smoke-command", "smoke-command"], ["smoke-load-timeout", "smoke-load-timeout"]]) if (inputs[name!] && (name !== "sign-key" || !dry) && (name !== "smoke-load-timeout" || inputs["smoke-command"])) args.push(`--${flag}`, inputs[name!]!);
   if (!dry && !inputs["smoke-command"]) throw new Error("Rebase Action requires an explicit smoke-command before publication");
   if (!dry) {
     if (inputs.sign && inputs.sign !== "none") args.push("--sign", inputs.sign);
@@ -33,7 +33,7 @@ export function rebaseOutputs(result: any, code: number, dry: boolean) {
 }
 if (import.meta.main) {
   const root = await mkdtemp(join(tmpdir(), "bunko-rebase-action-")), report = join(root, "report.json");
-  const inputs = Object.fromEntries(["sbom", "provenance", "auth-sources", "image", "old-base", "base", "repo", "platforms", "policy", "sign", "sign-tlog", "sigstore-config", "sign-key", "smoke-command", "tags", "tag-conflict", "dry-run", "report"].map((name) => [name, process.env[`BUNKO_INPUT_${name.replaceAll("-", "_").toUpperCase()}`]]));
+  const inputs = Object.fromEntries(["sbom", "provenance", "auth-sources", "image", "old-base", "base", "repo", "platforms", "policy", "sign", "sign-tlog", "sigstore-config", "sign-key", "smoke-command", "smoke-load-timeout", "tags", "tag-conflict", "dry-run", "report"].map((name) => [name, process.env[`BUNKO_INPUT_${name.replaceAll("-", "_").toUpperCase()}`]]));
   let copied = false;
   let result: any = { schemaVersion: 1, command: "rebase", status: "failed", decision: "error" }, code = 1;
   const destination = inputs.report ? resolve(inputs.report) : report;
