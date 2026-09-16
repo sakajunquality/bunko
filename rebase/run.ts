@@ -8,7 +8,9 @@ export function rebaseArguments(inputs: Record<string, string | undefined>, repo
   if (inputs["tag-conflict"] && !["fail", "skip"].includes(inputs["tag-conflict"])) throw new Error("tag-conflict must be fail or skip");
   if (inputs.sign && !["none", "key", "keyless"].includes(inputs.sign)) throw new Error("sign must be none, key or keyless");
   if (!["true", "false", undefined, ""].includes(inputs["sign-tlog"])) throw new Error("sign-tlog must be true or false");
+  for (const name of ["sbom", "provenance"]) if (!["true", "false", undefined, ""].includes(inputs[name])) throw new Error(`${name} must be true or false`);
   const args = ["rebase", inputs.image!, "--old-base", inputs["old-base"]!, "--base", inputs.base!, "--report", report, "--tag-conflict", inputs["tag-conflict"] || "fail"];
+  for (const name of ["sbom", "provenance"]) if (inputs[name]) args.push(`--${name}=${inputs[name]}`);
   if (inputs["auth-sources"]) args.push("--auth-source", inputs["auth-sources"]);
   const dry = inputs["dry-run"] !== "false";
   if (dry) args.push("--dry-run");
@@ -31,7 +33,7 @@ export function rebaseOutputs(result: any, code: number, dry: boolean) {
 }
 if (import.meta.main) {
   const root = await mkdtemp(join(tmpdir(), "bunko-rebase-action-")), report = join(root, "report.json");
-  const inputs = Object.fromEntries(["auth-sources", "image", "old-base", "base", "repo", "platforms", "policy", "sign", "sign-tlog", "sigstore-config", "sign-key", "smoke-command", "tags", "tag-conflict", "dry-run", "report"].map((name) => [name, process.env[`BUNKO_INPUT_${name.replaceAll("-", "_").toUpperCase()}`]]));
+  const inputs = Object.fromEntries(["sbom", "provenance", "auth-sources", "image", "old-base", "base", "repo", "platforms", "policy", "sign", "sign-tlog", "sigstore-config", "sign-key", "smoke-command", "tags", "tag-conflict", "dry-run", "report"].map((name) => [name, process.env[`BUNKO_INPUT_${name.replaceAll("-", "_").toUpperCase()}`]]));
   let copied = false;
   let result: any = { schemaVersion: 1, command: "rebase", status: "failed", decision: "error" }, code = 1;
   const destination = inputs.report ? resolve(inputs.report) : report;

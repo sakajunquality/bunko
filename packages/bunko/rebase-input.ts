@@ -28,7 +28,7 @@ export async function rebaseInput(reference: string, registry: RegistryOptions, 
     return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Rebase image metadata");
   }
   const source: ImageSource = { root: async () => root, blob: origin.blob.bind(origin) };
-  async function image(platform: Platform): Promise<BaseImage> {
+  async function resolveImage(platform: Platform): Promise<BaseImage> {
     const result = await resolveBase(source, platform, store, true);
     const raw = await json(result.descriptor);
     if (raw.annotations !== undefined) {
@@ -38,6 +38,13 @@ export async function rebaseInput(reference: string, registry: RegistryOptions, 
     }
     if (origin instanceof RegistrySource) for (const layer of result.manifest.layers) store.origins.set(layer.digest, origin.ref);
     return result;
+  }
+  const images = new Map<string, Promise<BaseImage>>();
+  function image(platform: Platform): Promise<BaseImage> {
+    const key = `${platform.os}/${platform.architecture}/${platform.variant ?? ""}`;
+    let pending = images.get(key);
+    if (!pending) { pending = resolveImage(platform); images.set(key, pending); }
+    return pending;
   }
   async function platforms(): Promise<Platform[]> {
     const found = new Map<string, Platform>();

@@ -63,7 +63,7 @@ test("policy templates are unapproved, digest-bound, bounded and never overwrite
   expect(await rebaseTargets(out)).toHaveLength(1);
   await writeFile(out, " ".repeat(65537)); await expect(rebaseTargets(out)).rejects.toThrow("64 KiB");
 });
-test("failed acceptance retains pending tags; successful acceptance promotes only afterward", async () => {
+test("failed acceptance publishes nothing; successful acceptance promotes only afterward", async () => {
   const f = await fixture(), bin = join(f.root, "bin"), log = join(f.root, "docker.log"); await mkdir(bin);
   const docker = join(bin, "docker"), path = process.env.PATH;
   process.env.PATH = `${bin}:${path}`;
@@ -74,7 +74,7 @@ test("failed acceptance retains pending tags; successful acceptance promotes onl
       const options = { ...f.options, base: f.options.oldBase, repo: "registry.test/app", tags: ["stable"], smokeCommand: ["/usr/local/bin/bun", "--version"], registry, report };
       if (fail) {
         await expect(rebase(options)).rejects.toThrow("smoke");
-        const result = JSON.parse(await readFile(report, "utf8")); expect(result.smoke).toBe("failed"); expect(result.publication.pendingTags).toEqual(["stable"]);
+        const result = JSON.parse(await readFile(report, "utf8")); expect(result.smoke).toBe("failed"); expect(result.publication).toBeUndefined(); expect(result.error).toContain("linux/amd64 run failed (exit 9)"); expect(mock.requests.some((r) => r.method === "PUT" || r.method === "POST" || r.method === "PATCH")).toBe(false);
         expect(mock.requests.some((r) => r.method === "PUT" && r.url.pathname.endsWith("/manifests/stable"))).toBe(false);
       } else {
         const result = await rebase(options); expect(result.smoke).toBe("passed"); expect(result.publication!.tags).toEqual(["stable"]);
@@ -122,4 +122,39 @@ test("Action retains candidate details when the requested report copy fails", as
   const retained = text.split("\n").find((line) => line.startsWith("report="))!.slice(7);
   expect(JSON.parse(await readFile(retained, "utf8")).publication.reference).toContain("candidate");
   await rm(join(retained, ".."), { recursive: true, force: true });
+});
+
+
+test("rebase Action forwards attestation choices and validates booleans", () => {
+  const input = { image: "image", "old-base": "old", base: "base", sbom: "true", provenance: "true" };
+  expect(rebaseArguments(input, "/report")).toContain("--sbom=true");
+  expect(rebaseArguments(input, "/report")).toContain("--provenance=true");
+  expect(() => rebaseArguments({ ...input, sbom: "invalid" }, "/report")).toThrow("sbom");
+});
+
+test("unavailable Docker daemon fails before registry access", async () => {
+  const f = await fixture(), bin = join(f.root, "bin"); await mkdir(bin);
+  const path = process.env.PATH;
+  try {
+    await writeFile(join(bin, "docker"), `#!${process.execPath}\nprocess.exit(23);`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${path}`;
+    const mock = new MockRegistry(), report = join(f.root, "preflight.json");
+    await expect(rebase({ ...f.options, base: f.options.oldBase, repo: "registry.test/app", smokeCommand: ["/app/check"], report, registry: { fetcher: mock.fetch, credentials: async () => undefined } })).rejects.toThrow("Docker preflight failed (exit 23)");
+    expect(mock.requests).toHaveLength(0);
+    expect(JSON.parse(await readFile(report, "utf8")).publication).toBeUndefined();
+  } finally { process.env.PATH = path; }
+});
+
+
+test("base-status reuses downloaded image metadata during assessment", async () => {
+  const f = await fixture(), mock = new MockRegistry(), registry = { fetcher: mock.fetch, credentials: async () => undefined };
+  const image = await pushLayout(f.image.layout!, "registry.test/app", [], registry);
+  const next = await pushLayout(f.next.directory, "registry.test/base", [], registry);
+  const start = mock.requests.length;
+  const result = await baseStatus([{ image: image.reference, oldBase: f.options.oldBase, base: next.reference }], registry);
+  expect(result.results[0]!.decision).toBe("requires-policy");
+  const gets = mock.requests.slice(start).filter((r) => r.method === "GET" && r.url.pathname.includes("/manifests/"));
+  const roots = gets.filter((r) => r.url.pathname.endsWith(image.reference.split("@")[1]!));
+  // One pinning request plus one immutable input snapshot, with no assessment re-fetch.
+  expect(roots.length).toBe(2);
 });

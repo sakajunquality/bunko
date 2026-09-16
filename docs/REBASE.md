@@ -95,3 +95,10 @@ Run `bun run build && bun run test:rebase` with Docker, OpenSSL and gpgv. This e
 With `--sbom`, existing [build evidence](SBOM_EVIDENCE.md) is validated and preserved. Unsupported evidence versions, duplicate annotations or inconsistent package membership fail; rebase cannot collect new build observations.
 
 See [Rebase operations](REBASE_OPERATIONS.md) for base discovery, typed dry-run decisions, reviewed policy templates, acceptance commands and CI integration.
+
+
+### Smoke acceptance and automation
+
+When `--smoke-command` is selected, Bunko checks Docker CLI/daemon availability before input downloads. It loads and runs every candidate locally before publishing any digest or attestation. An unavailable daemon or failed smoke command therefore leaves no registry candidate. Errors identify the platform, stage, exit code or signal; timeouts report their deadline. Docker preflight has a 10-second deadline, each image load allows 5 minutes, and each finite container command allows 60 seconds. Dry-run does not require Docker or execute the command. Publication or signing failures after acceptance can still leave a partial publication, which is recorded in the report.
+
+The rebase Action accepts `sbom: 'true'` and `provenance: 'true'`; both default to false for compatibility. SBOM regeneration requires a supported original inventory per platform. `base-status` shares immutable input snapshots and resolved platform images across its per-platform read-only assessments rather than re-downloading the source for each assessment.

@@ -28,6 +28,12 @@ inputs:
   auth-sources:
     description: Explicit ordered registry credential sources (empty preserves CLI defaults)
     default: ""
+  sbom:
+    description: Rebase the original SPDX inventory (requires one original SBOM per platform)
+    default: 'false'
+  provenance:
+    description: Attach provenance describing the rebase inputs and transformation
+    default: 'false'
   sign:
     description: "none, key or keyless; keyless needs workflow id-token: write"
     default: none
@@ -90,6 +96,8 @@ runs:
         BUNKO_INPUT_TAG_CONFLICT: ${{ inputs.tag-conflict }}
         BUNKO_INPUT_TAGS: ${{ inputs.tags }}
         BUNKO_INPUT_AUTH_SOURCES: ${{ inputs.auth-sources }}
+        BUNKO_INPUT_SBOM: ${{ inputs.sbom }}
+        BUNKO_INPUT_PROVENANCE: ${{ inputs.provenance }}
         BUNKO_INPUT_SIGN: ${{ inputs.sign }}
         BUNKO_INPUT_SIGN_TLOG: ${{ inputs.sign-tlog }}
         BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}
