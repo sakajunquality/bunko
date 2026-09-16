@@ -68,7 +68,8 @@ function executable(inspection: Inspection, path: string): BaseNode {
 function loader(inspection: Inspection, context: RebaseBuildContext, options: ImageOptions): void {
   const path = libcLoader(context.libc, options.platform), node = baseNode(inspection.tree, path);
   if (!node || node.type !== "file" || !node.size || !(node.mode & 0o111)) throw new RebaseDecisionError("requires-rebuild", "libc-loader", `Rebase base is missing executable ${context.libc} loader ${path}`);
-  libraryELF(inspection.headers.get(node), options.platform.architecture, path);
+  try { libraryELF(inspection.headers.get(node), options.platform.architecture, path); }
+  catch (error) { throw new RebaseDecisionError("requires-rebuild", "libc-loader", error instanceof Error ? error.message : "Invalid runtime loader"); }
 }
 
 /** Inspect all effective files before trusting a base transition; never execute image contents. */

@@ -112,3 +112,14 @@ test("discovery requires explicit old-base for cross-repository transitions", as
   expect(result.results[0]).toMatchObject({ status: "unknown", reason: "explicit-old-base-required" });
   expect(mock.requests.every((r) => r.url.host === "registry.test")).toBe(true);
 });
+
+test("Action retains candidate details when the requested report copy fails", async () => {
+  const root = await temporary(); paths.push(root); const bin = join(root, "bin"); await mkdir(bin);
+  const helper = join(bin, "bunko"), output = join(root, "outputs");
+  await writeFile(helper, `#!${process.execPath}\nconst args=process.argv.slice(2);await Bun.write(args[args.indexOf('--report')+1],JSON.stringify({decision:'compatible',status:'success',smoke:'passed',publication:{reference:'registry.test/app@sha256:candidate',tags:[],pendingTags:[]}}));`, { mode: 0o755 });
+  const child = Bun.spawn([process.execPath, new URL("../rebase/run.ts", import.meta.url).pathname], { stdout: "ignore", stderr: "ignore", env: { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: output, BUNKO_INPUT_IMAGE: "image", BUNKO_INPUT_OLD_BASE: "old", BUNKO_INPUT_BASE: "base", BUNKO_INPUT_REPO: "registry.test/app", BUNKO_INPUT_DRY_RUN: "false", BUNKO_INPUT_SMOKE_COMMAND: '["/app/check"]', BUNKO_INPUT_REPORT: join(root, "missing", "report.json") } });
+  expect(await child.exited).toBe(1); const text = await readFile(output, "utf8"); expect(text).toContain("candidate-reference=registry.test/app@sha256:candidate");
+  const retained = text.split("\n").find((line) => line.startsWith("report="))!.slice(7);
+  expect(JSON.parse(await readFile(retained, "utf8")).publication.reference).toContain("candidate");
+  await rm(join(retained, ".."), { recursive: true, force: true });
+});
