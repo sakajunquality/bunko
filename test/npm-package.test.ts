@@ -44,7 +44,7 @@ test("npm packaging rejects corrupt bytes before execution, mismatched versions 
 });
 
 test("npm requirements follow the release compatibility boundary", async () => {
-  for (const [version, range] of [["0.1.0-rc.5", ">=1.3.11 <1.5"], ["0.1.4", ">=1.3.11 <1.5"], ["0.2.0-rc.1", ">=1.3.13 <1.5"], ["0.2.0", ">=1.3.13 <1.5"]] as const) {
+  for (const [version, range] of [["0.1.0-rc.5", ">=1.3.11 <1.5"], ["0.1.4", ">=1.3.11 <1.5"], ["0.2.0-rc.1", ">=1.3.13 <1.5"], ["0.2.0", ">=1.3.13 <1.5"], ["0.9.0", ">=1.3.13 <1.5"], ["0.10.0", ">=1.3.13 <1.5"], ["0.10.1-rc.1", ">=1.3.13 <1.4 || >=1.4.2 <1.5"], ["0.10.1", ">=1.3.13 <1.4 || >=1.4.2 <1.5"], ["0.11.0", ">=1.3.13 <1.4 || >=1.4.2 <1.5"]] as const) {
     const root = await mkdtemp(join(tmpdir(), "bunko-npm-range-"));
     try {
       const source = await fixture(root, version), output = join(root, "package");

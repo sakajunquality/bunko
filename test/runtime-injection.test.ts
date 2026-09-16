@@ -32,7 +32,7 @@ test("runtime injection rejects unsupported modes, libc, versions and destinatio
   await project(root, { bunko: { base: "example/base", runtime: { inject: "release", libc: "musl" } } });
   expect((await loadProject({ path: root })).runtimeLibc).toBe("musl");
   expect(runtimeAsset(toolchain, { os: "linux", architecture: "amd64" })).toBe("bun-linux-x64-baseline");
-  for (const version of ["1.3.11", "1.3.12", "1.5.0"]) expect(() => runtimeAsset({ ...toolchain, version }, platform)).toThrow("supports official Bun");
+  for (const version of ["1.3.11", "1.3.12", "1.4.0", "1.4.1", "1.5.0"]) expect(() => runtimeAsset({ ...toolchain, version }, platform)).toThrow("supports official Bun");
   expect(() => validateCacheOptions({localCache:false,runtimeCache:"cache"})).toThrow("requires local caching");
 });
 

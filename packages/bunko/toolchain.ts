@@ -1,5 +1,5 @@
 import { spawn } from "../runtime/invocation.ts";
-import { supportedBunVersion } from "./bun-version.ts";
+import { supportedBunVersion, supportedBunRange } from "./bun-version.ts";
 import { runtimeELF, releaseRevision, type downloadRuntime } from "./runtime-download.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
@@ -45,7 +45,7 @@ export async function selectToolchain(path?: string): Promise<Toolchain> {
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Cannot run Bun: ${stderr.trim()}`);
   const match = /^(1\.\d+\.\d+)\+([a-f0-9]+)$/.exec(stdout.trim());
-  if (!match || !supportedBunVersion(match[1])) throw new Error(`Supported toolchain: Bun >=1.3.13 <1.5 (received ${stdout.trim()})`);
+  if (!match || !supportedBunVersion(match[1])) throw new Error(`Supported toolchain: Bun ${supportedBunRange} (received ${stdout.trim()})`);
   return { path: executable, version: match[1]!, revision: match[2]! };
 }
 

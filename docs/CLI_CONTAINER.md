@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.9.0 reference is `ghcr.io/sakajunquality/bunko:v0.9.0`, with verified multiarchitecture index `sha256:b29b44b83ecb873b44e672f5c88cb9c1d42c4ef8896bd9121608375473665028`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.10.0 reference is `ghcr.io/sakajunquality/bunko:v0.10.0`, with verified multiarchitecture index `sha256:300ca12f6d85aeceaa32d76dac76aba2de2809e56b570b24debae2beee68dd6e`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:b29b44b83ecb873b44e672f5c88cb9c1d42c4ef8896bd9121608375473665028 \
+  ghcr.io/sakajunquality/bunko@sha256:300ca12f6d85aeceaa32d76dac76aba2de2809e56b570b24debae2beee68dd6e \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -128,19 +128,23 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 
 ## v0.8.3 publication
 
-[Container workflow 34921024301](https://github.com/sakajunquality/bunko/actions/runs/34921024301) validated, attested and promoted index `sha256:489db88df785fe25d457ac8c1ff96224400f15911d810dab216a529221b30b5d` from recipe source `ddee9a0d5eb0e2c26ea61ecab32fdd9adbb1f5e8`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match the GitHub v0.8.3 release. See [release evidence](validation/v0.8.3.md).
+[Container workflow 34921024301](https://github.com/sakajunquality/bunko/actions/runs/34921024301) validated, attested and promoted index `sha256:489db88df785fe25d457ac8c1ff96224400f15911d810dab216a529221b30b5d` from recipe source `ddee9a0d5eb0e2c26ea61ecab32fdd9adbb1f5e8`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match the GitHub v0.8.3 release. See [release evidence](validation/v0.8.3.md).## v0.10.0 publication
+
+[Container workflow 35160356011](https://github.com/sakajunquality/bunko/actions/runs/35160356011) validated, attested and promoted index `sha256:300ca12f6d85aeceaa32d76dac76aba2de2809e56b570b24debae2beee68dd6e` from recipe source `8a8a26ad8c1b2a79ab75603dbb5109f10f18f266`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match GitHub v0.10.0. See [release evidence](validation/v0.10.0.md).
 
 ## v0.9.0 publication
 
 [Container workflow 35077491818](https://github.com/sakajunquality/bunko/actions/runs/35077491818) validated, attested and promoted index `sha256:b29b44b83ecb873b44e672f5c88cb9c1d42c4ef8896bd9121608375473665028` from recipe source `5d140475499615246998df479276e50e5b0f006d`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match GitHub v0.9.0. See [release evidence](validation/v0.9.0.md).
 
+
+
 ## Explicit native registry authentication
 
-These options are available in v0.9.0. Pin its verified container digest for reproducible use.
+These options are available in v0.10.0. Pin its verified container digest for reproducible use.
 
 A builder with `--auth-source github` can use an explicitly supplied `GITHUB_TOKEN` without a Docker configuration. On GKE/Cloud Build use `--auth-source google` and grant the workload's service account Artifact Registry access; bunko uses the metadata token endpoint. Explicit `GOOGLE_OAUTH_ACCESS_TOKEN` also works. Neither path installs a helper or requires a Docker socket. Other Docker helper configurations still require a derived image containing the helper.
 
-For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.9.0 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
+For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.10.0 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
 
 ```yaml
 args: [build, /work, --repo, LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/app, --bare, --auth-source, google]

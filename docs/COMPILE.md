@@ -4,7 +4,7 @@ Bunko's `compile` mode creates a Linux executable containing the application and
 
 ## Prerequisites and first build
 
-For bunko v0.8.0, use an official Bun 1.3.13 or 1.4.0–1.4.2 installation and GnuPG's `gpgv`. Linux and macOS build hosts are supported. Network access is needed for uncached base images and authenticated runtime assets. Docker is unnecessary for image construction; running the resulting container locally requires a container runtime.
+For development builds after v0.10.0, use an official Bun 1.3.13 or 1.4.2 installation and GnuPG's `gpgv`. Linux and macOS build hosts are supported. Network access is needed for uncached base images and authenticated runtime assets. Docker is unnecessary for image construction; running the resulting container locally requires a container runtime.
 
 ```sh
 bunx @sakajunquality/bunko@0.8.0 build examples/compile \
