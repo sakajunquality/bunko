@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { verifyKeylessImage } from "./keyless.ts";
 import { runInvocation } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
 import { rebase } from "./rebase.ts";
@@ -147,6 +148,15 @@ Options:
   --sbom                   Attach per-platform SPDX package inventories
   --sbom-evidence          Include lock declarations and build states (requires --sbom)
   --provenance             Attach SLSA provenance to the image root
+  --sign <key|keyless>    Signing mode; keyless uses Sigstore services
+  --sign-identity-token <TOKEN|@FILE>  Explicit OIDC token; file input recommended
+  --sigstore-config <file>  Custom signing-config / trusted-root profile
+  --sign-tlog=false        Custom TSA-only signing (requires a matching profile)
+  --certificate-identity <value>  Expected keyless certificate identity
+  --certificate-identity-regexp <regexp>  Alternative identity constraint
+  --certificate-oidc-issuer <url>  Expected keyless issuer
+  --certificate-oidc-issuer-regexp <regexp>  Alternative issuer constraint
+  --use-signed-timestamps  Require signed timestamps during verification
   --sign-key <key>         Sign image/artifact digests with cosign, without Rekor
   --cosign-path <file>     cosign executable (default: PATH)
   --base-sbom <linux/ARCH=ref>    Link an OCI SPDX artifact matching the base digest
@@ -259,6 +269,11 @@ export async function main(argv: string[]): Promise<number> {
       sbom: { type: "boolean" },
       "sbom-evidence": { type: "boolean" },
       provenance: { type: "boolean" },
+      sign: { type: "string" },
+      "sign-identity-token": { type: "string" }, "sigstore-config": { type: "string" }, "sign-tlog": { type: "boolean" },
+      "certificate-identity": { type: "string" }, "certificate-identity-regexp": { type: "string" },
+      "certificate-oidc-issuer": { type: "string" }, "certificate-oidc-issuer-regexp": { type: "string" },
+      "use-signed-timestamps": { type: "boolean" },
       "sign-key": { type: "string" },
       "cosign-path": { type: "string" },
       target: { type: "string", multiple: true },
@@ -363,7 +378,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       const result = await rebase({ image: path, oldBase: values["old-base"], base: values.base ?? `layout:${values["base-layout"]}`, platform: values.platform, output: values["oci-layout"], repo: values.repo,
         push: supplied("push") ? values.push : undefined, tags: values.tag, dryRun: values["dry-run"], report: values.report, policy: values["compatibility-policy"], registry, tagConflict,
-        sbom: values.sbom, baseSBOMs, provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"] });
+        sbom: values.sbom, baseSBOMs, provenance: values.provenance, sign: values.sign as "key" | "keyless" | undefined, signIdentityToken: values["sign-identity-token"], sigstoreConfig: values["sigstore-config"], signTlog: values["sign-tlog"], signKey: values["sign-key"], cosignPath: values["cosign-path"] });
       process.stdout.write(result.publication?.published ? `${result.publication.reference}\n` : JSON.stringify(result) + "\n"); return 0;
     }
     if (command === "push-layout") {
@@ -405,8 +420,15 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (command === "verify") {
-      if (positionals.length !== 2 || !values["verify-key"]) throw new Error("verify requires an image@digest and --verify-key");
-      await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"], values["insecure-registry"]);
+      if (positionals.length !== 2) throw new Error("verify requires one image@digest");
+      const certificate = { identity: values["certificate-identity"], identityRegexp: values["certificate-identity-regexp"], issuer: values["certificate-oidc-issuer"], issuerRegexp: values["certificate-oidc-issuer-regexp"], sigstoreConfig: values["sigstore-config"], useSignedTimestamps: values["use-signed-timestamps"] };
+      if (values["verify-key"]) {
+        if (Object.values(certificate).some((value) => value !== undefined)) throw new Error("--verify-key cannot be combined with certificate verification options");
+        await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"], values["insecure-registry"]);
+      } else {
+        if (values["private-signatures"]) throw new Error("--private-signatures is for key-based verification only");
+        await verifyKeylessImage(path, certificate, values["cosign-path"], values["insecure-registry"]);
+      }
       process.stdout.write(`${path}\n`);
       return 0;
     }
@@ -447,7 +469,7 @@ export async function main(argv: string[]): Promise<number> {
       jobs: jobsText === undefined ? undefined : Number(jobsText),
       externalDepsByTarget: values["deps-map"] ? await dependencyMap(values["deps-map"]) : undefined,
       externalDeps: Object.keys(externalDeps).length ? externalDeps : undefined,
-      mode: values.mode, moduleLocations: values["module-locations"], sbom: values.sbom, sbomEvidence: values["sbom-evidence"], provenance: values.provenance, signKey: values["sign-key"], cosignPath: values["cosign-path"],
+      mode: values.mode, moduleLocations: values["module-locations"], sbom: values.sbom, sbomEvidence: values["sbom-evidence"], provenance: values.provenance, sign: values.sign as "key" | "keyless" | undefined, signIdentityToken: values["sign-identity-token"], sigstoreConfig: values["sigstore-config"], signTlog: values["sign-tlog"], signKey: values["sign-key"], cosignPath: values["cosign-path"],
       targets: values.target, depsStrategy: values["deps-strategy"], sharedDeps: values["shared-deps"],
       push: values.offline && !supplied("push") ? false : values.push, repo: values.repo, bare: values.bare, tags: values.tag, tagConflict,
       tarball: values.tarball, local: values.local,

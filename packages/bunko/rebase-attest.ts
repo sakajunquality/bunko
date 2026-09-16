@@ -1,3 +1,4 @@
+import type { SigningMetadata } from "./keyless.ts";
 import { evidenceComment, readEvidence } from "./sbom-evidence.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { Descriptor, Digest, Platform } from "../oci/types.ts";
@@ -121,7 +122,7 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   return { ...document, documentNamespace: `urn:bunko:spdx:rebase:${sha256(canonicalJSON(document))}` };
 }
 
-export function rebaseProvenance(input: { source: Descriptor; root: Descriptor; platforms: { platform: Platform; oldBase: Digest; newBase: Digest; preservedLayers: Digest[]; policy: string }[]; builder: { kind: string; digest: Digest }; policyDigest?: Digest; inventoryDigests?: Digest[] }): unknown {
+export function rebaseProvenance(input: { source: Descriptor; root: Descriptor; platforms: { platform: Platform; oldBase: Digest; newBase: Digest; preservedLayers: Digest[]; policy: string }[]; builder: { kind: string; digest: Digest }; policyDigest?: Digest; inventoryDigests?: Digest[]; signing?: SigningMetadata }): unknown {
   descriptor(input.source, "source"); descriptor(input.root, "root"); digest(input.builder.digest, "builder.digest");
   const dependency = (uri: string, d: Digest) => ({ uri, digest: { sha256: d.slice(7) } });
   const materials = [dependency("urn:bunko:rebase:original-image", input.source.digest), ...input.platforms.flatMap((item) => {
@@ -130,5 +131,5 @@ export function rebaseProvenance(input: { source: Descriptor; root: Descriptor; 
     const policy = input.policyDigest ?? sha256(item.policy);
     return [dependency(`urn:bunko:rebase:old-base:${item.platform.os}/${item.platform.architecture}`, item.oldBase), dependency(`urn:bunko:rebase:new-base:${item.platform.os}/${item.platform.architecture}`, item.newBase), dependency("urn:bunko:rebase:policy", policy), ...item.preservedLayers.map((d, i) => { digest(d, "preserved layer"); return dependency(`urn:bunko:rebase:preserved-layer:${item.platform.architecture}:${i}`, d); })];
   }), ...(input.inventoryDigests ?? []).map((d, i) => { digest(d, "inventory digest"); return dependency(`urn:bunko:rebase:inventory:${i}`, d); })];
-  return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: "bunko-rebase", digest: { sha256: input.root.digest.slice(7) } }], predicateType: "https://slsa.dev/provenance/v1", predicate: { buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/rebase/v1", externalParameters: { platforms: input.platforms.map(({ platform }) => platform), tool: `bunko-${VERSION}` }, internalParameters: { builder: input.builder }, resolvedDependencies: materials }, runDetails: { builder: { id: `https://github.com/sakajunquality/bunko`, builderDependencies: [dependency(`urn:bunko:builder:${input.builder.kind}`, input.builder.digest)] }, metadata: {} } } };
+  return { _type: "https://in-toto.io/Statement/v1", subject: [{ name: "bunko-rebase", digest: { sha256: input.root.digest.slice(7) } }], predicateType: "https://slsa.dev/provenance/v1", predicate: { buildDefinition: { buildType: "https://github.com/sakajunquality/bunko/rebase/v1", externalParameters: { ...(input.signing ? { signing: input.signing } : {}), platforms: input.platforms.map(({ platform }) => platform), tool: `bunko-${VERSION}` }, internalParameters: { builder: input.builder }, resolvedDependencies: materials }, runDetails: { builder: { id: `https://github.com/sakajunquality/bunko`, builderDependencies: [dependency(`urn:bunko:builder:${input.builder.kind}`, input.builder.digest)] }, metadata: {} } } };
 }

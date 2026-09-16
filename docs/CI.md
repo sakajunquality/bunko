@@ -132,3 +132,7 @@ The Dockerfile pins its Bun base and installs Debian packages from the signed sn
 
 
 The build Action accepts newline-separated `cache-from` and `cache-to` locations, including `type=registry,repo=...` and `type=local,src=...` / `type=local,dest=...`. Set `cache-export-error: fail` when cache export failure must fail the job. See [cache distribution](CACHE_RETENTION.md) for ordering, trust, offline and retention behavior.
+
+### OIDC signing
+
+Grant `permissions: id-token: write` and configure registry authentication, then use `sign: keyless` on the build or rebase Action. Install stable cosign 3.x first. See [keyless signing](KEYLESS_SIGNING.md) for exact-identity bunko/cosign verification commands and staging validation.
