@@ -83,3 +83,25 @@ Finally, publish only when intended, using the configured output repository. `ch
 | Works locally, fails in CI/container | Verify that environment's configuration path, helper binary, identity, and repository access. |
 
 Do not paste configuration contents, tokens, or raw credential-helper responses into bug reports. Report the operation, status, provider, and helper name with private identifiers removed. Bunko's authentication advice uses static provider guidance and does not include upstream error-body text.
+
+## Explicit credential sources
+
+Use `--auth-source docker,github` (repeatable) or `BUNKO_AUTH_SOURCES=docker,github` to enable an ordered source chain. CLI selection replaces the environment list. The default remains Docker configuration only; setting `GITHUB_TOKEN` alone has no effect. Unknown or empty source names are errors. Identity configuration is not read from package.json.
+
+The GitHub source answers only for `ghcr.io` (including explicit HTTPS port 443), using `GITHUB_TOKEN` before `GH_TOKEN`, with `GITHUB_ACTOR` or `x-access-token` as username. A nonstandard port or lookalike hostname receives no token. Supply the token explicitly in Actions:
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+steps:
+  - run: bunko build . --repo ghcr.io/example/app --bare --auth-source github
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+```
+
+An absent source can fall through. A configured Docker helper or inline entry is authoritative. A failure stops the operation; a not-found result stops the source chain but still permits anonymous registry access. Neither case silently switches identities. The default Docker-only helper behavior is unchanged. Credentials are refreshed per invocation and concurrent refreshes share a lookup.
+
+`bunko auth-check ghcr.io --auth-source github --scope repository:example/app:pull,push` probes `/v2/` and its challenge using the normal origin restrictions. Its JSON identifies the source and credential kind without exposing values. An unchallenged response is reported separately. Authentication success does **not** prove repository pull or push permissions; scopes are requested, not asserted as granted. `doctor` remains offline.
+
+When non-Docker sources are enabled, signing and verification pass selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure; an uncatchable termination such as SIGKILL can leave a private temporary directory requiring cleanup. Docker-only selection keeps cosign's existing helper behavior. The bridge does not change the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.

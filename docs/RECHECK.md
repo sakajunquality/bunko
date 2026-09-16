@@ -48,3 +48,5 @@ General Dockerfile/LLB/RUN execution, remote workers, operating-system package m
 ## Additional runtime evidence
 
 On 2026-09-09, the compile CA fixture passed on Linux amd64 and arm64 with host Bun 1.4.2 (revision `744846f84`) and authenticated release compilers. Each nonroot, read-only container verified its private loopback TLS endpoint without external networking. This verifies declared Bun TLS trust, not native-client system stores. The fixture requires Docker with support for the selected target platforms and OpenSSL with `req -addext`; select fewer targets with `BUNKO_SMOKE_PLATFORMS` when emulation is unavailable.
+
+Explicit registry sources remain opt-in, host-bound and redacted. Absent sources can fall through; a configured identity failure cannot switch accounts. Authentication probes do not certify repository permissions. The default Docker-only lookup and offline doctor contracts remain intact.

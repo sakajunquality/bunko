@@ -1,3 +1,4 @@
+import { type CredentialProvider } from "../oci/credentials.ts";
 import { evidenceComment, type BuildEvidence } from "./sbom-evidence.ts";
 import { publicAssetMapping } from "./asset-contexts.ts";
 import { packageLicense } from "./inventory.ts";
@@ -63,7 +64,7 @@ export function provenance(result: BuildResult, lockDigest?: string) {
     } };
 }
 
-export async function signImages(references: string[], key: string, executable = "cosign", insecure: string[] = []): Promise<void> {
+export async function signImages(references: string[], key: string, executable = "cosign", insecure: string[] = [], credentials?: CredentialProvider): Promise<void> {
   const images = [...new Set(references)].map((reference) => {
     const ref = parseReference(reference);
     if (!ref.reference.startsWith("sha256:")) throw new Error("Signing requires an immutable image@digest");
@@ -74,14 +75,14 @@ export async function signImages(references: string[], key: string, executable =
   for (const { reference, ref } of images) {
     // Key-based signatures stay in the selected registry. Never submit to Rekor.
     await cosignCommand(executable, ["sign", "--yes", "--key", key, "--use-signing-config=false", "--tlog-upload=false",
-      ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference]);
+      ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference], 120_000, false, credentials);
   }
 }
 
-export async function verifyImage(reference: string, key: string, privateSignatures = false, executable = "cosign", insecure: string[] = []): Promise<void> {
+export async function verifyImage(reference: string, key: string, privateSignatures = false, executable = "cosign", insecure: string[] = [], credentials?: CredentialProvider): Promise<void> {
   const ref = parseReference(reference);
   if (!ref.reference.startsWith("sha256:")) throw new Error("Signature verification requires an immutable image@digest");
   await assertCosign(executable);
   await cosignCommand(executable, ["verify", "--key", key, ...(privateSignatures ? ["--insecure-ignore-tlog=true"] : []),
-    ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference]);
+    ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference], 120_000, false, credentials);
 }

@@ -1,3 +1,4 @@
+import { type CredentialProvider } from "../oci/credentials.ts";
 import { lstat, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -68,8 +69,8 @@ export async function prepareSigning(options: SigningOptions): Promise<PreparedS
   if (!token && !provider) throw new Error("No keyless identity: configure Actions id-token: write, an ambient provider, or an explicit identity token");
   return { metadata: { mode, service: profile ? "custom" : "public", tlog, ...(profile ? { configDigest: profile.digest } : {}) }, paths, token, provider, config: profile?.config, root: profile?.root, client: profile?.client };
 }
-export async function signConfiguredImages(references: string[], signing: PreparedSigning, executable = "cosign", insecure: string[] = []): Promise<void> {
-  if (signing.metadata.mode === "key") return signImages(references, signing.key!, executable, insecure);
+export async function signConfiguredImages(references: string[], signing: PreparedSigning, executable = "cosign", insecure: string[] = [], credentials?: CredentialProvider): Promise<void> {
+  if (signing.metadata.mode === "key") return signImages(references, signing.key!, executable, insecure, credentials);
   await assertCosign(executable, true);
   const images = [...new Set(references)].map((reference) => { const ref = parseReference(reference); if (!ref.reference.startsWith("sha256:")) throw new Error("Signing requires immutable image digests"); return { reference, ref }; });
   const directory = await mkdtemp(join(tmpdir(), "bunko-keyless-"));
@@ -81,11 +82,11 @@ export async function signConfiguredImages(references: string[], signing: Prepar
     if (signing.client) args.push("--oidc-client-id", signing.client);
     if (signing.provider) args.push("--oidc-provider", signing.provider);
     else args.push("--oidc-disable-ambient-providers");
-    for (const { reference, ref } of images) await cosignCommand(executable, [...args, ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference], 120_000, true);
+    for (const { reference, ref } of images) await cosignCommand(executable, [...args, ...(insecure.includes(ref.registry) ? ["--allow-http-registry"] : []), reference], 120_000, true, credentials);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 export interface CertificateOptions { identity?: string; identityRegexp?: string; issuer?: string; issuerRegexp?: string; sigstoreConfig?: string; useSignedTimestamps?: boolean }
-export async function verifyKeylessImage(reference: string, options: CertificateOptions, executable = "cosign", insecure: string[] = []): Promise<void> {
+export async function verifyKeylessImage(reference: string, options: CertificateOptions, executable = "cosign", insecure: string[] = [], credentials?: CredentialProvider): Promise<void> {
   if (Boolean(options.identity) === Boolean(options.identityRegexp) || Boolean(options.issuer) === Boolean(options.issuerRegexp)) throw new Error("Keyless verification requires exactly one certificate identity and one OIDC issuer constraint");
   for (const value of [options.identity, options.identityRegexp, options.issuer, options.issuerRegexp]) if (value !== undefined && (!value || value.length > 4096 || /[\x00\r\n]/.test(value))) throw new Error("Invalid certificate constraint");
   const ref = parseReference(reference); if (!ref.reference.startsWith("sha256:")) throw new Error("Signature verification requires an immutable image digest");
@@ -100,6 +101,6 @@ export async function verifyKeylessImage(reference: string, options: Certificate
       if (!profile.tsa) throw new Error("Keyless verification without Rekor requires a TSA profile");
       args.push("--insecure-ignore-tlog", "--use-signed-timestamps");
     } else if (options.useSignedTimestamps) args.push("--use-signed-timestamps");
-    await cosignCommand(executable, [...args, reference]);
+    await cosignCommand(executable, [...args, reference], 120_000, false, credentials);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

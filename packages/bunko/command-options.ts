@@ -9,6 +9,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const closure = "target platform deps-strategy shared-deps bun-path install-cache cache local-cache json";
   const allowed: Record<string, string> = {
     build: `offline ${build} ${signing} deps-artifact`, resolve: `${build} ${signing} ${input}`, apply: `${build} ${signing} ${input} ${kube}`,
+    "auth-check": "auth-source scope registry-config insecure-registry",
     "cache-info": "cache-dir",
     "base-status": "targets base-tag old-base platform compatibility-policy json registry-mirror insecure-registry registry-config",
     "rebase-policy": "old-base base out platform runtime-libc registry-mirror insecure-registry registry-config",
@@ -21,7 +22,8 @@ export function validateCommandOptions(command: string, names: string[]): void {
     why: closure, "closure-info": `${closure} top`,
   };
   if (!(command in allowed)) throw new Error(`Unknown command: ${command}`);
-  const accepted = new Set(`${allowed[command]} help version`.split(" "));
+  const auth = ["build", "resolve", "apply", "base-status", "rebase-policy", "rebase", "metadata", "push-layout", "prune", "prepare-base", "check-base", "verify"].includes(command) ? "auth-source" : "";
+  const accepted = new Set(`${allowed[command]} ${auth} help version`.split(" "));
   for (const name of names) {
     const normalized = name.replace(/^no-/, "");
     if (!accepted.has(normalized)) throw new Error(`--${name} is not supported by ${command}`);
