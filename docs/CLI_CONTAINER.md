@@ -152,3 +152,5 @@ env:
 ```
 
 Alternatively mount a dedicated Docker configuration Secret read-only and set `DOCKER_CONFIG` to its directory. Do not include credentials in the source PVC. Keep token inputs out of logs and avoid mounting an entire home directory. YAML examples do not establish live GKE/Cloud Build validation.
+
+For EKS, configure IRSA or EKS Pod Identity on the Job service account and use `--auth-source aws` with the exact private ECR repository. Bunko reads the projected token/container endpoint only when AWS authentication is enabled and the registry matches ECR. `AWS_EC2_METADATA_DISABLED=true` prevents falling back to a node identity if no workload identity is available. Native AWS profiles and SSO remain unsupported; use a helper-equipped derived image for those workflows.

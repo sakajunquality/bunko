@@ -1,3 +1,4 @@
+import { awsCredentials } from "./aws-credentials.ts";
 import { googleCredentials } from "./google-credentials.ts";
 import type { CredentialTransport } from "./credential-http.ts";
 import { join } from "node:path";
@@ -5,14 +6,14 @@ import { homedir } from "node:os";
 import { dockerCredentials, type Credential, type CredentialProvider, type HelperRunner } from "./credentials.ts";
 import { registryHost } from "./registry-host.ts";
 
-export type AuthSource = "docker" | "github" | "google";
+export type AuthSource = "docker" | "github" | "google" | "aws";
 export interface CredentialSourcesOptions extends CredentialTransport {
   env?: Record<string, string | undefined>;
   helper?: HelperRunner;
 }
 export function authSources(values?: string[], environment = process.env.BUNKO_AUTH_SOURCES): AuthSource[] {
   const names = (values ?? (environment === undefined ? ["docker"] : [environment])).flatMap((value) => value.split(",").map((name) => name.trim()));
-  if (!names.length || names.some((name) => !["docker", "github", "google"].includes(name))) throw new Error("Auth sources must be a nonempty list of docker, github or google");
+  if (!names.length || names.some((name) => !["docker", "github", "google", "aws"].includes(name))) throw new Error("Auth sources must be a nonempty list of docker, github, google or aws");
   return [...new Set(names)] as AuthSource[];
 }
 export function dockerConfigPath(env: Record<string, string | undefined> = process.env): string {
@@ -43,6 +44,7 @@ export function registryCredentials(values?: string[], options: CredentialSource
           credential = { username, password: token };
         }
       }
+      if (source === "aws") credential = await awsCredentials(registry, env, options);
       if (source === "google") credential = await googleCredentials(registry, env, options);
       if (credential) return { ...credential, source };
     }
@@ -56,6 +58,6 @@ export function registryCredentials(values?: string[], options: CredentialSource
     pending.set(registry, work); return work;
   };
   provider.bridge = true;
-  provider.sensitivePaths = sources.includes("docker") ? [file] : [];
+  provider.sensitivePaths = [...(sources.includes("docker") ? [file] : []), ...(sources.includes("aws") ? [env.AWS_WEB_IDENTITY_TOKEN_FILE, env.AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE].filter((path): path is string => Boolean(path)) : [])];
   return provider;
 }
