@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 export function rebaseArguments(inputs: Record<string, string | undefined>, report: string): string[] {
-  for (const key of ["auth-sources", "image", "old-base", "base"]) if (!inputs[key]) throw new Error(`Rebase Action requires ${key}`);
+  for (const key of ["image", "old-base", "base"]) if (!inputs[key]) throw new Error(`Rebase Action requires ${key}`);
   if (!["true", "false", undefined, ""].includes(inputs["dry-run"])) throw new Error("dry-run must be true or false");
   if (inputs["tag-conflict"] && !["fail", "skip"].includes(inputs["tag-conflict"])) throw new Error("tag-conflict must be fail or skip");
   if (inputs.sign && !["none", "key", "keyless"].includes(inputs.sign)) throw new Error("sign must be none, key or keyless");
