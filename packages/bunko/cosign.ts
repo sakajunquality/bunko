@@ -37,7 +37,7 @@ export async function cosignCommand(executable: string, args: string[], timeoutM
     if (args[0] !== "version" && provider.bridge !== false) {
       const registry = parseReference(args.at(-1)!).registry;
       const credential = await provider(registry);
-      if (credential?.expires !== undefined && credential.expires <= Date.now()) throw new Error("Registry credential has expired");
+      if (credential?.expires !== undefined && (!Number.isFinite(credential.expires) || credential.expires <= Date.now())) throw new Error("Registry credential has expired");
       const entry = credential?.registryToken ? { registrytoken: credential.registryToken } : credential?.identityToken ? { identitytoken: credential.identityToken } : credential ? { auth: Buffer.from(`${credential.username}:${credential.password}`).toString("base64") } : {};
       directory = await mkdtemp(join(tmpdir(), "bunko-sign-auth-"));
       await writeFile(join(directory, "config.json"), JSON.stringify({ auths: { [registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry]: entry } }), { mode: 0o600, flag: "wx" });

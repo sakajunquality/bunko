@@ -69,3 +69,18 @@ test("explicit Docker hosts normalize HTTPS default ports and do not materialize
   const provider = registryCredentials(["docker"], {env:{BUNKO_DOCKER_CONFIG:file}});
   expect(await provider("ghcr.io")).toMatchObject({username:"user",password:"secret"}); expect(provider.bridge).toBe(false);
 });
+
+
+test("malformed matching Docker entries cannot fall through to another identity", async () => {
+  const file = join(await directory(), "config.json");
+  for (const entry of [null, false, 0, ""]) {
+    await writeFile(file, JSON.stringify({ auths: { "ghcr.io": entry } }));
+    await expect(registryCredentials(["docker", "github"], { env: { BUNKO_DOCKER_CONFIG: file, GITHUB_TOKEN: "OTHER" } })("ghcr.io")).rejects.toThrow("Docker auth entry");
+  }
+});
+
+test("cosign rejects non-finite credential expiry before invoking its process", async () => {
+  for (const expires of [NaN, Infinity, -Infinity]) {
+    await expect(cosignCommand("never-executed", ["verify", `ghcr.io/org/app@sha256:${"a".repeat(64)}`], 1000, false, async () => ({ username: "u", password: "p", expires }))).rejects.toThrow("expired");
+  }
+});

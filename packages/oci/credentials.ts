@@ -53,10 +53,10 @@ export function dockerCredentials(file = process.env.BUNKO_DOCKER_CONFIG ?? join
       return helper(selected, registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry);
     }
     const auths = config.auths === undefined ? {} : object(config.auths, "auths");
-    const entry = Object.entries(auths).find(([key]) => (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry)?.[1];
+    const entry = Object.entries(auths).find(([key]) => (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry);
     if (!entry) return;
     configured?.();
-    const auth = object(entry, "Docker auth entry");
+    const auth = object(entry[1], "Docker auth entry");
     if (typeof auth.registrytoken === "string" && auth.registrytoken) return { registryToken: auth.registrytoken };
     if (typeof auth.identitytoken === "string" && auth.identitytoken) return { identityToken: auth.identitytoken };
     if (typeof auth.auth === "string" && auth.auth) {
