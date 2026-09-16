@@ -1,16 +1,18 @@
+import { googleCredentials } from "./google-credentials.ts";
+import type { CredentialTransport } from "./credential-http.ts";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { dockerCredentials, type Credential, type CredentialProvider, type HelperRunner } from "./credentials.ts";
 import { registryHost } from "./registry-host.ts";
 
-export type AuthSource = "docker" | "github";
-export interface CredentialSourcesOptions {
+export type AuthSource = "docker" | "github" | "google";
+export interface CredentialSourcesOptions extends CredentialTransport {
   env?: Record<string, string | undefined>;
   helper?: HelperRunner;
 }
 export function authSources(values?: string[], environment = process.env.BUNKO_AUTH_SOURCES): AuthSource[] {
   const names = (values ?? (environment === undefined ? ["docker"] : [environment])).flatMap((value) => value.split(",").map((name) => name.trim()));
-  if (!names.length || names.some((name) => !["docker", "github"].includes(name))) throw new Error("Auth sources must be a nonempty list of docker or github");
+  if (!names.length || names.some((name) => !["docker", "github", "google"].includes(name))) throw new Error("Auth sources must be a nonempty list of docker, github or google");
   return [...new Set(names)] as AuthSource[];
 }
 export function dockerConfigPath(env: Record<string, string | undefined> = process.env): string {
@@ -41,6 +43,7 @@ export function registryCredentials(values?: string[], options: CredentialSource
           credential = { username, password: token };
         }
       }
+      if (source === "google") credential = await googleCredentials(registry, env, options);
       if (credential) return { ...credential, source };
     }
   }

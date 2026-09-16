@@ -1,0 +1,15 @@
+# Set _BUNKO_IMAGE to a reviewed container digest containing --auth-source.
+# The published 0.8.3 container does not support this example.
+# Grant the Cloud Build service account Artifact Registry writer permission.
+steps:
+  - name: '${_BUNKO_IMAGE}'
+    env: [HOME=/tmp/bunko-home, XDG_CACHE_HOME=/tmp/bunko-cache]
+    args:
+      - build
+      - /workspace
+      - --auth-source
+      - google
+      - --repo
+      - '${_REGISTRY_REPO}'
+      - --bare
+      - --push=true

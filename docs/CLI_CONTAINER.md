@@ -129,3 +129,26 @@ A Dockerfile builds this tool distribution. Bunko application builds still const
 ## v0.8.3 publication
 
 [Container workflow 34921024301](https://github.com/sakajunquality/bunko/actions/runs/34921024301) validated, attested and promoted index `sha256:489db88df785fe25d457ac8c1ff96224400f15911d810dab216a529221b30b5d` from recipe source `ddee9a0d5eb0e2c26ea61ecab32fdd9adbb1f5e8`. Independent exact-source attestation verification, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match the GitHub v0.8.3 release. See [release evidence](validation/v0.8.3.md).
+
+## Explicit native registry authentication (development source)
+
+These options require a CLI/container build containing the credential-source changes; the published 0.8.3 image above does not contain them. Build the current source container or pin a later release containing this feature.
+
+A builder with `--auth-source github` can use an explicitly supplied `GITHUB_TOKEN` without a Docker configuration. On GKE/Cloud Build use `--auth-source google` and grant the workload's service account Artifact Registry access; bunko uses the metadata token endpoint. Explicit `GOOGLE_OAUTH_ACCESS_TOKEN` also works. Neither path installs a helper or requires a Docker socket. Other Docker helper configurations still require a derived image containing the helper.
+
+For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Replace the image with a reviewed digest containing the feature. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
+
+```yaml
+args: [build, /work, --repo, LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/app, --bare, --auth-source, google]
+```
+
+For GitHub authentication use `--auth-source github` and a namespace-scoped Secret:
+
+```yaml
+env:
+  - name: GITHUB_TOKEN
+    valueFrom:
+      secretKeyRef: {name: bunko-registry-token, key: token}
+```
+
+Alternatively mount a dedicated Docker configuration Secret read-only and set `DOCKER_CONFIG` to its directory. Do not include credentials in the source PVC. Keep token inputs out of logs and avoid mounting an entire home directory. YAML examples do not establish live GKE/Cloud Build validation.
