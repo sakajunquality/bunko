@@ -1,5 +1,5 @@
 import type { SigningMetadata } from "./keyless.ts";
-import { evidenceComment, readEvidence } from "./sbom-evidence.ts";
+import { evidenceComment, packageSourceInfo, readEvidence } from "./sbom-evidence.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { Descriptor, Digest, Platform } from "../oci/types.ts";
 import { VERSION } from "./config.ts";
@@ -105,7 +105,8 @@ export function rebaseSpdx(input: unknown, original: Descriptor, output: Descrip
   if (annotations.length > 1) throw new Error("Duplicate SBOM build evidence");
   const evidence = annotations.length ? readEvidence(annotations[0].comment, new Set(preserved.map((item) => `${item.name}@${item.versionInfo}`))) : undefined;
   const cleanRoot = { SPDXID: ROOT_ID, name: root.name, versionInfo: output.digest, downloadLocation: "NOASSERTION", filesAnalyzed: false, licenseConcluded: "NOASSERTION", licenseDeclared: "NOASSERTION", copyrightText: "NOASSERTION" };
-  const cleanPackages = preserved.map((item) => cleanPackage(item, item.SPDXID)).sort((a, b) => a.SPDXID.localeCompare(b.SPDXID));
+  const evidencePackages = new Map(evidence?.packages.map((item) => [`${item.name}@${item.version}`, item]));
+  const cleanPackages = preserved.map((item): Record<string, any> => ({ ...cleanPackage(item, item.SPDXID), ...(evidence ? { sourceInfo: packageSourceInfo(evidencePackages.get(`${item.name}@${item.versionInfo}`)) } : {}) })).sort((a, b) => a.SPDXID.localeCompare(b.SPDXID));
   const cleanRuntime = runtime ? cleanPackage(runtime, runtime.SPDXID) : undefined;
   if (cleanRuntime) cleanRuntime.externalRefs = [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: `pkg:generic/${nodeRuntime ? "node" : "bun"}@${encodeURIComponent(runtime!.versionInfo)}` }];
   if (cleanRuntime && nodeRuntime) cleanRuntime.comment = "Declared Node major preserved from the original SBOM; no runtime version verification was performed";
