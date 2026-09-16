@@ -1,5 +1,25 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import type { Fetcher } from "./registry.ts";
+
+/** Bun's fetch inherits cached proxy settings even with an empty proxy option.
+ * Native HTTP requests keep metadata and local credential services off that path. */
+async function directFetch(url: string, init: RequestInit): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const request = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, {
+      method: init.method ?? "GET", headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
+    }, (response) => {
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(response.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+      resolve(new Response(Readable.toWeb(response) as unknown as ReadableStream<Uint8Array>, { status: response.statusCode ?? 500, headers }));
+    });
+    request.on("error", reject);
+    request.end(typeof init.body === "string" ? init.body : undefined);
+  });
+}
 
 export interface CredentialTransport { fetcher?: Fetcher; timeoutMs?: number }
 /** No redirects, bounded bodies, total deadlines, and fixed diagnostics for secret-bearing services. */
@@ -16,7 +36,7 @@ export async function credentialRequest(source: string, url: string, init: Reque
     let status: number | undefined;
     try {
       const operation = async () => {
-        const response = await (options.fetcher ?? fetch)(url, { ...init, redirect: "error", signal: invocationSignal(controller.signal), verbose: false, ...(direct ? { proxy: "" } : {}) } as RequestInit);
+        const response = await (options.fetcher ?? (direct ? directFetch : fetch))(url, { ...init, redirect: "error", signal: invocationSignal(controller.signal), verbose: false, ...(direct ? { proxy: "" } : {}) } as RequestInit);
         status = response.status;
         if (!response.ok) { await response.body?.cancel(); throw new Error("response"); }
         if (!response.body) throw new Error("body");
