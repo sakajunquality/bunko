@@ -24,6 +24,7 @@ test("Node configuration selects supported bases and separate runtime arguments"
   expect(nodeBase("24", "glibc")).toBe("gcr.io/distroless/nodejs24-debian13"); expect(nodeBase("24", "musl")).toBe("node:24-alpine");
   expect(nodePath("node:24-alpine", undefined, undefined, "musl")).toBe("/usr/local/bin/node");
   expect(() => nodePath("registry.test/custom", undefined, undefined, "glibc")).toThrow("nodePath");
+  expect(() => nodePath(undefined, undefined, "relative-node", "glibc")).toThrow("absolute");
   expect(nodeArguments(["--max-old-space-size", "128"])).toEqual(["--max-old-space-size=128"]);
   expect(() => nodeArguments(["--smol"])).toThrow("Node"); expect(() => nodeArguments(["--eval", "secret"])).toThrow("Node");
   const f = await fixture(); await expect(loadProject({ path: f.source, mode: "compile" })).rejects.toThrow("Node runtime");
@@ -31,7 +32,7 @@ test("Node configuration selects supported bases and separate runtime arguments"
 });
 test("Node guards ignore comments, strings and local bindings while rejecting runtime APIs", () => {
   for (const code of ['// Bun.serve()\nconsole.log("bun:sqlite")', 'function f(Bun) { return Bun.value; }', 'const x={Bun:1};', 'type Bun = string;']) expect(() => rejectBunRuntime(code, "fixture.ts")).not.toThrow();
-  for (const code of ['Bun.serve({})', 'import {Database} from "bun:sqlite"', 'await import("bun:sqlite")', 'require("bun:sqlite")', 'import.meta.require("x")', 'globalThis["Bun"].serve()', 'B\\u0075n.serve()']) expect(() => rejectBunRuntime(code, "fixture.ts")).toThrow("Bun-only");
+  for (const code of ['Bun.serve({})', 'import {Database} from "bun:sqlite"', 'await import("bun:sqlite")', 'require("bun:sqlite")', 'import.meta.require("x")', 'import /* comment */ .meta.require("x")', 'globalThis["Bun"].serve()', 'B\\u0075n.serve()']) expect(() => rejectBunRuntime(code, "fixture.ts")).toThrow("Bun-only");
   expect(() => rejectBunRuntime('// import "./file.ts"', "app.js", undefined, true)).not.toThrow();
   expect(() => rejectBunRuntime('import "./file.ts"', "app.js", undefined, true)).toThrow("TypeScript");
 });

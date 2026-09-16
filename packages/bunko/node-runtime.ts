@@ -22,7 +22,7 @@ export function nodeMajor(value: unknown, engine?: unknown): string {
 }
 export function nodeBase(major: string, libc: Libc): string { return libc === "musl" ? `node:${major}-alpine` : `gcr.io/distroless/nodejs${major}-debian13`; }
 export function nodePath(base: string | undefined, layout: string | undefined, explicit: unknown, libc: Libc): string {
-  if (explicit !== undefined) { if (typeof explicit !== "string" || !explicit) throw new Error("runtime.nodePath must be an absolute executable path"); return explicit; }
+  if (explicit !== undefined) { if (typeof explicit !== "string" || !explicit.startsWith("/") || explicit.endsWith("/") || /[\x00\r\n\\]/.test(explicit) || explicit.split("/").some((part) => part === "." || part === "..")) throw new Error("runtime.nodePath must be an absolute executable path"); return explicit; }
   if (!base && !layout) return libc === "musl" ? "/usr/local/bin/node" : "/nodejs/bin/node";
   if (base) {
     const ref = parseReference(base);

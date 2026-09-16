@@ -6,7 +6,7 @@ import { join, relative } from "node:path";
 
 /** Conservative static guard, not proof of compatibility for dynamically constructed APIs. */
 export function rejectBunRuntime(code: string, file: string, analysis = sourceAnalysis(code, file), sourceMode = false): void {
-  if (!/Bun|\bbun\b|import\s*\.|\\/.test(code) && !(sourceMode && /\.[cm]?tsx?[\'"`]/.test(code))) return;
+  if (!/Bun|\bbun\b|\bimport\b|\\/.test(code) && !(sourceMode && /\.[cm]?tsx?[\'"`]/.test(code))) return;
   const source = analysis(), { scopes, bindings } = lexicalScopes(source);
   const unbound = (node: ts.Identifier) => { for (let s = scopes.get(node); s; s = s.parent) if (s.names.has(node.text)) return false; return !bindings.has(node); };
   function visit(node: ts.Node) {
