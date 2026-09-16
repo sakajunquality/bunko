@@ -4,6 +4,8 @@ import type { Fetcher } from "./registry.ts";
 export interface CredentialTransport { fetcher?: Fetcher; timeoutMs?: number }
 /** No redirects, bounded bodies, total deadlines, and fixed diagnostics for secret-bearing services. */
 export async function credentialRequest(source: string, url: string, init: RequestInit, options: CredentialTransport = {}, direct = false) {
+  // Local credential services must never send identity material to an ambient proxy.
+  direct ||= ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname);
   const timeout = options.timeoutMs ?? 5000;
   if (!Number.isFinite(timeout) || timeout < 1 || timeout > 30_000) throw new Error("Invalid credential request deadline");
   for (let attempt = 0; ; attempt++) {
