@@ -19,6 +19,7 @@ export function buildArguments(inputs: Inputs, root: string): { args: string[]; 
   const layout = !push || boolean(inputs["export-layout"], false) ? join(root, "layout") : "";
   if (inputs.sign && !["none", "key", "keyless"].includes(inputs.sign)) throw new Error("sign must be none, key or keyless");
   const args = ["build", resolve(inputs.path || "."), `--push=${push}`, "--report", report];
+  if (inputs["auth-sources"]) args.push("--auth-source", inputs["auth-sources"]);
   if (inputs.sign && inputs.sign !== "none") args.push("--sign", inputs.sign);
   for (const name of ["sign-key", "sigstore-config"]) if (inputs[name]) args.push(`--${name}`, inputs[name]!);
   for (const name of ["sbom", "provenance"]) if (boolean(inputs[name], false)) args.push(`--${name}`);

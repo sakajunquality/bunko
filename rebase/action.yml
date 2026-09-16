@@ -25,6 +25,9 @@ inputs:
   tag-conflict:
     description: Registry tag conflict handling; skipped tags still prevent an accepted-reference output
     default: 'fail'
+  auth-sources:
+    description: Explicit ordered registry credential sources (empty preserves CLI defaults)
+    default: ""
   sign:
     description: "none, key or keyless; keyless needs workflow id-token: write"
     default: none
@@ -86,6 +89,7 @@ runs:
         BUNKO_INPUT_POLICY: ${{ inputs.policy }}
         BUNKO_INPUT_TAG_CONFLICT: ${{ inputs.tag-conflict }}
         BUNKO_INPUT_TAGS: ${{ inputs.tags }}
+        BUNKO_INPUT_AUTH_SOURCES: ${{ inputs.auth-sources }}
         BUNKO_INPUT_SIGN: ${{ inputs.sign }}
         BUNKO_INPUT_SIGN_TLOG: ${{ inputs.sign-tlog }}
         BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}

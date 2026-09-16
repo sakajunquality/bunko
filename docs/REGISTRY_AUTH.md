@@ -105,3 +105,14 @@ An absent source can fall through. A configured Docker helper or inline entry is
 `bunko auth-check ghcr.io --auth-source github --scope repository:example/app:pull,push` probes `/v2/` and its challenge using the normal origin restrictions. Its JSON identifies the source and credential kind without exposing values. An unchallenged response is reported separately. Authentication success does **not** prove repository pull or push permissions; scopes are requested, not asserted as granted. `doctor` remains offline.
 
 When non-Docker sources are enabled, signing and verification pass selected credentials to cosign through a mode-0600 temporary Docker configuration containing only the target registry. The file is removed on success or failure; an uncatchable termination such as SIGKILL can leave a private temporary directory requiring cleanup. Docker-only selection keeps cosign's existing helper behavior. The bridge does not change the user's Docker configuration. No credential values enter argv, reports or provenance. Registry authentication and keyless OIDC identity remain separate requirements. Offline builds do not resolve credentials.
+
+### Google and workload identity
+
+Enable `--auth-source google` for `gcr.io`, its regional hosts, or `LOCATION-docker.pkg.dev`. An explicitly provided `GOOGLE_OAUTH_ACCESS_TOKEN` is authoritative. Otherwise bunko queries the fixed Google metadata token endpoint, requiring the Google response header, validating expiry, and refreshing before expiration. Metadata calls bypass proxies, reject redirects, have a five-second deadline per attempt and retry a transient failure once (at most about 10.1 seconds per request, excluding scheduler overhead). Failed discovery does not fall through to another identity.
+
+On GKE or Cloud Build, grant the workload identity access to the intended Artifact Registry repository. The metadata path uses that workload's service account; it does not implement service-account JSON signing or external-account/WIF JSON exchange. Use a helper for those flows, or obtain an access token in the caller. An environment access token cannot renew itself; refresh it externally for a subsequent invocation.
+
+`google-github-actions/auth` does not automatically populate `GOOGLE_OAUTH_ACCESS_TOKEN`. Configure its `token_format: access_token`, then explicitly pass `${{ steps.auth.outputs.access_token }}` as this environment variable to the build step. Keep generated credential files outside build inputs (or exclude them). See the [Action's documented token outputs](https://github.com/google-github-actions/auth).
+
+The build and rebase Actions accept `auth-sources`. They do not export credentials globally or automatically expose `${{ github.token }}`; pass token environment variables in the caller. The independently versioned setup Action remains responsible for installation.
+
