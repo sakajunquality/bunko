@@ -1,3 +1,4 @@
+import { registryHost } from "./registry-host.ts";
 import { registryAuthHelp } from "./auth-help.ts";
 import { spawn } from "../runtime/invocation.ts";
 import { readFile } from "node:fs/promises";
@@ -37,14 +38,14 @@ async function runHelper(helper: string, server: string): Promise<Credential | u
 }
 
 /** Docker's per-registry helper > global store > auths precedence, without writing credentials. */
-export function dockerCredentials(file = process.env.BUNKO_DOCKER_CONFIG ?? join(process.env.DOCKER_CONFIG ?? join(homedir(), ".docker"), "config.json"), helper: HelperRunner = runHelper, configured?: () => void): CredentialProvider {
+export function dockerCredentials(file = process.env.BUNKO_DOCKER_CONFIG ?? join(process.env.DOCKER_CONFIG ?? join(homedir(), ".docker"), "config.json"), helper: HelperRunner = runHelper, configured?: () => void, normalizeHosts = false): CredentialProvider {
   const cache = new Map<string, Promise<Credential | undefined>>();
   async function resolve(registry: string): Promise<Credential | undefined> {
     let config: Record<string, unknown>;
     try { config = object(JSON.parse(await readFile(file, "utf8")), "Docker config"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw new Error("Cannot read Docker credential configuration"); }
     const helpers = config.credHelpers === undefined ? {} : object(config.credHelpers, "credHelpers");
-    const perRegistry = Object.entries(helpers).find(([key]) => credentialHost(key) === registry)?.[1];
+    const perRegistry = Object.entries(helpers).find(([key]) => (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry)?.[1];
     const selected = perRegistry === "" || perRegistry === undefined ? (config.credsStore === "" ? undefined : config.credsStore) : perRegistry;
     if (selected !== undefined) {
       if (typeof selected !== "string" || !/^[a-zA-Z0-9_.-]+$/.test(selected)) throw new Error("Invalid Docker credential helper name");
@@ -52,7 +53,7 @@ export function dockerCredentials(file = process.env.BUNKO_DOCKER_CONFIG ?? join
       return helper(selected, registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry);
     }
     const auths = config.auths === undefined ? {} : object(config.auths, "auths");
-    const entry = Object.entries(auths).find(([key]) => credentialHost(key) === registry)?.[1];
+    const entry = Object.entries(auths).find(([key]) => (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry)?.[1];
     if (!entry) return;
     configured?.();
     const auth = object(entry, "Docker auth entry");

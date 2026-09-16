@@ -32,8 +32,8 @@ export function registryCredentials(values?: string[], options: CredentialSource
       let credential: Credential | undefined;
       if (source === "docker") {
         let configured = false;
-        credential = await dockerCredentials(file, options.helper, () => { configured = true; })(registry);
-        if (configured && !credential) throw new Error("Configured docker credentials are unavailable; refusing identity fallback");
+        credential = await dockerCredentials(file, options.helper, () => { configured = true; }, true)(registry);
+        if (configured && !credential) return; // Preserve anonymous access, but never try a different identity.
       } else if (source === "github" && registry === "ghcr.io") {
         const token = env.GITHUB_TOKEN ?? env.GH_TOKEN;
         if (token !== undefined) {
@@ -55,7 +55,7 @@ export function registryCredentials(values?: string[], options: CredentialSource
     const work = lookup(registry).then((value) => { cache.set(registry, value); return value; }).finally(() => pending.delete(registry));
     pending.set(registry, work); return work;
   };
-  provider.bridge = true;
+  provider.bridge = sources.some((source) => source !== "docker");
   provider.sensitivePaths = sources.includes("docker") ? [file] : [];
   return provider;
 }
