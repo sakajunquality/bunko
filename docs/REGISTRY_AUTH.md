@@ -12,7 +12,7 @@ The configuration file is selected in this order:
 
 Inside that file, a matching `credHelpers` entry takes precedence over `credsStore`, which takes precedence over `auths`. A selected helper is authoritative: Bunko does not fall through to an old inline password when it fails or returns no credentials. Helper executables must be on the Bunko process's `PATH`. Containers and CI runners need their own configuration and helper installation; a host login alone does not configure a container.
 
-Bunko caches credential lookups during an invocation and asks the provider again during authentication refresh. Helpers can obtain fresh credentials; an expired token stored in `auths` needs a new login. Bunko does not automatically discover ambient AWS, Google, Azure, or GitHub credentials without a configured helper or login. Keep the current provider precedence when migrating from ko's built-in keychains.
+Bunko caches credential lookups during an invocation and asks the provider again during authentication refresh. Helpers can obtain fresh credentials; an expired token stored in `auths` needs a new login. Ambient credential discovery is opt-in: `--auth-source aws`, `google`, or `github` enables the supported native identity paths described below. The default remains Docker-compatible configuration; Azure and unsupported identity paths require a configured helper or login. Keep the current provider precedence when migrating from ko's built-in keychains.
 
 ## GitHub Container Registry
 
