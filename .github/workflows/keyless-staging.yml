@@ -4,15 +4,14 @@ on:
     branches: [feat/keyless-signing]
     paths: [.github/workflows/keyless-staging.yml]
   workflow_dispatch:
-    inputs:
-      tlog:
-        description: Enable Rekor (false requires a reviewed TSA-only profile)
-        type: boolean
-        default: true
 permissions:
   contents: read
 jobs:
   keyless:
+    strategy:
+      fail-fast: false
+      matrix:
+        tlog: ["true", "false"]
     runs-on: ubuntu-latest
     environment: sigstore-staging
     permissions:
@@ -28,6 +27,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Prepare reviewed staging trust
         env:
+          TLOG: ${{ matrix.tlog }}
           SIGNING_CONFIG: ${{ vars.SIGSTORE_SIGNING_CONFIG }}
           TRUSTED_ROOT: ${{ vars.SIGSTORE_TRUSTED_ROOT }}
         run: |
@@ -37,6 +37,11 @@ jobs:
             for (const key of ["caUrls", "rekorTlogUrls", "tsaUrls"]) for (const endpoint of c[key] || []) {
               const u = new URL(endpoint.url);
               if (u.protocol !== "https:" || !u.hostname.endsWith(".sigstage.dev")) throw new Error("Only Sigstore staging endpoints are permitted");
+            }
+            if (process.env.TLOG === "false") {
+              if (!(c.tsaUrls?.length > 0)) throw new Error("TSA-only validation requires a timestamp authority");
+              c.rekorTlogUrls = [];
+              delete c.rekorTlogConfig;
             }
             const dir = process.env.RUNNER_TEMP;
             await Bun.write(`${dir}/signing-config.json`, JSON.stringify(c));
@@ -54,9 +59,9 @@ jobs:
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - name: Build, sign and independently verify
         env:
-          TLOG: ${{ github.event_name == 'push' && 'true' || inputs.tlog }}
+          TLOG: ${{ matrix.tlog }}
         run: |
-          repo="ghcr.io/${GITHUB_REPOSITORY,,}-keyless-staging"
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}-keyless-staging/${TLOG}"
           bun packages/bunko/cli.ts build examples/hello --repo "$repo" --bare --platform linux/amd64 --no-cache \
             --sign keyless --sign-tlog="$TLOG" --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign" \
             --sbom --provenance --report "$RUNNER_TEMP/keyless-report.json"
@@ -69,3 +74,16 @@ jobs:
           if [[ "$TLOG" == false ]]; then timestamp_flags=(--insecure-ignore-tlog --use-signed-timestamps); fi
           "$RUNNER_TEMP/cosign" verify "$ref" --certificate-identity "$identity" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com --trusted-root "$RUNNER_TEMP/trusted-root.json" "${timestamp_flags[@]}" >/dev/null
+          if bun packages/bunko/cli.ts verify "$ref" --certificate-identity "https://github.com/invalid/keyless-identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"; then
+            echo "Verification incorrectly accepted a different certificate identity" >&2
+            exit 1
+          fi
+          if bun packages/bunko/cli.ts verify "$ref" --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://invalid.example.com \
+            --sigstore-config "$RUNNER_TEMP/sigstore.json" --cosign-path "$RUNNER_TEMP/cosign"; then
+            echo "Verification incorrectly accepted a different OIDC issuer" >&2
+            exit 1
+          fi
+          printf 'Verified staging keyless signature and rejected mismatched identity/issuer: `%s`\n' "$ref" >> "$GITHUB_STEP_SUMMARY"
