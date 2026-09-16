@@ -2,7 +2,8 @@ import { defaultAuthOrigins, registryAuthOrigins } from "./auth-origins.ts";
 import { registryAuthHelp } from "./auth-help.ts";
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { registryHost } from "./registry-host.ts";
-import { dockerCredentials, type CredentialProvider } from "./credentials.ts";
+import { type CredentialProvider } from "./credentials.ts";
+import { registryCredentials } from "./credential-sources.ts";
 import { object } from "./digest.ts";
 import { media } from "./types.ts";
 
@@ -169,7 +170,7 @@ export class RegistryClient {
       throwIfCancelled();
       return transport(url, { ...init, signal: invocationSignal(init?.signal), ...(tls && origin.startsWith("https://") ? { tls: { ...tls, rejectUnauthorized: true } } : {}) } as RequestInit);
     };
-    this.credentials = options.credentials ?? dockerCredentials();
+    this.credentials = options.credentials ?? registryCredentials();
     const configured = options.authOrigins === undefined ? undefined : registryAuthOrigins(options.authOrigins)[registryHost(registry)];
     this.authOrigins = new Set([this.origin, ...(configured ?? defaultAuthOrigins(registryHost(registry)))]);
   }
@@ -192,12 +193,14 @@ export class RegistryClient {
 
   private async authenticate(challenge: string, scopes: string[], refresh: boolean): Promise<{ authorization: string; expires: number }> {
     const credential = await this.credentials(this.registry, refresh);
+    if (credential?.expires !== undefined && (!Number.isFinite(credential.expires) || credential.expires <= Date.now())) throw new Error("Registry credential has expired");
+    const deadline = (value: number) => Math.min(value, credential?.expires ?? Infinity);
     if (/^Basic\s/i.test(challenge)) {
       if (credential?.username === undefined || credential.password === undefined) throw new Error(`Registry credentials required: ${this.registry}; ${registryAuthHelp(this.registry)}`);
-      return { authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`, expires: Date.now() + 5 * 60_000 };
+      return { authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`, expires: deadline(Date.now() + 5 * 60_000) };
     }
     if (!/^Bearer\s/i.test(challenge)) throw new Error(`Unsupported registry authentication: ${this.registry}`);
-    if (credential?.registryToken) return { authorization: `Bearer ${credential.registryToken}`, expires: Date.now() + 60_000 };
+    if (credential?.registryToken) return { authorization: `Bearer ${credential.registryToken}`, expires: deadline(Date.now() + 60_000) };
     const values: Record<string, string> = Object.create(null);
     for (const match of challenge.replace(/^Bearer\s+/i, "").matchAll(/(?:^|,)\s*([\w-]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|([^,\s]+))/g)) {
       const key = match[1]!.toLowerCase();
@@ -235,7 +238,7 @@ export class RegistryClient {
     const value = token.token ?? token.access_token;
     if (typeof value !== "string" || !value) throw new Error("Registry returned no Bearer token");
     const seconds = typeof token.expires_in === "number" && token.expires_in > 0 ? token.expires_in : 60;
-    return { authorization: `Bearer ${value}`, expires: Date.now() + Math.max(1, seconds - Math.min(30, seconds / 2)) * 1000 };
+    return { authorization: `Bearer ${value}`, expires: deadline(Date.now() + Math.max(1, seconds - Math.min(30, seconds / 2)) * 1000) };
   }
 
   /** Parallel publication work meets the same 401 in every worker. Share one exchange per

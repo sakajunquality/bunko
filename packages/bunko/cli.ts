@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { registryCredentials } from "../oci/credential-sources.ts";
+import { authCheck } from "./auth-check.ts";
 import { verifyKeylessImage } from "./keyless.ts";
 import { runInvocation } from "../runtime/invocation.ts";
 import { supportedBunVersion } from "./bun-version.ts";
@@ -72,6 +74,7 @@ Usage:
   bunko check-base --base <reference> [--platform <list>] [--requirements-report <file>] [--run]
   bunko verify <image@digest> [--verify-key <public-key> | certificate constraints]
   bunko check-config [path] [--target <name/path>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
+  bunko auth-check <registry-host> [--auth-source docker,github] [--scope repository:org/app:pull]
   bunko doctor [path] [--bun-path <file>] [--asset-context <NAME=DIR>] [--format <json|text>] [--deep]
   bunko why <package> [path] [--target <name/path>] [--json]
   bunko closure-info [path] [--target <name/path>] [--top <count>] [--json]
@@ -81,6 +84,7 @@ Usage:
 Options:
   -f, --filename <path>    Resolve YAML/JSON file, directory or stdin; repeatable
   --runtime-arg <value>    Bun option before the entrypoint; repeatable
+  --auth-source <list>    Explicit credential sources (repeatable; default: docker)
   --offline               Build using local bases and prepared caches only
   --define <KEY=VALUE>     Override a build constant; repeatable, explicit values only
   --asset-context <NAME=DIR>  Named local asset input; repeatable
@@ -276,6 +280,7 @@ export async function main(argv: string[]): Promise<number> {
       sbom: { type: "boolean" },
       "sbom-evidence": { type: "boolean" },
       provenance: { type: "boolean" },
+      "auth-source": { type: "string", multiple: true }, scope: { type: "string" },
       sign: { type: "string" },
       "sign-identity-token": { type: "string" }, "sigstore-config": { type: "string" }, "sign-tlog": { type: "boolean" },
       "certificate-identity": { type: "string" }, "certificate-identity-regexp": { type: "string" },
@@ -342,7 +347,9 @@ export async function main(argv: string[]): Promise<number> {
     const concurrencyText = values["publish-concurrency"] ?? process.env.BUNKO_PUBLISH_CONCURRENCY;
     if (concurrencyText !== undefined && (!/^\d+$/.test(concurrencyText) || Number(concurrencyText) < 1 || Number(concurrencyText) > 32)) throw new Error("Publication concurrency must be an integer from 1 to 32");
     const reportedInsecureOrigins = new Set<string>();
+    const credentials = values.offline ? async () => undefined : registryCredentials(values["auth-source"]);
     const registry = {
+      credentials,
       publishConcurrency: concurrencyText === undefined ? undefined : Number(concurrencyText),
       onMirrorFallback: (event: { mirror: string; reason: string }) => {
         process.stderr.write(`Registry mirror skipped (${event.reason}): ${event.mirror}\n`);
@@ -353,8 +360,13 @@ export async function main(argv: string[]): Promise<number> {
         process.stderr.write(`Sending registry credentials in cleartext to ${event.origin}; --insecure-registry permits HTTP but does not protect them\n`);
       },
       mirrors: selectRegistryMirrors(values["registry-mirror"], process.env.BUNKO_REGISTRY_MIRRORS, tlsConfig?.mirrors),
-      insecure: values["insecure-registry"], tls: tlsConfig?.hosts, authOrigins: tlsConfig?.authOrigins, sensitivePaths: tlsConfig?.files,
+      insecure: values["insecure-registry"], tls: tlsConfig?.hosts, authOrigins: tlsConfig?.authOrigins, sensitivePaths: [...tlsConfig?.files ?? [], ...("sensitivePaths" in credentials ? credentials.sensitivePaths ?? [] : [])],
     };
+    if (command === "auth-check") {
+      if (positionals.length !== 2) throw new Error("auth-check requires one registry host");
+      const result = await authCheck(path, values.scope, registry);
+      process.stdout.write(JSON.stringify(result) + "\n"); return result.status === "success" ? 0 : 1;
+    }
     if (command === "check-config" || command === "doctor") {
       if (rest.length) throw new Error("Use one project path and repeat --target to select workspace members");
       const format = diagnosticsFormat(values.format, Boolean(process.stdout.isTTY));
@@ -445,10 +457,10 @@ export async function main(argv: string[]): Promise<number> {
       const certificate = { identity: values["certificate-identity"], identityRegexp: values["certificate-identity-regexp"], issuer: values["certificate-oidc-issuer"], issuerRegexp: values["certificate-oidc-issuer-regexp"], sigstoreConfig: values["sigstore-config"], useSignedTimestamps: values["use-signed-timestamps"] };
       if (values["verify-key"]) {
         if (Object.values(certificate).some((value) => value !== undefined)) throw new Error("--verify-key cannot be combined with certificate verification options");
-        await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"], values["insecure-registry"]);
+        await verifyImage(path, values["verify-key"], values["private-signatures"] ?? false, values["cosign-path"], values["insecure-registry"], credentials);
       } else {
         if (values["private-signatures"]) throw new Error("--private-signatures is for key-based verification only");
-        await verifyKeylessImage(path, certificate, values["cosign-path"], values["insecure-registry"]);
+        await verifyKeylessImage(path, certificate, values["cosign-path"], values["insecure-registry"], credentials);
       }
       process.stdout.write(`${path}\n`);
       return 0;

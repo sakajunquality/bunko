@@ -36,7 +36,7 @@ import { cp, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "nod
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
-import { dockerCredentials } from "../oci/credentials.ts";
+import { registryCredentials } from "../oci/credential-sources.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { assembleImage, isRootUser, nonrootUser } from "../oci/image.ts";
@@ -243,7 +243,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
   const destination = repo ? repositoryName(repository(options.bare ? repo : `${repo}/${project.name}`)) : undefined;
   // Validate the prefix separately so a colon/tag cannot hide before /name.
   if (repo) repository(options.bare ? repo : `${repo}/bunko-validation`);
-  const registry = options.registry ?? { credentials: dockerCredentials() };
+  const registry = options.registry ?? { credentials: registryCredentials() };
   const cacheDirectory = options.localCache === false ? undefined : await canonicalOutput(options.cacheDir ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"));
   const installCache = await installCachePath(options);
   const toolchain = context.toolchain;
@@ -331,7 +331,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       return ref ? await baseInventory(ref, [base.descriptor.digest], registry) : undefined;
     }));
     if (options.depsVerifyKey) for (const reference of new Set(Object.values(options.externalDepsByTarget?.[project.directory] ?? options.externalDeps ?? {}))) {
-      await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure);
+      await verifyImage(reference, options.depsVerifyKey, true, options.cosignPath, registry.insecure, registry.credentials);
     }
     const prefix = project.workdir.slice(1);
     const originalAssets = await assetEntries(join(snapshotRoot, project.targetPath), project.assets, prefix, project.assetExcludes.length > 0);
@@ -623,7 +623,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
               if (result.supplyChain) result.supplyChain.status = "attaching";
               await publishArtifacts(publisher, store, attestations, (publication, elapsedMs) => accumulate(result.publication!, publication, elapsedMs));
               if (context.signing && result.supplyChain) result.supplyChain.status = "signing";
-              if (context.signing) await signConfiguredImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), context.signing, options.cosignPath, options.registry?.insecure);
+              if (context.signing) await signConfiguredImages([root, ...images.map((image) => image.manifest), ...attestations.map((item) => item.manifest)].map((d) => `${destination}@${d.digest}`), context.signing, options.cosignPath, options.registry?.insecure, options.registry?.credentials);
               if (result.supplyChain) result.supplyChain.status = "complete";
             }
           }
@@ -671,6 +671,8 @@ export async function buildTargets(options: BuildOptions, single = false): Promi
  * source context before any image is published. Always dispose the returned batch. */
 export async function prepareTargets(options: BuildOptions, single = false, sources: BuildContext["sources"] = new Map()): Promise<PreparedTargets> {
   options = offlineOptions(options);
+  const credentials = options.registry?.credentials ?? registryCredentials();
+  options = { ...options, registry: { ...options.registry, credentials, sensitivePaths: [...options.registry?.sensitivePaths ?? [], ...credentials.sensitivePaths ?? []] } };
   options = { ...supplyChainOptions(options), assetContexts: normalizeAssetContexts(options.assetContexts) };
   validateCacheOptions(options);
   const explicitCachePaths = await Promise.all([...cacheLocations(options.cacheFrom, "from"), ...cacheLocations(options.cacheTo, "to")].flatMap((location) => location.type === "local" ? [canonicalCachePath(location.path)] : []));
@@ -754,7 +756,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       const captured = await workspaceAt(source, discovered.workspace.packages[0]!);
       if (JSON.stringify(captured.packages.map((pkg) => pkg.path)) !== JSON.stringify(discovered.workspace.packages.map((pkg) => pkg.path))) throw new Error("Workspace membership changed while creating the snapshot; retry the build");
     }
-    const registry = { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() };
+    const registry = { ...options.registry, credentials: options.registry?.credentials ?? registryCredentials() };
     const mapped = new Map<string, Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>>();
     for (const [index, project] of projects.entries()) {
       // Capture platform-independent inputs once even when image mappings are present.

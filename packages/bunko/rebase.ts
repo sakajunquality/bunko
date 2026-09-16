@@ -157,7 +157,7 @@ export async function rebase(options: RebaseOptions) {
       if (!options.dryRun) {
         await publishArtifacts(publisher, store, attachments, (part, elapsed) => accumulate(publication!, part, elapsed));
         if (signing && !options.smokeCommand) {
-          await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure);
+          await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure, registry.credentials);
           signed = true;
         }
       }
@@ -167,7 +167,7 @@ export async function rebase(options: RebaseOptions) {
       try { await smokeRebase(store, results, options.smokeCommand, directory); smoke = "passed"; }
       catch (error) { smoke = "failed"; throw error; }
       if (publisher && signing) {
-        await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure);
+        await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure, registry.credentials);
         signed = true;
       }
     }

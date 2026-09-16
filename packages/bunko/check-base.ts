@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { repositoryName } from "../oci/publish.ts";
 import { BlobStore } from "../oci/blob-store.ts";
-import { dockerCredentials } from "../oci/credentials.ts";
+import { registryCredentials } from "../oci/credential-sources.ts";
 import { LayoutSource, RegistrySource, resolveBase } from "../oci/source.ts";
 import { platform, type BuildOptions } from "./config.ts";
 import { selectToolchain } from "./toolchain.ts";
@@ -31,7 +31,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
   const reference = options.base ?? (kind === "node" ? nodeBase(nodeMajor(undefined), libc) : `oven/bun:${toolchain.version}-${libc === "musl" ? "alpine" : "distroless"}`);
   const executable = kind === "node" ? nodePath(options.base, options.baseLayout, options.runtimePath, libc) : options.runtimePath ?? "/usr/local/bin/bun";
   const source = options.baseLayout ? new LayoutSource(resolve(options.baseLayout)) : new RegistrySource(reference,
-    { ...options.registry, credentials: options.registry?.credentials ?? dockerCredentials() });
+    { ...options.registry, credentials: options.registry?.credentials ?? registryCredentials() });
   const requirements = options.requirementsReport ? await reportRequirements(options.requirementsReport) : undefined;
   const pinned = await source.root();
   const directory = await mkdtemp(join(tmpdir(), "bunko-check-base-"));

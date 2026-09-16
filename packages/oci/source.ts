@@ -86,7 +86,7 @@ export class RegistrySource implements ImageSource {
   private readonly bodyIdleTimeoutMs: number;
   constructor(value: string, options: RegistryOptions | Fetcher = {}) {
     this.ref = parseReference(value);
-    const settings = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
+    const settings: RegistryOptions = typeof options === "function" ? { fetcher: options, credentials: async () => undefined } : options;
     this.onMirrorFallback = settings.onMirrorFallback;
     this.bodyIdleTimeoutMs = settings.bodyIdleTimeoutMs ?? 120_000;
     if (!Number.isFinite(this.bodyIdleTimeoutMs) || this.bodyIdleTimeoutMs <= 0 || this.bodyIdleTimeoutMs > 2_147_483_647) throw new Error("Registry blob idle timeout must be positive and fit a timer");

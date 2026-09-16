@@ -1,3 +1,6 @@
+import { registryCredentials } from "../oci/credential-sources.ts";
+import { type CredentialProvider } from "../oci/credentials.ts";
+import { parseReference } from "../oci/source.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -26,11 +29,20 @@ function diagnostic(stderr: string): string {
   return "check key configuration, registry credentials and cosign compatibility";
 }
 
-export async function cosignCommand(executable: string, args: string[], timeoutMs = 120_000, keyless = false): Promise<string> {
+export async function cosignCommand(executable: string, args: string[], timeoutMs = 120_000, keyless = false, credentials?: CredentialProvider): Promise<string> {
   const env = signingEnvironment(keyless);
   let directory: string | undefined;
   try {
-    if (args[0] !== "version" && process.env.BUNKO_DOCKER_CONFIG) {
+    const provider = credentials ?? registryCredentials();
+    if (args[0] !== "version" && provider.bridge !== false) {
+      const registry = parseReference(args.at(-1)!).registry;
+      const credential = await provider(registry);
+      if (credential?.expires !== undefined && credential.expires <= Date.now()) throw new Error("Registry credential has expired");
+      const entry = credential?.registryToken ? { registrytoken: credential.registryToken } : credential?.identityToken ? { identitytoken: credential.identityToken } : credential ? { auth: Buffer.from(`${credential.username}:${credential.password}`).toString("base64") } : {};
+      directory = await mkdtemp(join(tmpdir(), "bunko-sign-auth-"));
+      await writeFile(join(directory, "config.json"), JSON.stringify({ auths: { [registry === "registry-1.docker.io" ? "https://index.docker.io/v1/" : registry]: entry } }), { mode: 0o600, flag: "wx" });
+      env.DOCKER_CONFIG = directory;
+    } else if (args[0] !== "version" && process.env.BUNKO_DOCKER_CONFIG) {
       directory = await mkdtemp(join(tmpdir(), "bunko-sign-auth-"));
       await writeFile(join(directory, "config.json"), await readFile(process.env.BUNKO_DOCKER_CONFIG), { mode: 0o600, flag: "wx" });
       env.DOCKER_CONFIG = directory;
