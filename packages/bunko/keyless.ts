@@ -57,7 +57,8 @@ export async function prepareSigning(options: SigningOptions): Promise<PreparedS
   if (mode === "key") return { metadata: { mode, tlog: false }, paths: [], key: options.signKey };
   const profile = options.sigstoreConfig ? await sigstoreProfile(options.sigstoreConfig) : undefined;
   const tlog = options.signTlog ?? true;
-  if (!tlog && (!profile?.tsa || profile.tlog) || tlog && profile && !profile.tlog) throw new Error("Disabling keyless tlog requires a custom config with TSA and no Rekor services");
+  if (tlog && profile && !profile.tlog) throw new Error("A TSA-only profile requires explicit --sign-tlog=false");
+  if (!tlog && (!profile?.tsa || profile.tlog)) throw new Error("Disabling keyless tlog requires a custom config with TSA and no Rekor services");
   const paths = [...profile?.paths ?? []];
   let token = options.signIdentityToken ?? process.env.SIGSTORE_ID_TOKEN ?? process.env.CI_JOB_JWT_V2;
   if (options.signIdentityToken?.startsWith("@")) { const path = resolve(options.signIdentityToken.slice(1)); token = Buffer.from(await bytes(path, 64 * 1024)).toString().trim(); paths.push(path); }

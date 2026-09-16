@@ -13,7 +13,7 @@ The default keyless service is Sigstore public good. Signing records image repos
 
 ## Identity and verification
 
-On GitHub Actions, grant `id-token: write` and configure registry write credentials. Bunko forwards the request URL/token only for keyless signing. It also supports Buildkite's agent identity, Google with explicit `GOOGLE_APPLICATION_CREDENTIALS`, and explicit tokens via `SIGSTORE_ID_TOKEN`, `CI_JOB_JWT_V2`, or `--sign-identity-token @FILE`. A literal token is supported but shell history/process inspection can expose CLI arguments; prefer environment or a file. Bunko rejects unavailable identity before publishing instead of launching an interactive browser. Unconfigured GCE metadata identity is not automatically selected.
+On GitHub Actions, grant `id-token: write` and configure registry write credentials. Bunko forwards the request URL/token only for keyless signing. Additional provider paths are implemented but have not been validated against live provider services. These include Buildkite's agent identity, Google with explicit `GOOGLE_APPLICATION_CREDENTIALS`, and explicit tokens via `SIGSTORE_ID_TOKEN`, `CI_JOB_JWT_V2`, or `--sign-identity-token @FILE`. A literal token is supported but shell history/process inspection can expose CLI arguments; prefer environment or a file. Bunko rejects unavailable identity before publishing instead of launching an interactive browser. Unconfigured GCE metadata identity is not automatically selected.
 
 Explicit token files and profile files are excluded from application snapshots. Tokens are frozen into mode-0600 temporary files for cosign and removed after execution. Captured cosign output is bounded and never printed; failures contain fixed diagnostic categories. Reports/provenance contain signing mode, public/custom service, configured tlog policy and optional profile digest. They do not contain tokens, certificate values, or a claimed verified subject/issuer. These records describe intended signing configuration; inspect completion status and independently verify signatures.
 
@@ -48,7 +48,7 @@ Use cosign's native signing config (`application/vnd.dev.sigstore.signingconfig.
 
 ## Actions and validation
 
-The build and rebase composite Actions accept `sign: keyless`, `sign-key` and `sigstore-config`. Install a compatible CLI and cosign first, and grant OIDC permissions in the caller. The rebase Action signs only after explicit container acceptance and before tag promotion.
+The build and rebase composite Actions accept `sign: keyless`, `sign-key` and `sigstore-config`. Install a compatible CLI and cosign first, and grant OIDC permissions in the caller. The rebase Action signs only after explicit container acceptance and before tag promotion. Keyless CLI rebase also delays tags until signing completes when smoke is omitted. Dry-run assessment checks base compatibility, not OIDC availability or signing profile validity.
 
 [The manual staging workflow](../.github/workflows/keyless-staging.yml) requires a `sigstore-staging` environment with reviewed `SIGSTORE_SIGNING_CONFIG` and `SIGSTORE_TRUSTED_ROOT` JSON variables. Its guard rejects public-good endpoints; it never falls back to them. Configure environment reviewers and registry permissions before running it. It builds, signs and verifies using both bunko and cosign; ordinary PR CI uses isolated helper/registry fixtures. A configured workflow is not evidence that a live OIDC run has passed.
 

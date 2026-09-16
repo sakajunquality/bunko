@@ -18,7 +18,7 @@ async function command(args: string[], cleanup = false): Promise<void> {
 /** Commands execute only inside the candidate container, never through a host shell. */
 export async function smokeRebase(store: BlobStore, images: { manifest: Descriptor; platform: Platform }[], argv: string[], temporary: string): Promise<void> {
   smokeArguments(argv);
-  if (!Bun.which("docker")) throw new Error("Rebase smoke requires Docker");
+  if (!Bun.which("docker", { PATH: process.env.PATH })) throw new Error("Rebase smoke requires Docker");
   for (const image of images) {
     const id = randomUUID(), reference = `bunko.local/rebase-smoke:${id}`, container = `bunko-rebase-${id}`;
     const archive = join(temporary, `smoke-${image.platform.architecture}.tar`);
