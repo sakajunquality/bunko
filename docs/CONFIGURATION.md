@@ -14,7 +14,7 @@ These settings are available in rc.4 and later. The immutable rc.3 release does 
 | `runtime.bunPath` | Absolute Bun executable path (Bun mode only) | [Runtime injection](RUNTIME_INJECTION.md) |
 | `runtime.libc` | `glibc` or `musl` target policy | [musl support](MUSL.md) |
 | `runtime.inject` | `release` for authenticated Bun runtime injection | [Runtime injection](RUNTIME_INJECTION.md) |
-| `runtime.args` | Runtime-specific argv before the application entrypoint | [Runtime arguments](#runtime-arguments) |
+| `runtime.args` | Runtime-specific argv before the application entrypoint | [Runtime arguments](#bun-runtime-arguments) |
 
 ## Workspace defaults
 
