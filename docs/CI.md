@@ -12,9 +12,9 @@ steps:
       persist-credentials: false
   - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
     with:
-      version: v0.10.0
+      version: v0.11.0
       bun-version: 1.4.2
-  - uses: sakajunquality/bunko/build@8a8a26ad8c1b2a79ab75603dbb5109f10f18f266 # v0.10.0
+  - uses: sakajunquality/bunko/build@9caa1c3b086be9eaea779dec525e5f5e9356920e # v0.11.0
     env:
       GITHUB_TOKEN: ${{ github.token }}
     id: image
