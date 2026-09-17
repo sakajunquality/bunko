@@ -13,3 +13,9 @@ if (selfTest) {
     console.log(JSON.stringify(result));
   } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 } else console.log("Listening on port 3000");
+
+for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
+  const deadline = setTimeout(() => { server.closeAllConnections(); process.exit(1); }, 10000);
+  deadline.unref();
+  server.close(() => process.exit(0));
+});

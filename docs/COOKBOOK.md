@@ -182,3 +182,5 @@ This validates current local inputs without a bundler, dependency installation, 
 See [release evidence](validation/) for the exact tested versions and provider limits. Recipes do not certify arbitrary third-party bases or application frameworks.
 
 Version 0.4.0 also rejects explicitly selected credential/internal names (such as `.env`) in bundle-mode assets; earlier versions could silently omit them. Remove those paths from the selection or narrow it with asset exclusions.
+
+For read-only execution, scratch volumes, PID 1 shutdown, process reaping, resource limits and shell-less debugging, see [Running images](RUNNING_IMAGES.md).

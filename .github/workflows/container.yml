@@ -47,13 +47,8 @@ jobs:
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist/release
           cd dist/release
           sha256sum --check SHA256SUMS
-          if [ "$RELEASE_TAG" = v0.1.0-rc.3 ]; then
-            echo 'c441e95a41bb063b5bc1716e33c3f27bfbe606e156a9c2e1e8baddaa23394464  SHA256SUMS' | sha256sum --check
-            echo '09486aa233147f781fb2068335d6b02fc4e5359853f2445573a5dfa5f2deb3cd  bunko.js' | sha256sum --check
-          else
-            cd ../..
-            bun scripts/verify-release.ts dist/release "$RELEASE_TAG"
-          fi
+          cd ../..
+          bun scripts/verify-release.ts dist/release "$RELEASE_TAG"
       - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
