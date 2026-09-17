@@ -112,3 +112,13 @@ gh workflow run npm.yml --repo sakajunquality/bunko --ref main -f version=v0.1.1
 | Publish response is ambiguous, or post-publication verification fails | Inspect the registry/release and exact bytes first. If the version exists, verify or repair the consumer check; do not republish, unpublish or replace the version. A genuinely defective published artifact requires a new version. |
 | npm metadata is temporarily stale | Retry bounded read-only verification; the workflow already allows propagation time. Do not retry publication to fix metadata visibility. |
 | Consumers need rollback | Pin the previously verified CLI version/container digest/npm version. Any dist-tag correction is a separate, explicit change after checking its target; immutable version assets stay intact. |
+
+### Workflow boundaries
+
+Release publication extracts only the exact `# vX.Y.Z` section from `docs/RELEASE_NOTES.md`; a missing, duplicate or empty section blocks publication. Keep `Unreleased` and previous release sections outside that section. Parser notice versions are checked against the pinned dependencies.
+
+Registry conformance dispatches run only from `main`, with write/OIDC permissions scoped to the conformance job. External cloud OIDC trust must independently restrict the repository and `refs/heads/main`; a workflow guard is not a substitute for an IAM trust policy. Privileged dependency installs disable lifecycle scripts.
+
+Superseded PR CI runs are cancelled. Main/tag runs are retained as release evidence. CI intentionally has no workflow-level `paths-ignore`: required checks must still resolve for documentation PRs, and executable examples and contracts can change under documentation paths. A future lightweight documentation gate must preserve the required check names. Release/npm jobs have explicit deadlines, and validation workflows share a checksum-pinned cosign installer.
+
+Container packaging still uses a separately reviewed `main` recipe and verifies the exact release-tag CLI provenance. Changing that trust model or splitting build/attestation into separate jobs requires independent provenance acceptance. Historical unauthenticated rc.3 payloads are no longer accepted by the current container workflow. Optional CodeQL adoption and scanner-database reproducibility are separate tooling decisions, not evidence of a completed security scan.

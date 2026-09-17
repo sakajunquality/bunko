@@ -16,9 +16,9 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
-## TypeScript 5.9.3
+## TypeScript 6.0.3
 
-Copyright Microsoft Corporation. Source: https://github.com/microsoft/TypeScript/tree/v5.9.3
+Copyright Microsoft Corporation. Source: https://github.com/microsoft/TypeScript/tree/v6.0.3
 
 The following license and third-party notices are reproduced from the pinned npm package, with line endings and trailing whitespace normalized. The notices include material used by the compiler and its declaration files; retaining the complete upstream notice avoids dropping transitive attribution.
 
