@@ -13,7 +13,7 @@ const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
 async function fixture(mode: "bundle" | "source" = "bundle", code = 'import { basename } from "node:path"; console.log(basename("/a/node-ok"));') {
   const root = await temporary(); dirs.push(root); const source = join(root, "source"); await mkdir(source);
-  await writeFile(join(source, "package.json"), JSON.stringify({ name: "node-fixture", type: "module", module: "index.js", bunko: { mode, runtime: { kind: "node", nodePath: "/usr/local/bin/node" } } }));
+  await writeFile(join(source, "package.json"), JSON.stringify({ name: "node-fixture", type: "module", module: "index.js", bunko: { mode, runtime: { kind: "node", node: "24", nodePath: "/usr/local/bin/node" } } }));
   await writeFile(join(source, "index.js"), code);
   const bytes = rebaseRuntime({ os: "linux", architecture: "amd64" }); bytes.fill(0, 800);
   const base = await rebaseBase(join(root, "base"), undefined, {}, [{ path: "usr/local/bin/node", type: "file", content: bytes, executable: true }]);
@@ -70,7 +70,7 @@ test("Node rebase uses identical executable bytes without requiring a Bun revisi
 test("Node resolves Bun's isolated production dependency tree and rejects Bun APIs in external packages", async () => {
   const f = await fixture(); const { dependencyFixture } = await import("./dependency-fixture.ts"), { runImage } = await import("./run-image.ts");
   const deps = await dependencyFixture(join(f.root, "deps"), true), path = join(deps.source, "package.json");
-  const manifest = JSON.parse(await readFile(path, "utf8")); manifest.bunko.runtime = { kind: "node", nodePath: "/usr/local/bin/node" }; await writeFile(path, JSON.stringify(manifest));
+  const manifest = JSON.parse(await readFile(path, "utf8")); manifest.bunko.runtime = { kind: "node", node: "24", nodePath: "/usr/local/bin/node" }; await writeFile(path, JSON.stringify(manifest));
   const options = { path: deps.source, baseLayout: f.base.directory, installCache: deps.cache, localCache: false, gitMetadata: false };
   const result = await build({ ...options, output: join(f.root, "deps-image") });
   expect(await runImage(result, join(f.root, "unpacked"))).toBe("fixture-msg works");
@@ -93,7 +93,7 @@ test("unused Bun test files do not block Node bundles; loaded bare Bun imports a
     await writeFile(join(f.source, "index.js"), code); await expect(build({ ...options, output: join(f.root, `invalid-${index}`) })).rejects.toThrow("Bun-only");
   }
   for (const code of ['typeof Bun !== "undefined"', 'const {Bun: value} = object;', 'class A implements Bun.Type {}']) expect(() => rejectBunRuntime(code, "fixture.ts")).not.toThrow();
-  const { moduleLocations } = await import("../packages/bunko/location-diagnostics.ts"); expect(moduleLocations('class A extends f(__dirname) {}', 'fixture.js')).toHaveLength(1);
+  const { moduleLocations } = await import("../packages/bunko/location-diagnostics.ts"); expect(moduleLocations('class A extends f(__dirname) {}', 'fixture.js')).toHaveLength(0);
 });
 test("Node SBOM rebasing rejects a runtime kind or declared-major mismatch", async () => {
   const f = await fixture(), built = await build({ path: f.source, baseLayout: f.base.directory, output: join(f.root, "image"), localCache: false, gitMetadata: false });
@@ -114,4 +114,44 @@ test("changed bases retain Node runtime bytes and still require a reviewed ABI p
   expect((await rebase({ ...options, policy })).decision).toBe("compatible");
   bytes[900] = 1; const changed = await rebaseBase(join(f.root, "changed"), undefined, {}, [{ path: "usr/local/bin/node", type: "file", content: bytes, executable: true }]);
   await expect(rebase({ ...options, base: `layout:${changed.directory}`, policy })).rejects.toMatchObject({ decision: "requires-rebuild", reason: "runtime-changed" });
+});
+
+
+test("Node feature detection permits unreachable Bun branches but still rejects reachable APIs", () => {
+  for (const code of [
+    'const version = typeof Bun !== "undefined" ? Bun.version : undefined;',
+    'if (typeof Bun !== "undefined") { Bun.serve({}); } else console.log("node");',
+    'typeof Bun !== "undefined" && Bun.version;',
+    'typeof Bun < "u" ? Bun.version : undefined;',
+    'typeof Bun === "undefined" || Bun.version;',
+  ]) expect(() => rejectBunRuntime(code, "portable.js")).not.toThrow();
+  for (const code of ['typeof Bun === "undefined" && Bun.serve({})', 'typeof Bun !== "undefined" ? null : Bun.version', 'if (unknown) Bun.serve({})']) expect(() => rejectBunRuntime(code, "invalid.js")).toThrow("Bun-only");
+});
+
+test("official Node base majors are inferred and conflicting declarations fail", () => {
+  expect(nodeMajor(undefined, undefined, "node:22-alpine")).toBe("22");
+  expect(nodeMajor(undefined, undefined, "node:24.2.0-bookworm")).toBe("24");
+  expect(nodeMajor(undefined, undefined, "gcr.io/distroless/nodejs22-debian13")).toBe("22");
+  expect(() => nodeMajor("24", undefined, "node:22-alpine")).toThrow("conflicts");
+  expect(() => nodeMajor(undefined, undefined, "node:latest")).toThrow("runtime.node");
+  expect(() => nodeMajor(undefined, undefined, undefined, "/local/layout")).toThrow("runtime.node");
+});
+
+test.each(["bundle", "source"] as const)("unused dependency adapters do not block Node %s, including app/deps cache hits", async (mode) => {
+  const f = await fixture(mode), { dependencyFixture } = await import("./dependency-fixture.ts"), { runImage } = await import("./run-image.ts");
+  const deps = await dependencyFixture(join(f.root, "deps"), true), path = join(deps.source, "package.json");
+  const manifest = JSON.parse(await readFile(path, "utf8")); manifest.bunko.mode = mode; manifest.bunko.runtime = { kind: "node", node: "24", nodePath: "/usr/local/bin/node" };
+  if (mode === "source") {
+    manifest.module = "index.js";
+    await writeFile(join(deps.source, "index.js"), await readFile(join(deps.source, "src/server.ts")));
+    await rm(join(deps.source, "src/server.ts"));
+  }
+  await writeFile(path, JSON.stringify(manifest));
+  await writeFile(join(deps.cache, "fixture-msg@1.0.0@@@1", "bun-adapter.js"), 'import {serve} from "bun"; serve({});');
+  await writeFile(join(deps.cache, "fixture-msg@1.0.0@@@1", "index.js"), 'module.exports = typeof Bun !== "undefined" ? Bun.version : "portable-node";');
+  const options = { path: deps.source, baseLayout: f.base.directory, installCache: deps.cache, cacheDir: join(f.root, "cache"), gitMetadata: false };
+  for (const label of ["cold", "warm"]) {
+    const result = await build({ ...options, output: join(f.root, label) });
+    expect(await runImage(result, join(f.root, `run-${label}`))).toContain("portable-node");
+  }
 });

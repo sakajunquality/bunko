@@ -2,7 +2,7 @@ import * as ts from "typescript";
 export interface Scope { parent?: Scope; function: boolean; names: Set<string> }
 
 /** Collect value bindings before inspecting references, including hoisted declarations. */
-export function lexicalScopes(source: ts.SourceFile) {
+export function lexicalScopes(source: ts.SourceFile, includeClassHeritage = true) {
   const scopes = new Map<ts.Node, Scope>(), bindings = new Set<ts.Node>();
   const root: Scope = { function: true, names: new Set() };
   function bind(name: ts.BindingName | ts.Identifier, scope: Scope) {
@@ -12,7 +12,7 @@ export function lexicalScopes(source: ts.SourceFile) {
   function collect(node: ts.Node, outer: Scope) {
     if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly || ts.isImportSpecifier(node) && node.isTypeOnly || ts.isImportEqualsDeclaration(node) && node.isTypeOnly) return;
     const runtimeHeritage = ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent) && node.parent.token === ts.SyntaxKind.ExtendsKeyword && (ts.isClassDeclaration(node.parent.parent) || ts.isClassExpression(node.parent.parent));
-    if (ts.isTypeNode(node) && !runtimeHeritage || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+    if (ts.isTypeNode(node) && !(includeClassHeritage && runtimeHeritage) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
     let scope = outer;
     const fn = ts.isFunctionLike(node);
     if (node !== source && (fn || ts.isBlock(node) || ts.isCaseBlock(node) || ts.isCatchClause(node) || ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node) || ts.isClassExpression(node))) {

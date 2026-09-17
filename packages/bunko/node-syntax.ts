@@ -9,8 +9,44 @@ export function rejectBunRuntime(code: string, file: string, analysis = sourceAn
   if (!/Bun|\bbun\b|\bimport\b|\\/.test(code) && !(sourceMode && /\.[cm]?tsx?[\'"`]/.test(code))) return;
   const source = analysis(), { scopes, bindings } = lexicalScopes(source);
   const unbound = (node: ts.Identifier) => { for (let s = scopes.get(node); s; s = s.parent) if (s.names.has(node.text)) return false; return !bindings.has(node); };
+  const unknown = Symbol("unknown");
+  function value(node: ts.Expression): string | boolean | typeof unknown {
+    if (ts.isParenthesizedExpression(node)) return value(node.expression);
+    if (ts.isStringLiteralLike(node)) return node.text;
+    if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+    if (ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Bun" && unbound(node.expression)) return "undefined";
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) { const inner = value(node.operand); return inner === unknown ? unknown : !inner; }
+    if (ts.isBinaryExpression(node)) {
+      const left = value(node.left), right = value(node.right);
+      if (left === unknown || right === unknown) return unknown;
+      if (typeof left === "string" && typeof right === "string") {
+        if (node.operatorToken.kind === ts.SyntaxKind.LessThanToken) return left < right;
+        if (node.operatorToken.kind === ts.SyntaxKind.LessThanEqualsToken) return left <= right;
+        if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanToken) return left > right;
+        if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanEqualsToken) return left >= right;
+      }
+      if ([ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken].includes(node.operatorToken.kind)) return left === right;
+      if ([ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(node.operatorToken.kind)) return left !== right;
+    }
+    return unknown;
+  }
   function visit(node: ts.Node) {
     if (!scopes.has(node)) return;
+    if (ts.isConditionalExpression(node) || ts.isIfStatement(node)) {
+      visit(ts.isIfStatement(node) ? node.expression : node.condition);
+      const condition = ts.isIfStatement(node) ? node.expression : node.condition, result = value(condition);
+      const yes = ts.isIfStatement(node) ? node.thenStatement : node.whenTrue;
+      const no = ts.isIfStatement(node) ? node.elseStatement : node.whenFalse;
+      if (result === unknown || Boolean(result)) visit(yes);
+      if (no && (result === unknown || !result)) visit(no);
+      return;
+    }
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)) {
+      visit(node.left); const left = value(node.left);
+      if (left === unknown || (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ? Boolean(left) : !left)) visit(node.right);
+      return;
+    }
     let incompatible = false;
     if (ts.isIdentifier(node) && node.text === "Bun" && unbound(node)) {
       const p = node.parent;
@@ -46,19 +82,6 @@ export async function checkNodeSources(root: string, sourceMode: boolean, depend
     }
   }
   await walk(root);
-}
-
-/** Inspect packaged external JavaScript even on cache hits or imported dependency artifacts. */
-export async function checkNodeDependencyLayer(store: import("../oci/blob-store.ts").BlobStore, base: import("../oci/types.ts").BaseImage, layer: import("../oci/types.ts").Layer, temporary: string): Promise<void> {
-  const { applyLayers } = await import("./runtime-layer.ts");
-  const input = { ...base, manifest: { ...base.manifest, layers: [layer.descriptor] }, config: { ...base.config, rootfs: { type: "layers" as const, diff_ids: [layer.diffId] } } };
-  await applyLayers(store, input, temporary, async (_index, path, node, stream) => {
-    if (!stream || node.type !== "file" || !/\.[cm]?js$/.test(path)) return;
-    if (node.size > 64 * 1024 * 1024) throw new Error("Node dependency source exceeds static validation limit");
-    const chunks: Buffer[] = []; let length = 0;
-    for await (const chunk of stream) { const bytes = Buffer.from(chunk); length += bytes.length; if (length > 64 * 1024 * 1024) throw new Error("Node dependency source exceeds static validation limit"); chunks.push(bytes); }
-    rejectBunRuntime(Buffer.concat(chunks).toString("utf8"), path, undefined, true);
-  });
 }
 
 /** Entry-only preflight avoids rejecting unused test/development files in bundle mode. */

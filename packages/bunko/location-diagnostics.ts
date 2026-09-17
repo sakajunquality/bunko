@@ -16,7 +16,7 @@ export function moduleLocations(code: string, file: string, analysis?: () => ts.
   // Escaped identifiers also need parsing, even when their spelling hides a location API.
   if (!/import\s*\.|__dirname|__filename|\\/.test(code)) return [];
   const source = analysis?.() ?? ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
-  const { scopes, bindings } = lexicalScopes(source);
+  const { scopes, bindings } = lexicalScopes(source, false);
   const found = new Map<string, LocationWarning>();
   function visit(node: ts.Node) {
     const scope = scopes.get(node);
