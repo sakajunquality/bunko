@@ -1,6 +1,6 @@
 import { prepareSigning, signingMode, signConfiguredImages, type SigningOptions } from "./keyless.ts";
 import { RebaseDecisionError } from "./rebase-decision.ts";
-import { smokeRebase, smokeArguments } from "./rebase-smoke.ts";
+import { smokeRebase, smokeArguments, preflightRebaseSmoke } from "./rebase-smoke.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
 import { lstat, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ export interface RebaseOptions extends SigningOptions {
   platform?: string; output?: string; repo?: string; push?: boolean; tags?: string[];
   dryRun?: boolean; report?: string; policy?: string; registry?: RegistryOptions;
   tagConflict?: TagConflict; sbom?: boolean; baseSBOMs?: Record<string, string>; provenance?: boolean;
-  signKey?: string; cosignPath?: string; smokeCommand?: string[];
+  signKey?: string; cosignPath?: string; smokeCommand?: string[]; smokeLoadTimeoutSeconds?: number;
 }
 export interface RebasePolicy {
   schemaVersion: 1 | 2;
@@ -64,11 +64,17 @@ function safeRuntimeConfig(original: ImageConfig, replacement: ImageConfig): voi
 }
 
 /** Plan every selected platform before exports, registry writes or signing. */
-export async function rebase(options: RebaseOptions) {
+export interface RebaseInspectionSession {
+  store: BlobStore;
+  load: (reference: string) => ReturnType<typeof rebaseInput>;
+}
+export async function rebase(options: RebaseOptions, inspection?: RebaseInspectionSession) {
+  if (inspection && !options.dryRun) throw new Error("Shared rebase inspection is read-only");
   if (!options.image || !options.oldBase || !options.base) throw new Error("rebase requires an image, --old-base and a replacement --base or --base-layout");
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const mode = signingMode(options);
   if (options.smokeCommand) smokeArguments(options.smokeCommand);
+  if (options.smokeLoadTimeoutSeconds !== undefined && (!options.smokeCommand || !Number.isInteger(options.smokeLoadTimeoutSeconds) || options.smokeLoadTimeoutSeconds < 1 || options.smokeLoadTimeoutSeconds > 3600)) throw new Error("Smoke load timeout requires --smoke-command and 1..3600 seconds");
   const push = options.push ?? Boolean(options.repo);
   if (push && !options.repo) throw new Error("Rebase publication requires an exact --repo");
   if (!push && !options.output && !options.dryRun) throw new Error("Rebase requires --oci-layout, --repo or --dry-run");
@@ -96,15 +102,17 @@ export async function rebase(options: RebaseOptions) {
   const publisher = push ? new Publisher(options.repo!, registry) : undefined;
   const tags = options.tags ?? [];
   if (tags.some((tag) => !/^[\w][\w.-]{0,127}$/.test(tag))) throw new Error("Invalid rebase output tag");
-  const directory = await mkdtemp(join(tmpdir(), "bunko-rebase-")), store = new BlobStore(directory);
+  const directory = await mkdtemp(join(tmpdir(), "bunko-rebase-")), store = inspection?.store ?? new BlobStore(directory);
   const written = new Set<string>(); let publication: Publication | undefined;
   let signed = false;
   let smoke: "not-requested" | "pending" | "passed" | "failed" = options.smokeCommand ? "pending" : "not-requested";
   try {
+    if (options.smokeCommand && !options.dryRun) await preflightRebaseSmoke();
+    const load = inspection?.load ?? ((reference: string) => rebaseInput(reference, registry, store));
     const policy = options.policy ? await readRebasePolicy(options.policy) : undefined;
-    const input = await rebaseInput(options.image, registry, store);
-    const oldInput = await rebaseInput(options.oldBase, registry, store);
-    const newInput = await rebaseInput(options.base, registry, store);
+    const input = await load(options.image);
+    const oldInput = await load(options.oldBase);
+    const newInput = await load(options.base);
     const available = await input.platforms();
     const selected = options.platform === undefined ? available : options.platform.split(",").map((value) => parsePlatform(value.trim()));
     if (!selected.length || new Set(selected.map((p) => p.architecture)).size !== selected.length) throw new Error("Rebase platforms must be nonempty and unique");
@@ -150,25 +158,20 @@ export async function rebase(options: RebaseOptions) {
     }
     descriptors.push(...attachments.flatMap((item) => [item.manifest, ...item.blobs]));
     if (signing) await assertCosign(options.cosignPath, mode === "keyless");
+    if (options.smokeCommand && !options.dryRun) {
+      try { await smokeRebase(store, results, options.smokeCommand, directory, options.smokeLoadTimeoutSeconds); smoke = "passed"; }
+      catch (error) { smoke = "failed"; throw error; }
+    }
     const delayedTags = Boolean(options.smokeCommand || mode === "keyless");
     if (publisher) {
       publication = await publisher.publish(store, root, delayedTags ? [] : tags, new Map(results.flatMap((result) => result.preservedLayers.map((digest) => [digest, "preserved"] as const))), options.dryRun, options.tagConflict);
       if (delayedTags) publication.pendingTags = [...tags];
       if (!options.dryRun) {
         await publishArtifacts(publisher, store, attachments, (part, elapsed) => accumulate(publication!, part, elapsed));
-        if (signing && !options.smokeCommand) {
+        if (signing) {
           await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure, registry.credentials);
           signed = true;
         }
-      }
-    }
-    if (options.smokeCommand && !options.dryRun) {
-      if (publication) publication.pendingTags = [...tags];
-      try { await smokeRebase(store, results, options.smokeCommand, directory); smoke = "passed"; }
-      catch (error) { smoke = "failed"; throw error; }
-      if (publisher && signing) {
-        await signConfiguredImages([root, ...results.map((result) => result.manifest), ...attachments.map((item) => item.manifest)].map((d) => `${repositoryName(publisher.ref)}@${d.digest}`), signing, options.cosignPath, registry.insecure, registry.credentials);
-        signed = true;
       }
     }
     if (delayedTags && !options.dryRun) {

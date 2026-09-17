@@ -49,11 +49,17 @@ export async function baseStatus(targets: RebaseTarget[], registry: RegistryOpti
     for (const target of targets) {
       try {
         const reference = await pinned(target.image, registry), store = new BlobStore(join(directory, String(results.length)));
-        const input = await rebaseInput(reference, registry, store), root = await input.json(input.subject);
+        const loaded = new Map<string, ReturnType<typeof rebaseInput>>();
+        const load = (ref: string) => {
+          let pending = loaded.get(ref);
+          if (!pending) { pending = rebaseInput(ref, registry, store); loaded.set(ref, pending); }
+          return pending;
+        };
+        const input = await load(reference), root = await input.json(input.subject);
         const selected = target.platforms ? target.platforms.split(",").map((item) => platform(item.trim())) : await input.platforms();
         if (!selected.length || new Set(selected.map((p) => p.architecture)).size !== selected.length) throw new Error("Invalid base-status platforms");
         const replacement = target.base ? await pinned(target.base, registry) : undefined;
-        const fresh = replacement ? await rebaseInput(replacement, registry, store) : undefined;
+        const fresh = replacement ? await load(replacement) : undefined;
         for (const p of selected) {
           const common = { image: reference, source: input.subject.digest, platform: `${p.os}/${p.architecture}` };
           try {
@@ -80,7 +86,7 @@ export async function baseStatus(targets: RebaseTarget[], registry: RegistryOpti
           if (candidate.descriptor.digest === current) { results.push({ ...common, status: "current", currentBase: current, candidateBase: current }); continue; }
           if (!oldBase) { results.push({ ...common, status: "unknown", reason: "explicit-old-base-required", currentBase: current }); continue; }
           try {
-            const result = await rebase({ image: reference, oldBase, base: replacement!, platform: `${p.os}/${p.architecture}`, policy: target.policy, dryRun: true, registry });
+            const result = await rebase({ image: reference, oldBase, base: replacement!, platform: `${p.os}/${p.architecture}`, policy: target.policy, dryRun: true, registry }, { store, load });
             results.push({ ...common, status: "outdated", decision: result.decision, currentBase: current, candidateBase: candidate.descriptor.digest, oldBase, base: replacement });
           } catch (error) {
             if (!(error instanceof RebaseDecisionError)) throw error;

@@ -28,6 +28,12 @@ inputs:
   auth-sources:
     description: Explicit ordered registry credential sources (empty preserves CLI defaults)
     default: ""
+  sbom:
+    description: Rebase the original SPDX inventory (requires one original SBOM per platform)
+    default: 'false'
+  provenance:
+    description: Attach provenance describing the rebase inputs and transformation
+    default: 'false'
   sign:
     description: "none, key or keyless; keyless needs workflow id-token: write"
     default: none
@@ -44,6 +50,9 @@ inputs:
   smoke-command:
     description: JSON argv array for a finite acceptance command inside each candidate container
     default: ''
+  smoke-load-timeout:
+    description: Docker image-load deadline in seconds (1..3600)
+    default: '300'
   dry-run:
     description: Assess only (default); publication requires false and an explicit smoke-command
     default: 'true'
@@ -90,11 +99,14 @@ runs:
         BUNKO_INPUT_TAG_CONFLICT: ${{ inputs.tag-conflict }}
         BUNKO_INPUT_TAGS: ${{ inputs.tags }}
         BUNKO_INPUT_AUTH_SOURCES: ${{ inputs.auth-sources }}
+        BUNKO_INPUT_SBOM: ${{ inputs.sbom }}
+        BUNKO_INPUT_PROVENANCE: ${{ inputs.provenance }}
         BUNKO_INPUT_SIGN: ${{ inputs.sign }}
         BUNKO_INPUT_SIGN_TLOG: ${{ inputs.sign-tlog }}
         BUNKO_INPUT_SIGSTORE_CONFIG: ${{ inputs.sigstore-config }}
         BUNKO_INPUT_SIGN_KEY: ${{ inputs.sign-key }}
         BUNKO_INPUT_SMOKE_COMMAND: ${{ inputs.smoke-command }}
+        BUNKO_INPUT_SMOKE_LOAD_TIMEOUT: ${{ inputs.smoke-load-timeout }}
         BUNKO_INPUT_DRY_RUN: ${{ inputs.dry-run }}
         BUNKO_INPUT_REPORT: ${{ inputs.report }}
       run: bun "$GITHUB_ACTION_PATH/run.ts"

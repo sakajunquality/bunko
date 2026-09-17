@@ -159,7 +159,8 @@ Options:
   --jobs <count>          Concurrent target builds, 1–32 (default: 1 or BUNKO_JOBS)
   --mode <mode>           bundle (default) or compile (Linux executable)
   --module-locations <warn|error>  Fail on BUNKO_MODULE_LOCATION diagnostics (default: warn)
-  --smoke-command <JSON>   Rebase acceptance argv; tags advance only after success
+  --smoke-command <JSON>   Rebase acceptance argv; tested before publication
+  --smoke-load-timeout <s> Docker image-load deadline in seconds (default 300)
   --sbom                   Attach per-platform SPDX package inventories
   --sbom-evidence          Include lock declarations and build states (requires --sbom)
   --provenance             Attach SLSA provenance to the image root
@@ -323,7 +324,7 @@ export async function main(argv: string[]): Promise<number> {
       "base-layout": { type: "string" },
       "old-base": { type: "string" },
       "base-tag": { type: "string" }, targets: { type: "string" }, out: { type: "string" },
-      "smoke-command": { type: "string" },
+      "smoke-command": { type: "string" }, "smoke-load-timeout": { type: "string" },
       "compatibility-policy": { type: "string" },
       base: { type: "string" },
       platform: { type: "string" },
@@ -423,7 +424,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       const result = await rebase({ image: path, oldBase: values["old-base"], base: values.base ?? `layout:${values["base-layout"]}`, platform: values.platform, output: values["oci-layout"], repo: values.repo,
         push: supplied("push") ? values.push : undefined, tags: values.tag, dryRun: values["dry-run"], report: values.report, policy: values["compatibility-policy"], registry, tagConflict,
-        smokeCommand: values["smoke-command"] ? JSON.parse(values["smoke-command"]) : undefined, sbom: values.sbom, baseSBOMs, provenance: values.provenance, sign: values.sign as "key" | "keyless" | undefined, signIdentityToken: values["sign-identity-token"], sigstoreConfig: values["sigstore-config"], signTlog: values["sign-tlog"], signKey: values["sign-key"], cosignPath: values["cosign-path"] });
+        smokeLoadTimeoutSeconds: values["smoke-load-timeout"] === undefined ? undefined : Number(values["smoke-load-timeout"]), smokeCommand: values["smoke-command"] ? JSON.parse(values["smoke-command"]) : undefined, sbom: values.sbom, baseSBOMs, provenance: values.provenance, sign: values.sign as "key" | "keyless" | undefined, signIdentityToken: values["sign-identity-token"], sigstoreConfig: values["sigstore-config"], signTlog: values["sign-tlog"], signKey: values["sign-key"], cosignPath: values["cosign-path"] });
       process.stdout.write(result.publication?.published ? `${result.publication.reference}\n` : JSON.stringify(result) + "\n"); return 0;
     }
     if (command === "push-layout") {
