@@ -1,3 +1,4 @@
+import { sharedBlobs } from "../oci/shared-blobs.ts";
 import { assertFormatVersion, type PersistedFormat } from "../compatibility/formats.ts";
 import { cleanupAfterTasks, retainScratch } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
@@ -211,6 +212,7 @@ function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndecla
 }
 
 interface BuildContext {
+  baseBlob: ReturnType<typeof sharedBlobs>;
   runtime: ReturnType<typeof runtimePreparation>;
   signing?: PreparedSigning;
   mappedAssets: Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>;
@@ -318,7 +320,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       }, project.platforms.find((platform) => platform.architecture === base.config.architecture)));
       return trees.get(digest)!;
     };
-    const fixedSource = { root: async () => pinned, blob: source.blob.bind(source) };
+    const fixedSource = { root: async () => pinned, blob: (descriptor: Descriptor) => context.baseBlob(source, descriptor) };
     const bases: BaseImage[] = [];
     for (const platform of project.platforms) {
       const base = await stage("base-resolve", () => resolveBase(fixedSource, platform, store, true), platform);
@@ -825,10 +827,11 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       return closures.get(key)!;
     };
     const cachePersistence = {};
+    const baseBlob = sharedBlobs(new BlobStore(join(temporary, "base-blobs")));
     const runtime = runtimePreparation(temporary, toolchain, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log: options.log });
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtime, signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { baseBlob, runtime, signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     }, { cancelOnFailure: true });
     prepared.splice(0, prepared.length, ...ordered);
