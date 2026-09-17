@@ -18,9 +18,13 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
   const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0, residueBytes: 0, residue: [], unmanaged: [], orphanReclamationSkipped: false };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
+    let unmanagedReferences = false;
     if (!await cacheLayout(directory)) { result.unmanaged.push(cacheLayoutFile); result.orphanReclamationSkipped = true; return result; }
     for (const name of await readdir(directory)) {
-      if (!["keys", "plans", "blobs", baseInspectDirectory, cacheLayoutFile, ".bunko-lock", ".bunko-lock.sqlite"].includes(name) && !stageName.test(name) && !/^\.tmp-layout-[a-f0-9-]{36}$/.test(name) && !/^\.bunko-lock\.recovered-[a-f0-9-]{36}$/.test(name)) result.unmanaged.push(name);
+      if (!["keys", "plans", "blobs", baseInspectDirectory, cacheLayoutFile, ".bunko-lock", ".bunko-lock.sqlite"].includes(name) && !stageName.test(name) && !/^\.tmp-layout-[a-f0-9-]{36}$/.test(name) && !/^\.bunko-lock\.recovered-[a-f0-9-]{36}$/.test(name)) {
+        result.unmanaged.push(name);
+        try { unmanagedReferences ||= (await lstat(join(directory, name))).isDirectory(); } catch { unmanagedReferences = true; }
+      }
     }
     for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {
       try { const info = await lstat(join(directory, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Prune refuses symlinked or non-directory cache paths"); }
@@ -117,7 +121,10 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     }
     // Complete CAS publication and old-style copies hold this metadata lock; new
     // copies live in separately leased staging directories. Retain recent residue.
-    result.orphanReclamationSkipped = result.unmanaged.length > 0;
+    // Unrelated root files (editors commonly leave .DS_Store here) do not own or
+    // reference CAS blobs. Unknown namespaces and metadata paths still stop
+    // reclamation because their references cannot be audited safely.
+    result.orphanReclamationSkipped = unmanagedReferences || result.unmanaged.some((path) => path.includes("/"));
     const residueCutoff = Math.min(cutoff, Date.now() - residueMinimumAge);
     const residue: { path: string; size: number; dev: number; ino: number; mtime: number }[] = [];
     for (const [subdir, temporary] of [["blobs", true], ["blobs/sha256", false]] as const) {

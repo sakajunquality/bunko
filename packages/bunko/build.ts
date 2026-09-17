@@ -396,7 +396,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const key = cacheKey({ kind: "runtime", policy: cachePolicies.runtime, packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
           // Authenticated bytes, not registry-supplied metadata, determine the injected layer.
-          if (hit && (hit.layer.descriptor.digest !== runtime.layer.descriptor.digest || hit.layer.diffId !== runtime.layer.diffId)) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
+          if (hit && hit.layer.diffId !== runtime.layer.diffId) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
           if (!hit && iteration === 1) records.push({ schemaVersion: 1, writer: cacheWriter, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);

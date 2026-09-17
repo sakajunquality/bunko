@@ -47,7 +47,8 @@ async function killAndDrainGroup(child: Bun.Subprocess): Promise<void> {
   killChild(child, "SIGKILL");
   await child.exited;
   if (process.platform === "win32") return;
-  for (;;) {
+  const deadline = Date.now() + 5_000;
+  for (; Date.now() < deadline;) {
     try { process.kill(-child.pid, 0); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
@@ -86,7 +87,7 @@ function trackedSpawn(allowCancelled: boolean): typeof Bun.spawn {
         const abort = () => {
           killChild(child, "SIGTERM");
           // Keep escalation after the leader exits: descendants can retain pipes.
-          const escalation = new Promise<void>((resolve) => setTimeout(resolve, 1000)).then(() => killAndDrainGroup(child));
+          const escalation = new Promise<void>((resolve) => setTimeout(resolve, 100)).then(() => killAndDrainGroup(child));
           scope.draining.add(escalation); scope.draining.add(child.exited);
         };
         scope.signal.addEventListener("abort", abort, { once: true });

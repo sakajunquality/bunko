@@ -42,7 +42,7 @@ function writerMetadata(input: unknown): CacheWriter | undefined {
   return { bunko: value.bunko as string, bun: value.bun as string, revision: value.revision as string };
 }
 /** Writer identity is diagnostic; identical bytes remain idempotent across writers. */
-function recordIdentity(record: CacheRecord | ClosurePlanRecord): Uint8Array {
+export function recordIdentity(record: CacheRecord | ClosurePlanRecord): Uint8Array {
   const { writer: _writer, ...identity } = record;
   return canonicalJSON(identity);
 }

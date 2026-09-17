@@ -123,3 +123,15 @@ test("Docker Hub helper registration uses Docker CLI's canonical server key", as
   expect(await registryCredentials(["docker"], { env: { BUNKO_DOCKER_CONFIG: config }, helper: async (_helper, value) => { server = value; return { username: "u", password: "p" }; } })("registry-1.docker.io")).toMatchObject({ username: "u" });
   expect(server).toBe("https://index.docker.io/v1/");
 });
+
+test("Docker Desktop token endpoints do not broaden repository-scoped credential checks", async () => {
+  const config = await file();
+  await writeFile(config, JSON.stringify({
+    auths: {
+      "https://index.docker.io/v1/access-token": {},
+      "https://index.docker.io/v1/refresh-token": {},
+      "https://index.docker.io/v1/": { auth: Buffer.from("user:secret").toString("base64") },
+    },
+  }));
+  expect(await registryCredentials(["docker"], { env: { BUNKO_DOCKER_CONFIG: config } })("registry-1.docker.io")).toMatchObject({ username: "user", password: "secret" });
+});

@@ -1,12 +1,12 @@
 # v0.12.0
 
-Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
+Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. Cache writers compare the stable record identity while ignoring diagnostic writer metadata. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
 
 The bundled syntax analyzer now uses Babel instead of the TypeScript compiler API, and the development typechecker is updated to TypeScript 7.0.2. Existing macro/data-loader, Node guard and diagnostic contracts are retained. See [PARSER.md](PARSER.md) for the maintenance window and measured size/scan tradeoff. Workspace narrowed-input fingerprints move to `member-inputs-v2`; this deliberately causes a cold cache for those inputs.
 
 ## Build preparation and dependencies
 
-- Share authenticated runtime files across targets, cancel sibling preparation when one target fails, and avoid unnecessary workspace snapshots.
+- Share authenticated runtime files across targets, cancel sibling preparation when one target fails, bound process-group draining and avoid unnecessary workspace snapshots.
 - Move runtime syntax analysis from the TypeScript compiler API to Babel and update the development typechecker to TypeScript 7.0.2. The measured JavaScript artifact is approximately 76% smaller; the fixed syntax-scan corpus is approximately 1.6 times slower. See [PARSER.md](PARSER.md) for the measured tradeoff and parser maintenance window.
 - Update Bun type definitions to 1.4.2 and the font-validation example to Canvas 1.0.9. Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`.
 
@@ -67,4 +67,3 @@ Private ECR publication now accepts its HTTP 201 PATCH responses while retaining
 GitHub OIDC acceptance passed both native Web Identity → STS → ECR and temporary environment credential paths with a dedicated repository-scoped role. Checks covered credential refresh, chunked uploads, digest-verified pulls, blob reuse, CLI builds and private-base inspection. Local tests also verified immutable-tag conflict handling. Deployed EKS IRSA/Pod Identity, EC2 IMDSv2 and ECR Public remain protocol-tested rather than live-certified. See [AWS acceptance](https://github.com/sakajunquality/bunko/blob/main/docs/validation/aws-registry-credentials.md).
 
 Bun >=1.3.13 <1.5 remains supported in this release. The independently versioned setup-bunko v0.1.1 Action still defaults to CLI v0.8.0; select `version: v0.10.0` explicitly after publication.
-
