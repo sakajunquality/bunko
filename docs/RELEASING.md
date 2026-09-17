@@ -60,7 +60,7 @@ steps:
 
 Linux and macOS are supported; Windows is not. Self-hosted runners need Bash, the prerequisites of [setup-bun](https://github.com/oven-sh/setup-bun), and a current GitHub CLI supporting `gh attestation verify`. Release sources on GitHub Enterprise Server are not supported. A local distribution skips payload downloads; provenance verification may still require network access. For unsigned historical releases, explicitly set `verify-attestation: 'false'`; checksum verification remains mandatory. See [release provenance](RELEASE_PROVENANCE.md).
 
-The Action adds `bunko` to PATH and exposes `version` (without the `v` prefix) and `bunko-path` outputs. Each installation uses an isolated runner temporary directory, with no persistent CLI cache. Registry authentication is separate; see [building in CI](CI.md). Published-tag installation passed on Linux and macOS in [the setup-bunko consumer run](https://github.com/sakajunquality/setup-bunko/actions/runs/34757444461).
+The Action adds `bunko` to PATH and exposes `version` (without the `v` prefix) and `bunko-path` outputs. Each installation uses an isolated runner temporary directory, with no persistent CLI cache. Registry authentication is separate; see [building in CI](CI.md). Published v0.2.0 tag installation, using both the default CLI and `latest`, passed on Linux and macOS in [the setup-bunko consumer run](https://github.com/sakajunquality/setup-bunko/actions/runs/35196791920).
 
 A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different private release repository, supply a token with read access. The installer follows HTTPS redirects and strips the token when leaving api.github.com.
 
