@@ -1,5 +1,5 @@
 import { type CredentialProvider } from "../oci/credentials.ts";
-import { evidenceComment, type BuildEvidence } from "./sbom-evidence.ts";
+import { evidenceComment, packageSourceInfo, type BuildEvidence } from "./sbom-evidence.ts";
 import { publicAssetMapping } from "./asset-contexts.ts";
 import { packageLicense } from "./inventory.ts";
 import { assertCosign, cosignCommand } from "./cosign.ts";
@@ -18,8 +18,10 @@ export function spdx(name: string, image: PlatformResult, timestamp: number, run
   const release = image.runtime ?? image.compileRuntime;
   const inventory = new Map<string, InventoryEntry>();
   for (const item of [...image.inventory, ...image.bundledInventory ?? []]) inventory.set(`${item.name}@${item.version}`, item);
+  const evidencePackages = new Map(evidence?.packages.map((item) => [`${item.name}@${item.version}`, item]));
   const packages = [...inventory.values()].sort((a, b) => `${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`)).map((item) => ({
     SPDXID: `SPDXRef-Package-${sha256(Buffer.from(`${item.name}@${item.version}`)).slice(7)}`,
+    ...(evidence ? { sourceInfo: packageSourceInfo(evidencePackages.get(`${item.name}@${item.version}`)) } : {}),
     name: item.name, versionInfo: item.version, downloadLocation: "NOASSERTION", filesAnalyzed: false,
     licenseConcluded: "NOASSERTION", licenseDeclared: packageLicense(item.license) ?? "NOASSERTION", copyrightText: "NOASSERTION",
     externalRefs: [{ referenceCategory: "PACKAGE-MANAGER", referenceType: "purl",

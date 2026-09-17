@@ -80,3 +80,33 @@ test("supply-chain policy validates evidence even before resolving build referen
   expect(supplyChainOptions({ sbom: true, sbomEvidence: true }).sbomEvidence).toBe(true);
   expect(supplyChainOptions({ sbomEvidence: true, supplyChainPolicy: "ci", reproducible: true, signKey: "fixture" })).toMatchObject({ sbom: true });
 });
+
+test("large evidence degrades in stages with explicit omissions and rebase validation", () => {
+  const integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`;
+  const hugeLock = { packages: Object.fromEntries(Array.from({ length: 9000 }, (_, i) => [`p${i}`, [`p${i}@1.0.0`, "", {}, integrity]])) };
+  const first = buildEvidence({ inventory: [{ name: "p0", version: "1.0.0", path: "node_modules/p0" }] }, hugeLock);
+  expect(first.schemaVersion).toBe(2); expect(first.omitted?.declaredOnlyPackages).toBe(8999);
+  expect(first.packages).toHaveLength(1); expect(first.packages[0]!.lockChecksums).toHaveLength(1);
+  const inventory = Array.from({ length: 9000 }, (_, i) => ({ name: `p${i}`, version: "1.0.0", path: `node_modules/p${i}` }));
+  const second = buildEvidence({ inventory }, hugeLock);
+  expect(second.omitted?.lockChecksums).toBe(9000); expect(second.packages).toHaveLength(9000);
+  const huge = Array.from({ length: 24000 }, (_, i) => ({ name: `long-package-name-${i}`, version: "1.0.0", path: `node_modules/p${i}` }));
+  const third = buildEvidence({ inventory: huge });
+  expect(third.packages).toHaveLength(0); expect(third.omitted?.includedPackages).toBe(24000);
+  for (const [evidence, values] of [[first, inventory.slice(0, 1)], [second, inventory], [third, huge]] as const) {
+    const comment = evidenceComment(evidence); expect(Buffer.byteLength(comment)).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(readEvidence(comment, new Set(values.map((item) => `${item.name}@${item.version}`)))).toEqual(evidence);
+  }
+  const invalid = structuredClone(third); invalid.omitted!.includedPackages--;
+  expect(() => readEvidence(evidenceComment(invalid), new Set(huge.map((item) => `${item.name}@${item.version}`)))).toThrow("Incomplete");
+});
+
+test("package sourceInfo exposes inclusion evidence and survives rebase without false checksums", () => {
+  const descriptor = { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: sha256("input"), size: 123 };
+  const platform = { os: "linux", architecture: "amd64" } as const;
+  const document = spdx("example", { ...image, platform, manifest: descriptor } as PlatformResult, 0, undefined, buildEvidence(image, lock));
+  const pkg = document.packages.find((item) => item.name === "both")!;
+  expect((pkg as any).sourceInfo).toContain("bundled, runtime"); expect((pkg as any).sourceInfo).toContain("not installed-file checksums");
+  const rebased = rebaseSpdx(document, descriptor, { ...descriptor, digest: sha256("output") }, platform, 1) as typeof document;
+  expect((rebased.packages.find((item) => item.name === "both") as any).sourceInfo).toBe((pkg as any).sourceInfo);
+});

@@ -11,6 +11,8 @@ bunko metadata layout:./image --metadata-dir ./metadata
 
 `--sbom-evidence` requires SBOM generation (`--sbom`, or the CI supply-chain policy). It deliberately opts into disclosing lockfile package names, including development dependencies and other members of a shared workspace lock. Default `--sbom` retains its existing inventory and disclosure scope. No registry URLs, workspace paths, credentials, source paths or build parameter values are copied into evidence.
 
+With evidence enabled, each included package also has standard SPDX `sourceInfo` describing observed states and expected source-archive integrity. This is readable without decoding a document annotation; scanner support for displaying or interpreting this field varies. It does not add archive hashes as installed-file checksums. Rebase regenerates these fields from validated evidence.
+
 Each platform SPDX 2.3 document has one standard `OTHER` annotation whose comment begins `bunko:build-evidence:v1 ` followed by canonical JSON. Consumers that do not understand the annotation still receive the existing package inventory. Declared-only packages are not added to SPDX `packages` or linked with `CONTAINS`; ordinary scanners must not interpret the declaration list as installed software.
 
 The annotation contains:
@@ -29,7 +31,7 @@ A package may have both `bundled` and `runtime` states. `declared-only` is exclu
 
 `lockChecksums` contains algorithm/hex pairs decoded from SHA256, SHA384 or SHA512 lock integrity. Matching uses package name and version; all distinct matching archive digests are retained rather than choosing one for aliases or multiple resolutions. These are expected **source archive** checksums, not independently measured package/file checksums. Bun caches, patches, lifecycle scripts, pruning and bundling can change the installed or emitted bytes. The evidence therefore does not write these values into SPDX package checksums or modify npm purls. No tarball is fetched or file tree rehashed to create this evidence.
 
-Evidence is limited to 2 MiB per platform; excessive evidence and malformed lock integrity fail explicitly. It is rebuilt from the current validated plan and current or cached inventories. It does not change runnable image layers, manifest identity or cache keys. Rebase with `--sbom` validates and preserves existing application evidence, replaces the document subject, and does not invent evidence for older SBOMs or rescan application code. Unknown evidence versions, inconsistent package membership and duplicate evidence annotations fail. Rebase does not accept `--sbom-evidence` to collect new evidence.
+Evidence is limited to 2 MiB per platform. Above the limit, deterministic degradation first omits all declared-only entries, then lock checksums, then (only if necessary) the remaining package evidence. The ordinary SPDX package inventory is never removed by this evidence budget. Degraded annotations use `bunko:build-evidence:v2 `, `schemaVersion: 2`, and an `omitted` object with counts for `declaredOnlyPackages`, `lockChecksums`, and `includedPackages`. Missing detail is unknown, never evidence of absence. Consumers of v1 must explicitly support v2 before interpreting degraded evidence. Malformed lock integrity still fails explicitly. It is rebuilt from the current validated plan and current or cached inventories. It does not change runnable image layers, manifest identity or cache keys. Rebase with `--sbom` validates and preserves existing application evidence, replaces the document subject, and does not invent evidence for older SBOMs or rescan application code. Unknown evidence versions, inconsistent package membership and duplicate evidence annotations fail. Rebase does not accept `--sbom-evidence` to collect new evidence.
 
 This annotation is a Bunko extension inside valid SPDX, not a standard vulnerability or provenance verdict. `metadata` exports it unchanged after ordinary artifact digest/subject checks. A verified image or document signature and a trusted builder are separate trust requirements.
 
@@ -53,7 +55,7 @@ CycloneDX supports component evidence, including occurrences and identity eviden
 
 ## Proposed implementation sequence
 
-The following items are plans, not supported CLI flags or shipped capabilities.
+Row 1 describes shipped functionality. Rows 2 onward are follow-up plans, not supported CLI flags or shipped capabilities.
 
 | Order | Work | Acceptance gate |
 | --- | --- | --- |
@@ -86,3 +88,8 @@ Select supported consumer versions before committing to CycloneDX 1.6 or a newer
 For `sbom diff`, preserve architecture and package instance identity. Rebase preserves application layers, but runtime identity, base document coverage and metadata can also change; an OS-only diff is not an unconditional guarantee. Registry search needs explicit repository enumeration because registries do not provide a universal wildcard search API. Start with a user-provided image/repository set and bounded local indexing.
 
 Policies should initially consume local evidence and explicit files. License denial must define how `NOASSERTION` behaves. Package denial must distinguish observed runtime/bundle inputs from declarations. Undeclared imports already have build/closure validation paths; avoid a competing implementation. Advisory input must be size-bounded, offline and versioned; never execute advisory-provided URLs or infer a clean bill of health from absent findings. Define/rebase/runtime parameters belong in appropriately redacted provenance rather than duplicating secret-bearing values in SBOMs.
+
+
+## Dependency relationship limitation
+
+The SBOM currently relates the image to included application/runtime packages and explicitly linked base inventories. It does **not** emit npm package-to-package `DEPENDS_ON` edges or closure explanation paths. Lock declarations are not treated as proof of runtime dependency relationships. Package evidence, standard `sourceInfo`, and document annotations do not provide a resolved dependency graph, file-level occurrence proof, VEX, or automatic scanner suppression.

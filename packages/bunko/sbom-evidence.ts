@@ -3,11 +3,12 @@ import type { Digest } from "../oci/types.ts";
 import type { InventoryEntry } from "./deps.ts";
 
 export const evidencePrefix = "bunko:build-evidence:v1 ";
+const evidencePrefixV2 = "bunko:build-evidence:v2 ";
 const maxEvidenceBytes = 2 * 1024 * 1024;
 export type PackageState = "bundled" | "runtime" | "declared-only";
 export interface LockChecksum { algorithm: "SHA256" | "SHA384" | "SHA512"; checksumValue: string }
 export interface PackageEvidence { name: string; version: string; states: PackageState[]; lockChecksums: LockChecksum[] }
-export interface BuildEvidence { schemaVersion: 1; scope: "application-inventory"; lockDigest?: Digest; packages: PackageEvidence[] }
+export interface BuildEvidence { schemaVersion: 1 | 2; scope: "application-inventory"; lockDigest?: Digest; packages: PackageEvidence[]; omitted?: { declaredOnlyPackages: number; lockChecksums: number; includedPackages: number } }
 const key = (item: { name: string; version: string }) => `${item.name}@${item.version}`;
 const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
@@ -50,23 +51,54 @@ export function buildEvidence(image: { inventory: InventoryEntry[]; bundledInven
     item.lockChecksums.sort((a, b) => order(`${a.algorithm}:${a.checksumValue}`, `${b.algorithm}:${b.checksumValue}`));
   }
   const evidence: BuildEvidence = { schemaVersion: 1, scope: "application-inventory", ...(lock ? { lockDigest: sha256(canonicalJSON(lock)) } : {}), packages: [...entries.values()].sort((a, b) => order(key(a), key(b))) };
+  shrinkEvidence(evidence);
   readEvidence(evidenceComment(evidence), new Set([...image.inventory, ...image.bundledInventory ?? []].map(key)));
   return evidence;
 }
 
+/** Drop optional detail deterministically; never fail a valid build due only to evidence volume. */
+function shrinkEvidence(evidence: BuildEvidence): void {
+  const fits = () => Buffer.byteLength(evidencePrefixV2) + canonicalJSON(evidence).length <= maxEvidenceBytes;
+  if (fits()) return;
+  evidence.schemaVersion = 2;
+  const omitted = evidence.omitted = { declaredOnlyPackages: 0, lockChecksums: 0, includedPackages: 0 };
+  evidence.packages = evidence.packages.filter((item) => {
+    if (!item.states.includes("declared-only")) return true;
+    omitted.declaredOnlyPackages++; omitted.lockChecksums += item.lockChecksums.length; return false;
+  });
+  if (fits()) return;
+  for (const item of evidence.packages) { omitted.lockChecksums += item.lockChecksums.length; item.lockChecksums = []; }
+  if (fits()) return;
+  omitted.includedPackages = evidence.packages.length; evidence.packages = [];
+}
+
+/** Standard SPDX package sourceInfo exposes observations alongside ordinary inventory fields. */
+export function packageSourceInfo(item: PackageEvidence | undefined): string {
+  if (!item) return "Bunko package build evidence omitted by the document size limit; inclusion detail is unknown.";
+  return `Bunko observed package states: ${item.states.join(", ")}. Source archive lock integrity (not installed-file checksums): ${item.lockChecksums.length ? item.lockChecksums.map((hash) => `${hash.algorithm}:${hash.checksumValue}`).join(", ") : "unavailable or omitted"}.`;
+}
+
 export function evidenceComment(evidence: BuildEvidence): string {
-  const comment = evidencePrefix + Buffer.from(canonicalJSON(evidence)).toString();
+  const comment = (evidence.schemaVersion === 2 ? evidencePrefixV2 : evidencePrefix) + Buffer.from(canonicalJSON(evidence)).toString();
   if (Buffer.byteLength(comment) > maxEvidenceBytes) throw new Error("SBOM build evidence exceeds 2 MiB");
   return comment;
 }
 
 /** Only preserve our bounded, validated evidence during rebase; never copy arbitrary annotations. */
 export function readEvidence(comment: string, included: Set<string>): BuildEvidence {
-  if (!comment.startsWith(evidencePrefix) || Buffer.byteLength(comment) > maxEvidenceBytes) throw new Error("Unsupported SBOM build evidence");
-  const value = object(JSON.parse(comment.slice(evidencePrefix.length)), "SBOM build evidence");
-  if (value.schemaVersion !== 1 || value.scope !== "application-inventory" || !Array.isArray(value.packages)
-      || Object.keys(value).some((name) => !["schemaVersion", "scope", "lockDigest", "packages"].includes(name))
+  const prefix = comment.startsWith(evidencePrefixV2) ? evidencePrefixV2 : evidencePrefix;
+  if (!comment.startsWith(prefix) || Buffer.byteLength(comment) > maxEvidenceBytes) throw new Error("Unsupported SBOM build evidence");
+  const value = object(JSON.parse(comment.slice(prefix.length)), "SBOM build evidence");
+  if (value.schemaVersion !== (prefix === evidencePrefixV2 ? 2 : 1) || value.scope !== "application-inventory" || !Array.isArray(value.packages)
+      || Object.keys(value).some((name) => !["schemaVersion", "scope", "lockDigest", "packages", ...(value.schemaVersion === 2 ? ["omitted"] : [])].includes(name))
       || value.lockDigest !== undefined && (typeof value.lockDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.lockDigest))) throw new Error("Unsupported SBOM build evidence");
+  let missing = 0;
+  if (value.schemaVersion === 2) {
+    const omitted = object(value.omitted, "SBOM evidence omissions");
+    if (Object.keys(omitted).sort().join(",") !== "declaredOnlyPackages,includedPackages,lockChecksums" || Object.values(omitted).some((count) => !Number.isSafeInteger(count) || Number(count) < 0)
+        || !Object.values(omitted).some((count) => Number(count) > 0) || (Number(omitted.declaredOnlyPackages) || Number(omitted.lockChecksums)) && value.lockDigest === undefined) throw new Error("Invalid SBOM evidence omissions");
+    missing = Number(omitted.includedPackages);
+  }
   const seen = new Set<string>();
   for (const entry of value.packages) {
     const item = object(entry, "SBOM package evidence");
@@ -87,6 +119,6 @@ export function readEvidence(comment: string, included: Set<string>): BuildEvide
           || value.lockDigest === undefined) throw new Error("Invalid SBOM lock checksum");
     }
   }
-  if ([...included].some((id) => !seen.has(id))) throw new Error("Incomplete SBOM package evidence");
+  if ([...included].filter((id) => !seen.has(id)).length !== missing) throw new Error("Incomplete SBOM package evidence");
   return value as unknown as BuildEvidence;
 }
