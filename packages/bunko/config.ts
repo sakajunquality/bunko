@@ -4,7 +4,7 @@ import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { runtimeKind, nodeMajor, nodePath, nodeArguments } from "./node-runtime.ts";
 import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
-import { platform } from "./platforms.ts";
+import { localPlatform, platform } from "./platforms.ts";
 export { platform };
 import type { FileMode } from "../oci/tar.ts";
 import { validateRuntimeArgs, compileRuntimeArgs } from "./runtime-args.ts";
@@ -371,7 +371,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   const resolvedEntry = await realpath(join(directory, entrypoint));
   if (relative(directory, resolvedEntry).startsWith("..") || !(await stat(resolvedEntry)).isFile()) throw new Error("Entrypoint must be a file inside the project");
   const platforms = strings(config.platforms, "platforms");
-  const selectedPlatform = options.platform ?? process.env.BUNKO_DEFAULT_PLATFORMS ?? (platforms.length ? platforms.join(",") : "linux/amd64");
+  const selectedPlatform = options.platform ?? process.env.BUNKO_DEFAULT_PLATFORMS ?? (platforms.length ? platforms.join(",") : options.local ? localPlatform() : "linux/amd64");
   const selected = selectedPlatform.split(",").map((value) => platform(value.trim()));
   if (new Set(selected.map((p) => p.architecture)).size !== selected.length) throw new Error("Duplicate target platform");
   selected.sort((a, b) => a.architecture.localeCompare(b.architecture));

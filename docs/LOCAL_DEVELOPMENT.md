@@ -14,3 +14,5 @@ Use `imagePullPolicy: Never` or `IfNotPresent` for loaded development images. Bu
 All builds and manifest validation finish before any loading. A failed load can leave earlier targets loaded; partial reports record them, and stdout is withheld until all loads succeed. Local/kind loading requires one platform. Metadata/signing combinations retain their existing output restrictions.
 
 `test/local-resolve-smoke.ts` validates a disposable kind Pod with registry requests forbidden during resolution after preparing a local base. It never selects a production context.
+
+With `--local`, an unspecified platform defaults to the host architecture: `linux/arm64` on Apple Silicon or ARM64 Linux, and `linux/amd64` on x64 hosts. An explicit `--platform`, `BUNKO_DEFAULT_PLATFORMS`, or manifest `bunko.platforms` retains precedence. For a remote Docker daemon, select its architecture explicitly. Registry, tarball, and kind output retain the `linux/amd64` default.
