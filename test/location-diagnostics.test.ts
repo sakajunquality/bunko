@@ -77,13 +77,13 @@ test("loaded entries, shared modules and bundled dependencies warn; unloaded and
 
 test("builds print an externalization hint for flagged dependencies and error mode fails after listing them", async () => {
   const root = await fixture(), f = await dependencyFixture(root, false), base = await baseLayout(join(root, "base"));
-  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports = __dirname;');
+  await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), 'module.exports = import.meta.dir;');
   const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
   const options = { path: f.source, baseLayout: base, installCache: f.cache, localCache: false, registryCache: false, gitMetadata: false, push: false };
   let logs = "";
   const result = await build({ ...options, output: join(root, "warn"), log: (text) => { logs += text; } });
   expect(result.images[0]!.locations!.packages).toEqual([{ name: "fixture-msg", declared: true, via: [] }]);
-  expect(logs).toContain('BUNKO_MODULE_LOCATION node_modules/.bun/fixture-msg@1.0.0/node_modules/fixture-msg/index.js:1:18 (__dirname)\nAdd "fixture-msg" to bunko.external so it stays in node_modules with its module-relative files\n');
+  expect(logs).toContain('BUNKO_MODULE_LOCATION node_modules/.bun/fixture-msg@1.0.0/node_modules/fixture-msg/index.js:1:18 (import.meta.dir)\nAdd "fixture-msg" to bunko.external so it stays in node_modules with its module-relative files\n');
   manifest.bunko.build = { moduleLocations: "error" };
   await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
   logs = "";
@@ -148,4 +148,28 @@ test("loaded diagnostics retain a deterministic bounded prefix", async () => {
   const result = await guardedBuild({root,contextRoot:root,entrypoint:"main.ts",outdir:join(root,"out"),external:[],minify:false,sourcemap:"none",define:{}});
   expect(result.success).toBe(true); expect(result.locations.total).toBe(105); expect(result.locations.warnings.length).toBe(100);
   expect(result.locations.warnings.at(-1)!.file).toBe("module-099.ts");
+});
+
+for (const minify of [false, true]) test(`embedded CommonJS snapshot paths fail before export (minify=${minify})`, async () => {
+  const root = await fixture(), f = await dependencyFixture(root, false);
+  const base = await baseLayout(join(root, "base"));
+  const manifest = JSON.parse(await readFile(join(f.source, "package.json"), "utf8"));
+  manifest.bunko.build = { minify };
+  await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
+  const options = { path: f.source, baseLayout: base, installCache: f.cache, localCache: false, registryCache: false, gitMetadata: false, push: false };
+  for (const expression of ["__dirname", "__filename"]) {
+    await writeFile(join(f.cache, "fixture-msg@1.0.0@@@1/index.js"), `module.exports = ${expression};`);
+    const output = join(root, expression);
+    await expect(build({ ...options, output })).rejects.toThrow('Bundle contains a build snapshot path');
+    expect(await Bun.file(join(output, "index.json")).exists()).toBe(false);
+  }
+  const unicodeTemp = join(root, "日本");
+  await mkdir(unicodeTemp);
+  const child = Bun.spawn([process.execPath, "packages/bunko/cli.ts", "build", f.source, "--base-layout", base, "--install-cache", f.cache, "--no-cache", "--push=false", "--oci-layout", join(root, "unicode")], { env: { ...process.env, TMPDIR: unicodeTemp }, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(exit).toBe(1); expect(stdout).toBe(""); expect(stderr).toContain("Bundle contains a build snapshot path");
+  expect(stderr).not.toContain(unicodeTemp);
+  manifest.bunko.external = ["fixture-msg"];
+  await writeFile(join(f.source, "package.json"), JSON.stringify(manifest));
+  await build({ ...options, output: join(root, "external"), verifyDeterministic: true });
 });
