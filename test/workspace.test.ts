@@ -171,3 +171,22 @@ describe("workspace builds", () => {
     expect(await Bun.file(join(f.root, "out/index.json")).exists()).toBe(false);
   });
 });
+
+for (const jobs of [1, 2]) test(`registry base blobs are fetched once per invocation with jobs=${jobs}`, async () => {
+  const f = await fixture(), registry = new MockRegistry();
+  const index = JSON.parse(await readFile(join(f.base, "index.json"), "utf8"));
+  const descriptor = index.manifests[0];
+  const bytes = await readFile(join(f.base, "blobs/sha256", descriptor.digest.slice(7)));
+  const manifest = JSON.parse(bytes.toString());
+  registry.manifests.set("registry.test/base/latest", { bytes, type: descriptor.mediaType });
+  for (const blob of [manifest.config, ...manifest.layers]) registry.blobs.set(`registry.test/base/${blob.digest}`, await readFile(join(f.base, "blobs/sha256", blob.digest.slice(7))));
+  const opts = { ...options(f), baseLayout: undefined, base: "registry.test/base:latest", jobs, registryCache: false, registry: { fetcher: registry.fetch, credentials: async () => undefined } };
+  const result = await buildTargets(opts);
+  expect(result).toHaveLength(2);
+  for (const blob of [manifest.config, ...manifest.layers]) expect(registry.requests.filter((r) => r.method === "GET" && r.url.pathname === `/v2/base/blobs/${blob.digest}`)).toHaveLength(1);
+  expect(await runImage(result[0]!, join(f.root, "run-api"))).toBe("api shared one one");
+  expect(await runImage(result[1]!, join(f.root, "run-worker"))).toBe("worker shared two two");
+  registry.requests.length = 0;
+  await buildTargets({ ...opts, output: join(f.root, "again") });
+  expect(registry.requests.filter((r) => r.method === "GET" && r.url.pathname === `/v2/base/blobs/${manifest.layers[0].digest}`)).toHaveLength(1);
+});
