@@ -2,7 +2,7 @@ name: Setup bunko
 description: Install Bun and a checksum-verified bunko release on Linux or macOS
 inputs:
   version:
-    description: Explicit bunko release version; defaults to the Action's own version-shaped ref, or to the version of the Action checkout the ref resolved to
+    description: Explicit bunko release version or latest stable release; defaults to the Action's own version-shaped ref, or to the version of the Action checkout the ref resolved to
     default: ''
   bun-version:
     description: "Bun runtime version (development: >=1.3.13 <1.4 or >=1.4.2 <1.5; see COMPATIBILITY.md for released CLI ranges)"

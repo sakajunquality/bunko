@@ -104,9 +104,9 @@ test("the setup Action installs the release matching its own ref or checkout", a
   expect(await resolveVersion({ BUNKO_ACTION_PATH: process.cwd() })).toEqual({ version: `v${metadata.version}`, source: "the Action checkout package.json" });
 });
 
-test("private release assets use authenticated API downloads and strip tokens on storage redirects", async () => {
+test.each([metadata.version, "latest"])("private release %s resolves once and strips tokens on storage redirects", async (version) => {
   const names = ["SHA256SUMS", ...assetNames], token = "test-only-private-token", seen: string[] = [];
-  const installed = await setup({ verifyAttestation: false, version: metadata.version, repository: "SakaJunQuality/Bunko", token, temporary: root, fetcher: (async (input, init) => {
+  const installed = await setup({ verifyAttestation: false, version, repository: "SakaJunQuality/Bunko", token, temporary: root, fetcher: (async (input, init) => {
     const url = new URL(input), headers = new Headers(init?.headers); seen.push(url.toString());
     expect(url.toString()).not.toContain(token);
     if (url.hostname === "storage.example") {
@@ -114,7 +114,10 @@ test("private release assets use authenticated API downloads and strip tokens on
       return new Response(await readFile(join(distribution, names[Number(url.pathname.slice(1))]!)));
     }
     expect(headers.get("Authorization")).toBe(`Bearer ${token}`);
-    if (url.pathname.includes("/tags/")) return Response.json({ tag_name: `v${metadata.version}`, draft: false, assets: names.map((name, id) => ({ name, url: `https://api.github.com/repos/sakajunquality/bunko/releases/assets/${id}` })) });
+    if (url.pathname.includes("/tags/") || url.pathname.endsWith("/latest")) {
+      expect(url.pathname).toBe(`/repos/SakaJunQuality/Bunko/releases/${version === "latest" ? "latest" : `tags/v${metadata.version}`}`);
+      return Response.json({ tag_name: `v${metadata.version}`, draft: false, prerelease: false, assets: names.map((name, id) => ({ name, url: `https://api.github.com/repos/sakajunquality/bunko/releases/assets/${id}` })) });
+    }
     expect(headers.get("Accept")).toBe("application/octet-stream");
     return new Response(null, { status: 302, headers: { Location: `https://storage.example/${url.pathname.split("/").at(-1)}` } });
   }) });
@@ -159,4 +162,31 @@ test("release tags validate SemVer prerelease identifiers", () => {
     expect(() => releaseTag(version)).toThrow();
     expect(() => releaseTag(`v${version}`)).toThrow();
   }
+});
+
+
+test("latest rejects local distributions and invalid repositories before networking", async () => {
+  const fetcher = async () => { throw new Error("Unexpected request"); };
+  await expect(setup({ version: "latest", distribution, fetcher })).rejects.toThrow("explicit release version");
+  await expect(setup({ version: "latest", repository: "../repo", fetcher })).rejects.toThrow("Invalid release repository");
+});
+
+test("latest rejects missing, malformed and non-stable releases without fallback", async () => {
+  for (const body of [
+    { tag_name: "v1.2.3", draft: true, prerelease: false },
+    { tag_name: "v1.2.3", draft: false, prerelease: true },
+    { tag_name: "v1.2.3-rc.1", draft: false, prerelease: false },
+    { tag_name: "1.2.3", draft: false, prerelease: false },
+    { tag_name: "v1.2.3\n", draft: false, prerelease: false },
+    { tag_name: "latest", draft: false, prerelease: false },
+    { tag_name: 42, draft: false, prerelease: false },
+    { tag_name: "v1.2.3" },
+  ]) {
+    let requests = 0;
+    await expect(setup({ version: "latest", fetcher: async () => {
+      requests++; return Response.json({ ...body, assets: [] });
+    } })).rejects.toThrow();
+    expect(requests).toBe(1);
+  }
+  await expect(setup({ version: "latest", fetcher: async () => new Response(null, { status: 404 }) })).rejects.toThrow("404");
 });

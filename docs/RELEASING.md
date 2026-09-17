@@ -96,3 +96,9 @@ bun ./bunko.js build /path/to/app --repo ghcr.io/OWNER
 The CLI file is portable between supported hosts. Use the supplied notices when redistributing it. Its bundled runtime has no external npm module requirement, but the applications being built still need their declared dependency installs and suitable Linux base images.
 
 Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md](RELEASE_REVIEW.md) and [the alpha.2 validation summary](validation/alpha2-release.json).
+
+### Selecting the latest stable CLI
+
+The setup installer on current main also accepts `version: latest`. It resolves the configured GitHub repository's latest published stable release once, then verifies and installs that exact release. The output `version` contains the concrete version, never `latest`. This capability requires an Action implementation containing this change; earlier immutable Action tags retain their original behavior.
+
+Prefer an explicit version for reproducible builds. `latest` follows GitHub's latest-release designation, not npm dist-tags or the numerically highest tag. Checksums and the default signed provenance/tag verification remain enabled; `source-commit`, if supplied, must match the resolved release. There is no persistent CLI cache. `latest` with `distribution-directory` is rejected: local distributions require an explicit version. No release, a prerelease/draft response, or an invalid tag fails without falling back to an older version.
