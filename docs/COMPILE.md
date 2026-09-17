@@ -72,3 +72,15 @@ See [application compatibility](APPLICATION_COMPATIBILITY.md) and the [build con
 The checked-in [compile smoke test](../test/compile-smoke.ts), run with `bun run test:compile-smoke`, checks deterministic compiled images, literal dynamic imports, declared runtime assets, architecture, and authenticated runtime revision by executing containers. [musl validation](MUSL.md#diagnostics-and-validation) also exercises compiled Alpine images. These require the repository's development dependencies and Docker in addition to the compiler prerequisites.
 
 Run the example's actual container as well when changing its code or runtime assets. A successful compile alone does not establish that every runtime path, shared library, or application behavior works in the final image.
+
+## Runtime options
+
+Compile mode accepts `runtime.args` execution options such as `--smol`, `--no-install`, TLS trust flags and profiling flags. Bunko embeds them with Bun's `--compile-exec-argv` on the supported 1.3.13/1.4.2 toolchains. They are not appended as application arguments and are not a total-memory limit. For example:
+
+```json
+{ "bunko": { "mode": "compile", "runtime": { "args": ["--smol", "--no-install"] } } }
+```
+
+The compile subset excludes source loading/resolution, watch/inspect and environment-file options requiring external inputs. Values containing whitespace, quotes or backslashes are rejected rather than ambiguously splitting the embedded argv string. Profiling output needs a writable mounted directory such as `/tmp`. See [Bun executable options](https://bun.com/docs/bundler/executables).
+
+The normalized embedded arguments participate in the application cache key. Existing provenance reports the argument count/digest without exposing values; compiled bytes and preserved application-layer digests bind those settings during rebase. No new rebase capsule field is required, and rebase cannot alter embedded flags without rebuilding.
