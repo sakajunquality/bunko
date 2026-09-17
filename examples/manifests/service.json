@@ -1,1 +1,86 @@
-{"apiVersion":"v1","kind":"Pod","metadata":{"name":"api"},"spec":{"containers":[{"name":"api","image":"bunko://services/api","securityContext":{"runAsNonRoot":true,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "api"
+  },
+  "spec": {
+    "terminationGracePeriodSeconds": 30,
+    "securityContext": {
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "sizeLimit": "64Mi"
+        }
+      }
+    ],
+    "containers": [
+      {
+        "name": "api",
+        "image": "bunko://services/api",
+        "ports": [
+          {
+            "containerPort": 3000
+          }
+        ],
+        "env": [
+          {
+            "name": "TMPDIR",
+            "value": "/tmp"
+          },
+          {
+            "name": "XDG_CACHE_HOME",
+            "value": "/tmp"
+          }
+        ],
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+          },
+          "limits": {
+            "cpu": "1",
+            "memory": "512Mi"
+          }
+        },
+        "readinessProbe": {
+          "httpGet": {
+            "path": "/",
+            "port": 3000
+          }
+        },
+        "livenessProbe": {
+          "httpGet": {
+            "path": "/",
+            "port": 3000
+          },
+          "initialDelaySeconds": 10
+        },
+        "securityContext": {
+          "readOnlyRootFilesystem": true,
+          "runAsNonRoot": true,
+          "allowPrivilegeEscalation": false,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
