@@ -1,6 +1,6 @@
 # Cache evolution proposal
 
-This proposal tracks #220, #223 and #229. The current patch improves diagnostics and prevents pruning a closure plan solely because its packing fingerprint belongs to another CLI. Cross-version cache reuse remains a follow-up. Leased staging and conservative residue reclamation are implemented. New-format lock recovery is implemented as described below.
+This proposal tracks #220, #223 and #229. The current patch improves diagnostics and prevents pruning a closure plan solely because its packing fingerprint belongs to another CLI. Compatible packing identities no longer include the CLI or host Bun version. Version-aware retention remains a follow-up. Leased staging and conservative residue reclamation are implemented. New-format lock recovery is implemented as described below.
 
 ## Immediate behavior
 
@@ -16,7 +16,7 @@ Content-addressed copies now use separately leased staging directories. Publicat
 
 ## Packing and semantic identity
 
-Do not simply remove the Bun/bunko versions from today's `packFormat`. Separate a hand-versioned tar/compression format from per-layer semantic transformations and input identity. Assets can reuse validated content independently of CLI versions only when permission, omission, destination and packing policies agree. Runtime layers remain bound to authenticated archive/executable digests and runtime-layout policy. Dependencies retain installer/toolchain, lock, patch, script and platform policy. Application output retains compiler, defines, macros/input analysis, runtime kind and compile argv identity. Writer version is diagnostic metadata, not a substitute for these compatibility keys.
+The hand-versioned `tar-gzip-v4` packing identity is separate from per-layer semantic transformations and input identity. A fixed compressed-byte fixture runs in every supported Bun/OS CI job; changes require investigation and a packing revision before reuse. Assets can reuse validated content independently of CLI versions only when permission, omission, destination and packing policies agree. Runtime layers remain bound to authenticated archive/executable digests and runtime-layout policy. Dependencies retain installer/toolchain, lock, patch, script and platform policy. Application output retains compiler, defines, macros/input analysis, runtime kind and compile argv identity. Writer version is diagnostic metadata, not a substitute for these compatibility keys.
 
 Introduce a new cache layout manifest carrying `layoutVersion` and minimum reader. Unknown namespaces/versions must be counted as unmanaged and preserved, not treated as corrupt current records or assumed to have no blob references. Malformed known records still fail validation. Default prune should age/budget foreign packing versions as ordinary candidates rather than eagerly deleting a rollback's warm path. Remote retention needs validated record creation metadata plus explicit age/keep filters and registry-specific tag-deletion support; do not infer age from arbitrary registry responses or delete manifests as a fallback.
 

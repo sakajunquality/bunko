@@ -59,7 +59,7 @@ import { workspaceAt } from "./workspace.ts";
 import { byteSize, closureCoversTarget, closureDuplicates, dependencyClosure, closureDirectory, closurePlanInputs, closureStrategy, type ClosureDuplicate, type ClosurePackage } from "./closure.ts";
 import { workspaceRuntime, workspaceDirectory } from "./workspace-runtime.ts";
 import { acknowledgedImportSummary, acknowledgedImports, applyAcknowledgements, optionalImportMessage, undeclaredImportLimit, undeclaredImportMessage, undeclaredImportPolicy, unusedAcknowledgementMessage, type UndeclaredImport } from "./undeclared-imports.ts";
-import { assetInputs, cacheKey, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
+import { assetInputs, cacheKey, cachePolicies, cacheWriter, closurePlanLayout, LayerCache, packFormat, type CacheRecord, type CacheEvent, type CacheExportEvent, type ClosurePlanRecord } from "./cache.ts";
 import { readBaseInspection, writeBaseInspection } from "./base-inspect.ts";
 
 import { mapJobs } from "./concurrency.ts";
@@ -355,7 +355,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
       const entries = [...(project.mode === "source" ? [] : selectedAssets), ...staged.entries, ...context.runtimeCertificate ? [context.runtimeCertificate.entry] : []];
       assertNoLayerCollision([entries]);
       assetSets.push({ entries, materials: staged.materials, roots: [prefix, ...staged.materials.map((material) => material.to.slice(1))],
-        key: cacheKey({ kind: "assets", packFormat, epoch: timestamp, destination: project.workdir, ...(staged.materials.length ? { materials: staged.materials } : {}), entries: await assetInputs(entries) }) });
+        key: cacheKey({ kind: "assets", policy: cachePolicies.assets, packFormat, epoch: timestamp, destination: project.workdir, ...(staged.materials.length ? { materials: staged.materials } : {}), entries: await assetInputs(entries) }) });
     }
     // One entry per distinct material, naming every target platform that resolved to it.
     const materialsByIdentity = new Map<string, AssetMaterial & { platforms: string[] }>();
@@ -381,7 +381,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             const hit = await cache.get(assetKey, "assets", options.verifyDeterministic, { destination: project.workdir, platform: null });
             const layer = hit?.layer ?? await stage("pack", () => packLayer(store, assets, "assets", timestamp, layerRoots));
             assetLayers.set(assetKey, layer);
-            if (!hit && iteration === 1 && layer) records.push({ schemaVersion: 1, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer, inventory: [], native: [] });
+            if (!hit && iteration === 1 && layer) records.push({ schemaVersion: 1, writer: cacheWriter, key: assetKey, kind: "assets", packFormat, destination: project.workdir, platform: null, layer, inventory: [], native: [] });
           }
           assetsLayer = assetLayers.get(assetKey);
         }
@@ -393,11 +393,11 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         const inputRuntime = runtimes[index];
         const runtime = inputRuntime ? { ...await injectedLayer(store, inputRuntime.metadata, inputRuntime.executable, inputRuntime.tree, timestamp, libraryPath(base)), metadata: inputRuntime.metadata } : undefined;
         if (runtime) {
-          const key = cacheKey({ kind: "runtime", packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
+          const key = cacheKey({ kind: "runtime", policy: cachePolicies.runtime, packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
           // Authenticated bytes, not registry-supplied metadata, determine the injected layer.
           if (hit && (hit.layer.descriptor.digest !== runtime.layer.descriptor.digest || hit.layer.diffId !== runtime.layer.diffId)) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
-          if (!hit && iteration === 1) records.push({ schemaVersion: 1, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
+          if (!hit && iteration === 1) records.push({ schemaVersion: 1, writer: cacheWriter, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
         const noteOmittedAddons = (omitted: number) => { if (omitted) log(`Omitted ${omitted} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
@@ -420,7 +420,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const destination = `${project.workdir}/node_modules`;
           // The plan key is computed from inputs that exist before any install, so an
           // unchanged closure skips both the frozen Linux install and per-file projection.
-          const planKey = cacheKey({ kind: "deps-plan", layout: closurePlanLayout, packFormat, epoch: timestamp, destination, ...closurePlanInputs(plan, toolchain, platform, base.descriptor.digest, context.closureProjects) });
+          const planKey = cacheKey({ kind: "deps-plan", policy: cachePolicies.deps, layout: closurePlanLayout, packFormat, epoch: timestamp, destination, ...closurePlanInputs(plan, toolchain, platform, base.descriptor.digest, context.closureProjects) });
           const notice = `${planKey}/${platform.architecture}`;
           // The plan key omits the selected targets' own sources, so a recorded closure that
           // packages one of them (a cycle, a self-external, one shared target externalising
@@ -453,18 +453,18 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             inventory = content.inventory; native = content.native;
             closureSizes = { bytes: content.packages.reduce((total, pkg) => total + pkg.bytes, 0), files: content.packages.reduce((total, pkg) => total + pkg.files, 0), packages: content.packages, duplicates: content.duplicates };
             noteOmittedAddons(content.omitted.length);
-            const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination,
+            const key = cacheKey({ kind: "deps", policy: cachePolicies.deps, packFormat, epoch: timestamp, destination,
               strategy: closureStrategy, entries: await assetInputs(content.entries), platform, base: base.descriptor.digest,
               toolchain: { version: toolchain.version, revision: toolchain.revision }, libc: project.runtimeLibc, scripts: false, ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}) });
             // A plan candidate that already resolved this exact key needs no second lookup or event.
             const hit = attemptedDeps.has(key) ? attemptedDeps.get(key) : await cache.get(key, "deps", options.verifyDeterministic, { destination, platform });
             depsEntries = content.entries;
             depsLayer = hit?.layer ?? await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
-            if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
-            if (iteration === 1 && depsLayer && !closureCoversTarget(content.packages, context.closureProjects)) plans.push({ schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
+            if (!hit && iteration === 1 && depsLayer) records.push({ schemaVersion: 1, writer: cacheWriter, key, kind: "deps", packFormat, destination, platform, layer: depsLayer, inventory, native });
+            if (iteration === 1 && depsLayer && !closureCoversTarget(content.packages, context.closureProjects)) plans.push({ schemaVersion: 1, writer: cacheWriter, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key, destination, platform, aliases: Object.fromEntries(content.aliases), undeclared: content.undeclared, optionalUndeclared: content.optionalUndeclared, packages: content.packages, omitted: content.omitted.length });
           }
         } else if (project.external.length || project.mode === "source" && plan.lock) {
-          const key = cacheKey({ kind: "deps", packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
+          const key = cacheKey({ kind: "deps", policy: cachePolicies.deps, packFormat, epoch: timestamp, destination: `${project.workdir}/node_modules`, ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
           const hit = await cache.get(key, "deps", options.verifyDeterministic, { destination: `${project.workdir}/node_modules`, platform });
           if (hit) { depsLayer = hit.layer; inventory = hit.inventory; native = hit.native; }
           else {
@@ -476,7 +476,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
             noteOmittedAddons(content.omitted.length);
             depsLayer = await stage("pack", () => packLayer(store, depsEntries, "deps", timestamp, [prefix]));
-            if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
+            if (iteration === 1 && depsLayer) records.push({ schemaVersion: 1, writer: cacheWriter, key, kind: "deps", packFormat, destination: `${project.workdir}/node_modules`, platform, layer: depsLayer, inventory, native });
           }
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
@@ -558,7 +558,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         app.push(...aliases);
         assertNoLayerCollision([runtime?.entries ?? [], depsEntries, assets, app]);
         const appLayer = appHit?.layer ?? await stage("pack", () => packLayer(store, app, "app", timestamp, [prefix]));
-        if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
+        if (!appHit && cacheable && options.appCache !== false && iteration === 1 && appLayer) records.push({ schemaVersion: 1, writer: cacheWriter, key: appKey, kind: "app", packFormat, destination: project.workdir, platform, layer: appLayer, inventory: application.inventory, native: [], application: applicationMetadata });
         const layers = [runtime?.layer, depsLayer, assetsLayer, appLayer].filter((l): l is Layer => Boolean(l));
         if (project.runtimeKind === "node") {
           const entries = Object.values(application.entrypoints ?? { default: application.entry }).map((entry) => `${prefix}/${entry}`);

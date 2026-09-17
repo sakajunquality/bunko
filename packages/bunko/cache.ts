@@ -29,7 +29,22 @@ const planConfigMedia = "application/vnd.bunko.cache.plan.config.v1+json";
 /** A plan indexes a layer instead of owning one, and OCI asks an artifact for a layer list anyway. */
 const emptyLayerMedia = "application/vnd.oci.empty.v1+json";
 const artifactMedia = "application/vnd.bunko.cache.v1";
-export const packFormat = `tar-gzip-v4/bunko-${packageMetadata.version}/bun-${Bun.version}-${Bun.revision}`;
+/** Bump when tar normalization or gzip bytes change, not for a CLI release. */
+export const packFormat = "tar-gzip-v4";
+export const cachePolicies = { assets: "assets-v1", runtime: "runtime-v1", deps: "deps-v1" } as const;
+export const cacheWriter = { bunko: packageMetadata.version, bun: Bun.version, revision: Bun.revision };
+type CacheWriter = typeof cacheWriter;
+function writerMetadata(input: unknown): CacheWriter | undefined {
+  if (input === undefined) return;
+  const value = object(input, "Cache writer");
+  if (![value.bunko, value.bun, value.revision].every((entry) => typeof entry === "string" && entry.length > 0 && entry.length <= 128 && !/[\x00-\x1f\x7f]/.test(entry))) throw new Error("Invalid cache writer metadata");
+  return { bunko: value.bunko as string, bun: value.bun as string, revision: value.revision as string };
+}
+/** Writer identity is diagnostic; identical bytes remain idempotent across writers. */
+function recordIdentity(record: CacheRecord | ClosurePlanRecord): Uint8Array {
+  const { writer: _writer, ...identity } = record;
+  return canonicalJSON(identity);
+}
 export class CacheConflictError extends Error {}
 class InvalidRemoteCacheError extends Error {}
 export type CacheKind = CacheRecord["kind"] | ClosurePlanRecord["kind"];
@@ -74,7 +89,7 @@ export const closurePlanLayout = "closure-plan-v2";
 const maxPlanAliases = 100_000, maxPlanFindings = 100_000;
 
 export interface CacheRecord {
-  schemaVersion: 1; key: Digest; kind: "deps" | "assets" | "app" | "runtime"; packFormat: string;
+  schemaVersion: 1; writer?: CacheWriter; key: Digest; kind: "deps" | "assets" | "app" | "runtime"; packFormat: string;
   destination: string; platform: Platform | null; layer: Layer;
   inventory: InventoryEntry[]; native: NativeBinary[];
   application?: { locations: LocationDiagnostics; entry: string; entrypoints?: Record<string, string>; entries: { path: string; type: "file" | "directory" }[] };
@@ -87,7 +102,7 @@ export interface CacheRecord {
  * validates and materializes.
  */
 export interface ClosurePlanRecord {
-  schemaVersion: 1; kind: "deps-plan"; layout: string; packFormat: string; planKey: Digest; key: Digest;
+  schemaVersion: 1; writer?: CacheWriter; kind: "deps-plan"; layout: string; packFormat: string; planKey: Digest; key: Digest;
   destination: string; platform: Platform; aliases: Record<string, TarEntry[]>; undeclared: UndeclaredImport[]; optionalUndeclared: UndeclaredImport[]; omitted: number;
   packages: ClosurePackage[];
 }
@@ -133,7 +148,7 @@ export function validateClosurePlan(input: unknown, planKey: Digest, expected: {
   // An unvalidated extra field would otherwise be replayed and re-serialised, and one that is
   // merely large or deeply nested — both cheap to write and within the metadata size limit —
   // would fail canonicalJSON well after the plan had been accepted, taking the build with it.
-  return { schemaVersion: 1, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key: value.key as Digest,
+  return { schemaVersion: 1, ...value.writer === undefined ? {} : { writer: writerMetadata(value.writer) }, kind: "deps-plan", layout: closurePlanLayout, packFormat, planKey, key: value.key as Digest,
     destination: expected.destination, platform: expected.platform, aliases, undeclared: undeclared!, optionalUndeclared: optionalUndeclared!,
     omitted: value.omitted as number, packages };
 }
@@ -209,6 +224,7 @@ export class CacheDriver {
       }
       if (!app.entries.some((raw) => { const entry = object(raw, "Cached entry"); return entry.type === "file" && entry.path === `${destination.slice(1)}/${app.entry}`; })) throw new Error("Cached application entrypoint is missing");
     }
+    writerMetadata(value.writer);
     return value as unknown as CacheRecord;
   }
 
@@ -308,7 +324,7 @@ export class CacheDriver {
       const config = this.planDescriptor(root);
       await this.store.putStream(await source.blob(config), config.mediaType, config);
       const previous = validateClosurePlan(JSON.parse(Buffer.from(await this.store.read(config)).toString()), record.planKey, { destination: record.destination, platform: record.platform });
-      if (!Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) throw new CacheConflictError("Different closure plan for the same Registry plan key; refusing to overwrite it");
+      if (!Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record)))) throw new CacheConflictError("Different closure plan for the same Registry plan key; refusing to overwrite it");
       return true;
     } catch (error) {
       if (error instanceof CacheConflictError || error instanceof RegistryError) throw error;
@@ -389,7 +405,7 @@ export class CacheDriver {
         let previous: CacheRecord | undefined;
         try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
         catch { /* Missing or malformed entries are replaced by verified outputs. */ }
-        if (previous && (this.options.strictLocal ? !Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record))) : previous.layer.descriptor.digest !== record.layer.descriptor.digest)) {
+        if (previous && (this.options.strictLocal ? !Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record))) : previous.layer.descriptor.digest !== record.layer.descriptor.digest)) {
           let valid = false;
           try { valid = await hashFile(this.local!.path(previous.layer.descriptor.digest)) === previous.layer.descriptor.digest; } catch { /* Incomplete cache is a miss. */ }
           if (valid) throw new CacheConflictError("Different output for the same cache key; refusing to overwrite a concurrent or nondeterministic build");
@@ -421,7 +437,7 @@ export class CacheDriver {
       // Verify the winning record's payload before accepting an idempotent write.
       await this.store.putStream(await source.blob(layer), layer.mediaType, layer);
       await decodeLayer(this.store, layer, previous.layer.diffId, undefined, maxLayerBytes);
-      if (!Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) throw new CacheConflictError("Different output or metadata for the same Registry cache key; refusing to overwrite it");
+      if (!Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record)))) throw new CacheConflictError("Different output or metadata for the same Registry cache key; refusing to overwrite it");
       return true;
     } catch (error) {
       if (error instanceof CacheConflictError || error instanceof RegistryError) throw error;
