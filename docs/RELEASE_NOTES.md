@@ -1,8 +1,21 @@
-# Unreleased
+# v0.12.0
 
 Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
 
 The bundled syntax analyzer now uses Babel instead of the TypeScript compiler API, and the development typechecker is updated to TypeScript 7.0.2. Existing macro/data-loader, Node guard and diagnostic contracts are retained. See [PARSER.md](PARSER.md) for the maintenance window and measured size/scan tradeoff. Workspace narrowed-input fingerprints move to `member-inputs-v2`; this deliberately causes a cold cache for those inputs.
+
+## Build preparation and dependencies
+
+- Share authenticated runtime files across targets, cancel sibling preparation when one target fails, and avoid unnecessary workspace snapshots.
+- Move runtime syntax analysis from the TypeScript compiler API to Babel and update the development typechecker to TypeScript 7.0.2. The measured JavaScript artifact is approximately 76% smaller; the fixed syntax-scan corpus is approximately 1.6 times slower. See [PARSER.md](PARSER.md) for the measured tradeoff and parser maintenance window.
+- Update Bun type definitions to 1.4.2 and the font-validation example to Canvas 1.0.9. Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`.
+
+## Compatibility and migration
+
+- Existing managed caches are retained, but the new packing/policy identities cause a one-time cold-cache transition. Narrowed workspace fingerprints also change. Keep sufficient disk space during upgrade/rollback; do not expect every layer to remain warm across releases.
+- Root cache envelopes use a numeric layout-reader protocol. Unknown namespaces or future records are unmanaged and prevent blob reclamation, preserving references older readers cannot understand. Legacy or ambiguous abandoned locks still require manual recovery.
+- Registry `prune --keep-current` preserves current packing/plan formats. Provider-specific retention remains an external lifecycle policy.
+- Isolated 0.10.0 and 0.11.0 source CLIs passed shared local/registry cache and report upgrade/rollback acceptance. Historical rebase/base-status checks validate metadata; runtime acceptance is separate.
 
 ## Format changes
 
