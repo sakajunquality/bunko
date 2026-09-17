@@ -137,3 +137,5 @@ The build Action accepts newline-separated `cache-from` and `cache-to` locations
 Grant `permissions: id-token: write` and configure registry authentication, then use `sign: keyless` on the build or rebase Action. Install stable cosign 3.x first. See [keyless signing](KEYLESS_SIGNING.md) for exact-identity bunko/cosign verification commands and staging validation.
 
 For scheduled base assessment and gated publication, see [Rebase operations](REBASE_OPERATIONS.md) and the [rebase Action](../rebase/action.yml).
+
+Build/rebase Actions require bunko >=0.10.0 and <1 and inspect the installed version before building. Pin `setup-bunko`'s `version` input explicitly; its independently versioned default is not a compatibility guarantee. An optional rebase `smoke-load-timeout` additionally requires a CLI advertising that flag. Leaving it empty uses the installed CLI's default and works with 0.10.0. Report schemas are checked before consuming outputs.

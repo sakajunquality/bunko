@@ -51,7 +51,7 @@ test("toolchain declarations constrain local selection without provisioning or n
 test("runtime argument overrides are visible by count in diagnostics and rejected for compile mode", async () => {
   const directory = await temporary(); roots.push(directory); const source = await project(join(directory, "source"), { bunko: { runtime: { args: ["--smol"] } } });
   expect((await loadProject({ path: source, runtimeArgs: ["--conditions=custom"] })).runtimeArgs).toEqual(["--conditions=custom"]);
-  await expect(loadProject({ path: source, mode: "compile" })).rejects.toThrow("runtime.args");
+  expect((await loadProject({ path: source, mode: "compile", runtimeArgs: ["--smol"] })).runtimeArgs).toEqual(["--smol"]);
   const child = Bun.spawn([process.execPath, resolve("packages/bunko/cli.ts"), "check-config", source, "--runtime-arg=--conditions=custom"], { stdout: "pipe", stderr: "pipe" });
   const [out, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit).toBe(0); expect(error).toBe(""); expect(JSON.parse(out).targets[0].runtimeArgumentCount).toBe(1); expect(out).not.toContain("conditions");

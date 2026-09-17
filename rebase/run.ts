@@ -1,3 +1,4 @@
+import { assertActionCLI } from "../scripts/action-compatibility.ts";
 import { appendFile, lstat, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -43,16 +44,19 @@ if (import.meta.main) {
       try { await lstat(destination); throw new Error("Action report destination must be absent"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    const child = Bun.spawn([Bun.which("bunko", { PATH: process.env.PATH }) ?? "bunko", ...rebaseArguments(inputs, report)], { stdout: "inherit", stderr: "inherit", stdin: "ignore" });
+    const executable = Bun.which("bunko", { PATH: process.env.PATH }) ?? "bunko", args = rebaseArguments(inputs, report);
+    await assertActionCLI(executable, args);
+    const child = Bun.spawn([executable, ...args], { stdout: "inherit", stderr: "inherit", stdin: "ignore" });
     code = await child.exited;
     const file = Bun.file(report);
     if (file.size > 32 * 1024 * 1024) throw new Error("Rebase Action report exceeds limits");
     result = JSON.parse(await readFile(report, "utf8"));
+    if (result.schemaVersion !== 1 || result.command !== "rebase") throw new Error("Unsupported rebase report schema; use matching Action and CLI versions");
     if (destination !== report) {
       try { await writeFile(destination, JSON.stringify(result), { flag: "wx", mode: 0o600 }); copied = true; }
       catch { process.stderr.write("Could not copy the Action report; preserving the temporary report and publication details\n"); code = 1; }
     }
-  } catch { result = { schemaVersion: 1, command: "rebase", status: "failed", decision: "error" }; code = 1; }
+  } catch (error) { process.stderr.write(`${error instanceof Error ? error.message : "Rebase Action failed"}\n`); result = { schemaVersion: 1, command: "rebase", status: "failed", decision: "error" }; code = 1; }
   if (!(await Bun.file(report).exists())) await writeFile(report, JSON.stringify(result), { mode: 0o600, flag: "wx" });
   const dry = inputs["dry-run"] !== "false", outputs = rebaseOutputs(result, code, dry);
   if (process.env.GITHUB_OUTPUT) for (const [name, value] of Object.entries({ ...outputs, report: copied ? destination : report })) {

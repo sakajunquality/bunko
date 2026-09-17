@@ -1,5 +1,5 @@
 name: Rebase with bunko
-description: Assess or rebase an image with an installed bunko CLI and explicit acceptance command
+description: Assess or rebase an image with an installed bunko CLI and explicit acceptance command (requires bunko >=0.10.0 and <1; pin setup version)
 inputs:
   image:
     description: Digest-pinned source image
@@ -51,8 +51,8 @@ inputs:
     description: JSON argv array for a finite acceptance command inside each candidate container
     default: ''
   smoke-load-timeout:
-    description: Docker image-load deadline in seconds (1..3600)
-    default: '300'
+    description: Optional Docker image-load deadline in seconds (1..3600); requires CLI support for --smoke-load-timeout
+    default: ''
   dry-run:
     description: Assess only (default); publication requires false and an explicit smoke-command
     default: 'true'
