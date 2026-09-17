@@ -19,9 +19,6 @@ updates:
     patterns: ["*"]
     multi-ecosystem-group: dependencies
     ignore:
-      # TypeScript 7 typechecker acceptance is separate from the parser migration (#185).
-      - dependency-name: typescript
-        versions: [">=7"]
       # Babel 8 removes legacy assert grammar. See docs/PARSER.md; review before June 2027.
       - dependency-name: "@babel/parser"
         versions: [">=8"]

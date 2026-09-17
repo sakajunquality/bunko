@@ -2,7 +2,7 @@
 
 Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
 
-The bundled syntax analyzer now uses Babel instead of the TypeScript compiler API. Existing macro/data-loader, Node guard and diagnostic contracts are retained. See [PARSER.md](PARSER.md) for the maintenance window and measured size/scan tradeoff. Workspace narrowed-input fingerprints move to `member-inputs-v2`; this deliberately causes a cold cache for those inputs.
+The bundled syntax analyzer now uses Babel instead of the TypeScript compiler API, and the development typechecker is updated to TypeScript 7.0.2. Existing macro/data-loader, Node guard and diagnostic contracts are retained. See [PARSER.md](PARSER.md) for the maintenance window and measured size/scan tradeoff. Workspace narrowed-input fingerprints move to `member-inputs-v2`; this deliberately causes a cold cache for those inputs.
 
 ## Format changes
 
