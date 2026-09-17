@@ -56,7 +56,7 @@ describe("Bun to OCI layout", () => {
     expect(config.rootfs.diff_ids).toHaveLength(2);
     expect(config.config?.Env).toContain("BASE_FLAG=retained");
     expect(config.config?.Cmd).toEqual([]);
-    expect(config.config?.Entrypoint).toEqual(["/usr/local/bin/bun", "/app/src/server.js"]);
+    expect(config.config?.Entrypoint).toEqual(["/usr/local/bin/bun", "--no-install", "/app/src/server.js"]);
     const files = await inspectTar(new BlobStore(result.layout!).path(result.layers[0]!.descriptor.digest));
     const application = files.find((file) => file.name === "app/src/server.js")!;
     await writeFile(join(root, "server.js"), application.content!);

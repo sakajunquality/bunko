@@ -259,3 +259,5 @@ Strict undeclared-import checks enforce the importing package's manifest, not th
 Build reports include closure sizes only when bunko projects the dependency closure. Prepared dependency artifacts do not carry closure accounting and omit that field, even if the selected strategy is closure.
 
 Offline diagnostics validate remote mapping syntax and destinations. They cannot inspect image/URL contents or determine collisions involving remote entries; a build performs those checks. Local and URL mappings are captured once per build target and shared across its platforms, including when image mappings are present.
+
+Long-running applications execute as PID 1 and need explicit SIGTERM handling. Applications spawning process trees also need an init/reaping strategy. See [Running images](RUNNING_IMAGES.md) for deployment examples and the scope of acceptance tests.

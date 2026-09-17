@@ -36,3 +36,5 @@ A gitignored frontend output can be packaged directly, without a separate contex
 ```
 
 Build the frontend first, then run `bunko build .`. An exact file or glob such as `dist/build.json` or `dist/**/*.js` also works.
+
+Bun bundle images also pass `--no-install`. Missing computed imports must fail locally instead of downloading packages at container startup. Package every runtime dependency during the build. Node images do not receive Bun flags.

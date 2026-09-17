@@ -46,3 +46,5 @@ With smoke enabled, ordering is Docker preflight, input preparation, local per-p
 The same flow works in Tekton or Cloud Build by running the CLI container: persist the status/report files between steps, branch on exact decisions, and isolate the Docker acceptance step on a runner with a daemon. Do not launch Docker inside a privileged CLI container just to run assessment. Platform teams must supply their own credentials, test commands, issue destination and rebuild workflow; this change does not enable a scheduled publisher in Bunko's repository.
 
 The Action accepts explicit `sbom` and `provenance` booleans (both default false) and `smoke-load-timeout` seconds. Requesting SBOM output requires a supported original SBOM per selected platform.
+
+Acceptance containers provide a bounded 64 MiB `/tmp` tmpfs (`rw,nosuid,nodev,mode=1777`) for scratch files. The root filesystem stays read-only. See [Running images](RUNNING_IMAGES.md) for the complete runtime restrictions.

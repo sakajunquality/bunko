@@ -21,15 +21,20 @@ export interface ImageOptions {
 
 export const nonrootUser = "65532:65532";
 
-/** Whether a runtime User value runs as root: an empty value or a user part of `0`/`root` (the group part does not change the uid). Such inherited values count as unset. */
+/** Explicit users must use canonical numeric IDs; root is an explicit operator choice. */
+export function validateUser(user: string | undefined): string | undefined {
+  if (user !== undefined && (!/^(?:0|[1-9][0-9]*)(?::(?:0|[1-9][0-9]*))?$/.test(user) || user.split(":").some((id) => Number(id) > 4294967294))) throw new Error("Image user must be canonical numeric uid[:gid] (for example 65532:65532)");
+  return user;
+}
 export function isRootUser(user: string | undefined): boolean {
   const account = (user ?? "").split(":", 1)[0]!;
-  return account === "" || /^0+$/.test(account) || account === "root";
+  return account === "" || /^[+-]?0+$/.test(account) || account === "root";
 }
-
-/** Image user precedence: explicit setting, then a nonroot base User, then 65532:65532; explicit settings can select root. */
+/** Never trust a base name to identify a nonroot UID; passwd entries may map names to root. */
 export function resolveUser(explicit: string | undefined, inherited: string | undefined): string {
-  return explicit ?? (inherited && !isRootUser(inherited) ? inherited : nonrootUser);
+  if (explicit !== undefined) return validateUser(explicit)!;
+  try { return inherited && validateUser(inherited) && !isRootUser(inherited) ? inherited : nonrootUser; }
+  catch { return nonrootUser; }
 }
 
 export function imageConfig(base: ImageConfig, layers: Layer[], options: ImageOptions): ImageConfig {

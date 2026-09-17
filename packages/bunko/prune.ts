@@ -8,12 +8,12 @@ import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
 import { media } from "../oci/types.ts";
 import { withCacheLock } from "./cache-lock.ts";
 
-export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number }
+export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number; unreferencedBytes: number; temporaryBytes: number }
 
 export async function pruneLocal(directory: string, execute = false, olderThanSeconds = 7 * 86400, keepBytes?: number): Promise<PruneResult> {
   if (!Number.isSafeInteger(olderThanSeconds) || olderThanSeconds < 0) throw new Error("Prune age must be non-negative integer seconds");
   if (keepBytes !== undefined && (!Number.isSafeInteger(keepBytes) || keepBytes < 0)) throw new Error("Cache budget must be non-negative integer bytes");
-  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0 };
+  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0 };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
     for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {
@@ -85,7 +85,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Closure plan");
         if (value.schemaVersion !== 1 || value.kind !== "deps-plan" || value.planKey !== `sha256:${name.slice(0, 64)}` || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
         assertDigest(value.key);
-        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout !== closurePlanLayout || value.packFormat !== packFormat });
+        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout !== closurePlanLayout });
       }
     }
     // Account only for validated metadata and its referenced blobs. Unreferenced
@@ -102,6 +102,17 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         if (!info.isFile() || info.isSymbolicLink()) throw new Error("Prune refuses non-regular blobs");
         sizes.set(record.digest, info.size); present.add(record.digest); result.managedBytes += info.size;
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; sizes.set(record.digest, 0); }
+    }
+    // Crash residue is visible, but not deleted without a lease protocol protecting live writers.
+    for (const [subdir, temporary] of [["blobs", true], ["blobs/sha256", false]] as const) {
+      let names: string[] = [];
+      try { names = await readdir(join(directory, subdir)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      for (const name of names) {
+        if (temporary ? !name.startsWith(".tmp-") : !/^[a-f0-9]{64}$/.test(name) || references.has(`sha256:${name}`)) continue;
+        const info = await lstat(join(directory, subdir, name));
+        if (!info.isFile() || info.isSymbolicLink()) continue;
+        if (temporary) result.temporaryBytes += info.size; else result.unreferencedBytes += info.size;
+      }
     }
     result.remainingBytes = result.managedBytes;
     const candidates: typeof records = [];
