@@ -43,7 +43,7 @@ export async function githubBytes(url: URL, token: string | undefined, accept: s
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 /** Last resort for local runs where neither the Action ref nor an Action checkout is available. */
-export const fallbackVersion = "v0.1.2";
+export const fallbackVersion = "v0.10.0";
 type PackageVersionReader = (path: string) => Promise<string | undefined>;
 const actionPackageVersion: PackageVersionReader = async (path) => {
   try { const parsed = JSON.parse(await readFile(path, "utf8")) as { version?: unknown }; return typeof parsed?.version === "string" ? parsed.version : undefined; }

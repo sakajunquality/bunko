@@ -131,6 +131,7 @@ export async function assertReportWritable(path: string): Promise<void> {
     value.schemaVersion === 2 && typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root ||
     value.schemaVersion === 3 && status && Array.isArray(value.targets) ||
     value.schemaVersion === 1 && status && ["push-layout", "rebase"].includes(String(value.command)) ||
+    value.schemaVersion === 1 && value.command === "base-status" && Array.isArray(value.results) ||
     value.schemaVersion === 4 && status && value.command === "resolve" ||
     value.schemaVersion === 5 && status && value.command === "apply"
   );

@@ -40,7 +40,7 @@ export function unresolvedBundleImport(error: unknown): boolean {
 
 export async function selectToolchain(path?: string): Promise<Toolchain> {
   const executable = path ? resolve(path) : Bun.which("bun");
-  if (!executable) throw new Error("Bun is required; install Bun 1.3.13 or set --bun-path");
+  if (!executable) throw new Error(`Bun ${supportedBunRange} is required; install a supported version or set --bun-path`);
   const child = spawn([executable, "--revision"], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Cannot run Bun: ${stderr.trim()}`);

@@ -36,11 +36,11 @@ test("build Action forwards install cache, bare, image user and report inputs on
 
 test("reports preserve all targets and summaries escape application-controlled labels", () => {
   const digest = `sha256:${"a".repeat(64)}`, target = "name|<img>\nnext";
-  const images = imageResults({ status: "success", targets: [{ target, root: { digest } }, { target: "second", root: { digest }, publication: { published: true, reference: `registry.example/second@${digest}` } }] });
+  const images = imageResults({ schemaVersion: 3, status: "success", targets: [{ target, root: { digest } }, { target: "second", root: { digest }, publication: { published: true, reference: `registry.example/second@${digest}` } }] });
   expect(images).toHaveLength(2); expect(images[0]!.reference).toBeUndefined();
   expect(buildSummary(images)).not.toContain("<img>"); expect(buildSummary(images)).toContain("name&#124;");
   expect(() => imageResults({ status: "failed", targets: [] })).toThrow("failed");
-  expect(() => imageResults({ target: "bad", root: { digest: "not-a-digest" } })).toThrow("Invalid");
+  expect(() => imageResults({ schemaVersion: 2, target: "bad", root: { digest: "not-a-digest" } })).toThrow("Invalid");
 });
 
 test("installed CLI builds two workspace targets and exposes report/layout without a misleading single digest", async () => {
@@ -82,7 +82,7 @@ test("installed CLI builds two workspace targets and exposes report/layout witho
 async function stubCLI(directory: string, options: { report?: string; exit?: number } = {}): Promise<string> {
   await mkdir(directory, { recursive: true });
   const copy = options.report ? `if [ -n "$target" ]; then cp ${JSON.stringify(options.report)} "$target"; fi\n` : "";
-  await writeFile(join(directory, "bunko"), `#!/bin/sh\ntarget=""\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--report" ]; then target="$2"; fi\n  shift\ndone\n${copy}exit ${options.exit ?? 0}\n`, { mode: 0o755 });
+  await writeFile(join(directory, "bunko"), `#!/bin/sh\nif [ "$1" = "version" ]; then echo 0.10.0; exit 0; fi\ntarget=""\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--report" ]; then target="$2"; fi\n  shift\ndone\n${copy}exit ${options.exit ?? 0}\n`, { mode: 0o755 });
   return directory;
 }
 async function withActionEnvironment<T>(values: Record<string, string | undefined>, task: () => Promise<T>): Promise<T> {
