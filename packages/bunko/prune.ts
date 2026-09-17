@@ -220,7 +220,7 @@ export async function pruneRegistry(repository: string, execute = false, registr
     if (plan && ![closurePlanLayout, "closure-plan-v1"].includes(String(value.layout))) { unmanaged.push(tag); continue; }
     if (plan) assertDigest(value.key);
     if (typeof value.packFormat !== "string") throw new Error("Invalid cache packing format");
-    if (options.keepCurrent && value.packFormat === packFormat) { retained.push(tag); continue; }
+    if (options.keepCurrent && value.packFormat === packFormat && (!plan || value.layout === closurePlanLayout)) { retained.push(tag); continue; }
     selected.push({ tag, digest: sha256(bytes) });
   }
   const deleted: string[] = [];
