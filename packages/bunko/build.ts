@@ -1,5 +1,5 @@
 import { assertFormatVersion, type PersistedFormat } from "../compatibility/formats.ts";
-import { cleanupAfterTasks } from "../runtime/invocation.ts";
+import { cleanupAfterTasks, retainScratch } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
@@ -745,9 +745,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const prepared: PreparedBuild[] = [];
   const finished = new Set<string>(), reports = new Set<string>();
   let reportSafe = true;
-  const dispose = async () => {
+  const dispose = async (reason?: unknown) => {
     await Promise.all(prepared.map((item) => item.dispose()));
-    await rm(temporary, { recursive: true, force: true });
+    if (!(reason && (typeof reason === "object" || typeof reason === "function") && (reason as Record<symbol, unknown>)[retainScratch])) await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
     if (report && reportSafe && !reports.has(report)) await writeFailureReport(report, {
@@ -841,7 +841,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       } catch (error) { await failure(error); throw error; }
     } };
   } catch (error) {
-    try { await failure(error); } finally { await dispose(); }
+    try { await failure(error); } finally { await dispose(error); }
     throw error;
   }
 }

@@ -11,6 +11,7 @@ interface Invocation {
 const current = new AsyncLocalStorage<Invocation>();
 interface AbortScope { signal: AbortSignal; draining: Set<Promise<unknown>>; detach: Set<() => void>; cleanups: (() => Promise<unknown>)[] }
 const scopes = new AsyncLocalStorage<AbortScope>();
+export const retainScratch = Symbol("bunko.retainScratch");
 
 /** Cancel a cooperating task group without aborting its enclosing invocation or
  * unrelated library calls. Child processes are terminated and drained before return. */
@@ -18,9 +19,9 @@ export async function runAbortScope<T>(task: (abort: (reason: unknown) => void) 
   const controller = new AbortController();
   const scope: AbortScope = { signal: invocationSignal(controller.signal)!, draining: new Set(), detach: new Set(), cleanups: [] };
   return scopes.run(scope, async () => {
-    let failed = false;
+    let failed = false, failure: unknown;
     try { return await task((reason) => controller.abort(reason)); }
-    catch (error) { failed = true; controller.abort(error); throw error; }
+    catch (error) { failed = true; failure = error; controller.abort(error); throw error; }
     finally {
       try {
         await Promise.all([...scope.draining]);
@@ -28,6 +29,7 @@ export async function runAbortScope<T>(task: (abort: (reason: unknown) => void) 
         if (cleanup.some((result) => result.status === "rejected")) throw new Error("Some task scratch could not be removed");
       } catch (error) {
         if (!failed) throw error;
+        if (failure && (typeof failure === "object" || typeof failure === "function")) Object.defineProperty(failure, retainScratch, { value: true, configurable: true });
         process.stderr.write("bunko: task cleanup could not complete; scratch may be retained\n");
       } finally { for (const detach of scope.detach) detach(); }
     }
@@ -89,6 +91,9 @@ function trackedSpawn(allowCancelled: boolean): typeof Bun.spawn {
           killChild(child, "SIGTERM");
           // Keep escalation after the leader exits: descendants can retain pipes.
           const escalation = new Promise<void>((resolve) => setTimeout(resolve, 100)).then(() => killAndDrainGroup(child));
+          // Mark the rejection handled immediately; runAbortScope still observes it
+          // later and can preserve the original failure and scratch directory.
+          void escalation.catch(() => {});
           scope.draining.add(escalation); scope.draining.add(child.exited);
         };
         scope.signal.addEventListener("abort", abort, { once: true });
