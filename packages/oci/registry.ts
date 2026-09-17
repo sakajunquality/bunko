@@ -23,9 +23,11 @@ export interface RegistryOptions {
   credentials?: CredentialProvider;
   insecure?: string[];
   retries?: number;
-  /** Deadline for GET/HEAD response headers; it never limits body transfers. */
+  /** Deadline for GET/HEAD response headers, excluding response-body transfer. */
   headersTimeoutMs?: number;
-  /** Maximum idle time between blob body chunks; active transfers have no total deadline. */
+  /** Total deadline for each write attempt, including upload and response headers (default 30 minutes). */
+  writeTimeoutMs?: number;
+  /** Maximum idle time between download chunks. */
   bodyIdleTimeoutMs?: number;
   maxRetryDelayMs?: number;
   /** Parallel per-blob publication work within one manifest, 1–32; see publishConcurrency. */
@@ -162,6 +164,7 @@ export class RegistryClient {
     const http = new URL(`http://${registry}`).origin;
     this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
     if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
+    if (options.writeTimeoutMs !== undefined && (!Number.isFinite(options.writeTimeoutMs) || options.writeTimeoutMs <= 0 || options.writeTimeoutMs > 2_147_483_647)) throw new Error("Registry write timeout must be positive and fit a timer");
     if (options.maxRetryDelayMs !== undefined && (!Number.isFinite(options.maxRetryDelayMs) || options.maxRetryDelayMs < 0 || options.maxRetryDelayMs > 30_000)) throw new Error("Registry retry delay limit must be between 0 and 30000 ms");
     const transport = options.fetcher ?? fetch;
     this.fetcher = (url, init) => {
@@ -281,13 +284,15 @@ export class RegistryClient {
           const token = this.tokens.get(key);
           if (url.origin === this.origin && token && token.expires > Date.now()) { this.reportInsecureCredentials(url); headers.set("Authorization", token.authorization); }
           if (!headers.has("Accept")) headers.set("Accept", [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "));
-          // A whole-request deadline also aborts Bun's response stream and
-          // slow PATCH bodies. Only bound the wait for GET/HEAD headers here.
-          const controller = retryable ? new AbortController() : undefined;
-          const timer = controller ? setTimeout(() => controller.abort(), this.options.headersTimeoutMs ?? 120_000) : undefined;
-          const signal = controller ? init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal : init.signal;
+          // Fetch does not expose socket write completion: source EOF can precede transmission.
+          // Reads bound header waiting; writes use an explicit total attempt deadline instead.
+          const controller = new AbortController();
+          const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+          const timeout = retryable ? this.options.headersTimeoutMs ?? 120_000 : this.options.writeTimeoutMs ?? 30 * 60_000;
+          const timer = setTimeout(() => controller.abort(), timeout);
           try { response = await this.fetcher(url, { ...init, headers, redirect: "manual", signal }); }
           finally { clearTimeout(timer); }
+
           if (![301, 302, 303, 307, 308].includes(response.status)) break;
           const location = response.headers.get("Location");
           await response.body?.cancel();

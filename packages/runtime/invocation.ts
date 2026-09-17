@@ -4,6 +4,7 @@ import { mkdtemp as nativeMkdtemp, rm } from "node:fs/promises";
 interface Invocation {
   controller: AbortController;
   children: Set<Bun.Subprocess>;
+  cleanup: Set<Bun.Subprocess>;
   cancelledGroups: Set<number>;
   directories: Set<string>;
 }
@@ -34,12 +35,13 @@ function trackedSpawn(allowCancelled: boolean): typeof Bun.spawn {
       const child = Reflect.apply(target, receiver, args) as Bun.Subprocess;
       if (invocation) {
         invocation.children.add(child);
+        if (allowCancelled) invocation.cleanup.add(child);
         if (invocation.controller.signal.aborted && process.platform !== "win32") invocation.cancelledGroups.add(child.pid);
         // Cleanup may start after the invocation's first child-kill timer fired.
-        const timer = invocation.controller.signal.aborted ? setTimeout(() => {
+        const timer = allowCancelled ? setTimeout(() => {
           killChild(child, "SIGKILL");
-        }, 1000) : undefined;
-        void child.exited.finally(() => { clearTimeout(timer); invocation.children.delete(child); }).catch(() => {});
+        }, 5000) : undefined;
+        void child.exited.finally(() => { clearTimeout(timer); invocation.children.delete(child); invocation.cleanup.delete(child); }).catch(() => {});
       }
       return child;
     },
@@ -78,7 +80,7 @@ export async function pause(milliseconds: number): Promise<void> {
 /** CLI-owned lifecycle: abort work, drain children, then remove registered scratch.
  * A hard deadline exits without deleting paths that might still have active writers. */
 export async function runInvocation(task: () => Promise<number>, graceMs = 10_000): Promise<number> {
-  const invocation: Invocation = { controller: new AbortController(), children: new Set(), cancelledGroups: new Set(), directories: new Set() };
+  const invocation: Invocation = { controller: new AbortController(), children: new Set(), cleanup: new Set(), cancelledGroups: new Set(), directories: new Set() };
   let exit: number | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined, deadline: ReturnType<typeof setTimeout> | undefined;
   const stop = (signal: "SIGINT" | "SIGTERM") => {
@@ -87,10 +89,10 @@ export async function runInvocation(task: () => Promise<number>, graceMs = 10_00
     invocation.controller.abort(new Error(`Build cancelled by ${signal}`));
     for (const child of invocation.children) {
       if (process.platform !== "win32") invocation.cancelledGroups.add(child.pid);
-      killChild(child, "SIGTERM");
+      if (!invocation.cleanup.has(child)) killChild(child, "SIGTERM");
     }
     killTimer = setTimeout(() => {
-      for (const child of invocation.children) { killChild(child, "SIGKILL"); }
+      for (const child of invocation.children) if (!invocation.cleanup.has(child)) { killChild(child, "SIGKILL"); }
     }, Math.min(1000, graceMs / 2));
     deadline = setTimeout(() => {
       process.stderr.write("bunko: cancellation deadline reached; scratch retained because work has not drained\n");
@@ -136,5 +138,28 @@ export async function runInvocation(task: () => Promise<number>, graceMs = 10_00
   } finally {
     clearTimeout(killTimer); clearTimeout(deadline);
     process.off("SIGINT", interrupt); process.off("SIGTERM", terminate);
+  }
+}
+
+/** Bound both process exit and pipe readers, including a child that ignores SIGTERM. */
+export async function runWithDeadline<T>(child: Bun.Subprocess, work: Promise<T>, milliseconds: number, label: string, graceMs = 1000): Promise<T> {
+  let expired = false, escalation: ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      expired = true;
+      killChild(child, "SIGTERM");
+      escalation = setTimeout(() => killChild(child, "SIGKILL"), graceMs);
+      reject(new Error(`${label} timed out after ${milliseconds}ms`));
+    }, milliseconds);
+  });
+  try { return await Promise.race([work, timeout]); }
+  finally {
+    clearTimeout(timer);
+    if (expired) {
+      // Keep escalation even if the leader exits while descendants retain a pipe.
+      await new Promise((resolve) => setTimeout(resolve, graceMs));
+      clearTimeout(escalation); killChild(child, "SIGKILL");
+    }
   }
 }

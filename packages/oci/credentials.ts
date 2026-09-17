@@ -1,3 +1,4 @@
+import { runWithDeadline } from "../runtime/invocation.ts";
 import { registryHost } from "./registry-host.ts";
 import { registryAuthHelp } from "./auth-help.ts";
 import { spawn } from "../runtime/invocation.ts";
@@ -22,9 +23,8 @@ async function runHelper(helper: string, server: string): Promise<Credential | u
   const child = spawn([binary, "get"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   child.stdin.write(`${server}\n`);
   child.stdin.end();
-  const timeout = setTimeout(() => child.kill(), 30_000);
   try {
-    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    const [stdout, stderr, code] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 30_000, "Credential helper");
     if (code !== 0) {
       if (/credentials not found in native keychain|credentials not found in native keyring|no credentials/i.test(stdout + stderr)) return;
       // Helper output can contain secrets; never echo it in an error.
@@ -34,7 +34,7 @@ async function runHelper(helper: string, server: string): Promise<Credential | u
     try { value = object(JSON.parse(stdout), "Credential helper response"); } catch { throw new Error("Invalid Docker credential helper response"); }
     if (typeof value.Username !== "string" || typeof value.Secret !== "string" || !value.Secret) throw new Error("Incomplete Docker credential helper response");
     return value.Username === "<token>" ? { identityToken: value.Secret } : { username: value.Username, password: value.Secret };
-  } finally { clearTimeout(timeout); }
+  } finally { /* Output readers are bounded by the process deadline. */ }
 }
 
 /** Docker's per-registry helper > global store > auths precedence, without writing credentials. */

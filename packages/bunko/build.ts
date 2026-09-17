@@ -1,3 +1,4 @@
+import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
 import { prepareSigning, signingMode, signConfiguredImages, type PreparedSigning, type SigningMetadata } from "./keyless.ts";
 import { checkNodeApplication } from "./node-syntax.ts";
@@ -390,7 +391,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!hit && iteration === 1) records.push({ schemaVersion: 1, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
-        await cp(snapshotRoot, root, { recursive: true });
+        await copyTree(snapshotRoot, root);
         const noteOmittedAddons = (omitted: number) => { if (omitted) log(`Omitted ${omitted} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
@@ -461,7 +462,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           else {
             log(`Installing Linux production dependencies (${platform.architecture})\n`);
             const runtime = join(temporary, `runtime-${iteration}-${platform.architecture}`);
-            await cp(snapshotRoot, runtime, { recursive: true });
+            await copyTree(snapshotRoot, runtime);
             await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
             const content = project.workspace ? await workspaceRuntime(runtime, prefix, platform, plan, project) : await runtimeEntries(runtime, prefix, platform, false, project.allowIgnoredScripts);
             depsEntries = content.entries; inventory = content.inventory; native = content.native;
@@ -795,7 +796,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       if (!closures.has(key)) closures.set(key, (async () => {
         const runtime = join(temporary, `closure-${closures.size}`);
         options.log?.(`Planning Linux dependency closure (${platform.architecture})\n`);
-        await cp(source, runtime, { recursive: true });
+        await copyTree(source, runtime);
         await phase(options.progress, "install", () => installDependencies(runtime, plan, toolchain, platform, installCache, options.offline), undefined, `${platform.os}/${platform.architecture}`);
         const content = await dependencyClosure(runtime, selected[0]!.workdir.slice(1), platform, selected);
         if (iteration === 1) options.log?.(`Dependency closure: ${content.packages.length} packages, ${byteSize(content.packages.reduce((total, pkg) => total + pkg.bytes, 0))}${content.duplicates.length ? `; ${content.duplicates.length} duplicate versions (see report)` : ""}\n`);

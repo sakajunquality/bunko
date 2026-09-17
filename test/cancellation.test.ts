@@ -196,3 +196,21 @@ for (const persistent of [false, true]) test.skipIf(process.platform === "win32"
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+test("process deadlines return even when a child ignores SIGTERM", async () => {
+  const { runWithDeadline } = await import("../packages/runtime/invocation.ts");
+  const child = Bun.spawn([process.execPath, "-e", 'process.on("SIGTERM",()=>{}); console.log("ready"); setInterval(()=>{},1000)'], { stdout: "pipe", stderr: "pipe" });
+  const reader = child.stdout.getReader(); await reader.read();
+  const start = Date.now();
+  await expect(runWithDeadline(child, Promise.all([(async () => { while (!(await reader.read()).done) {} })(), child.exited]), 100, "Fixture", 50)).rejects.toThrow("Fixture timed out");
+  expect(Date.now() - start).toBeLessThan(2000);
+  await child.exited; expect(child.signalCode).toBe("SIGKILL");
+});
+
+test("successful runtime downloads release their deadline and let the process exit", async () => {
+  const path = new URL("../packages/bunko/runtime-download.ts", import.meta.url).pathname;
+  const child = Bun.spawn([process.execPath, "-e", `import {runtimeBytes} from ${JSON.stringify(path)}; await runtimeBytes('https://github.com/fixture', 32, async()=>new Response('verified-fixture'));`], { stdout: "ignore", stderr: "pipe" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
+  try { expect(await child.exited).toBe(0); expect(child.signalCode).toBeNull(); }
+  finally { clearTimeout(timer); }
+});

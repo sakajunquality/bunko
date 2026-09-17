@@ -1,3 +1,4 @@
+import { runWithDeadline } from "../runtime/invocation.ts";
 import { runtimeKind, nodeBase, nodeMajor, nodePath, assertNodeExecutable } from "./node-runtime.ts";
 import { spawn, cleanupSpawn, mkdtemp } from "../runtime/invocation.ts";
 import { runtimeLibc, assertBaseLibc } from "./libc.ts";
@@ -74,13 +75,11 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
             "--network=none", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m",
             "--user=65532:65532", "--entrypoint", executable, image, kind === "node" ? "--version" : "--revision"],
           { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-          const timer = setTimeout(() => child.kill(), 30_000);
           try {
-            const [text, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+            const [text, code] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), child.exited]), 30_000, "Runtime verification");
             if (code || (kind === "node" ? !/^v(?:22|24)\.\d+\.\d+$/.test(text.trim()) : text.trim() !== `${toolchain.version}+${toolchain.revision}`)) throw new Error("Runtime execution failed or version/revision mismatched; check shared-library/symbol requirements, CPU, permissions and emulation (the loader path check alone is insufficient)");
             runtimeRevision = text.trim();
           } finally {
-            clearTimeout(timer);
             const cleanup = cleanupSpawn(["docker", "rm", "--force", container], { stdout: "ignore", stderr: "ignore" });
             await cleanup.exited;
           }

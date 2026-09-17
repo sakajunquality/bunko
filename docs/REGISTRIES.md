@@ -250,6 +250,7 @@ Pass this file through `--registry-config`. Entries are scoped to the registry o
 
 This changes the default for custom registries with a cross-origin token service: existing users must add the explicit origin. GHCR and same-origin services continue to work, as does Docker Hub's standard authentication service.
 
+GET/HEAD requests bound response-header waiting separately from download idle time. Each write attempt (POST/PATCH/PUT/DELETE) instead has a 30-minute total deadline, including upload and response-header waiting; programmatic callers can override `RegistryOptions.writeTimeoutMs`. A continuously progressing write can exceed this budget and fail. Fetch does not expose socket transmission completion, so source-stream consumption or EOF cannot safely start a response-header timer or prove network progress. A failed write is never blindly replayed by the registry client; the publisher's upload-state/digest reconciliation decides whether resuming is safe.
 ### Host environment permission for npm
 
 Project `.npmrc` files select both a credential variable and its recipient. Expansion is restricted to `BUNKO_NPM_*` variables, or exact names the operator grants through `BUNKO_NPM_CREDENTIAL_ENV=NPM_TOKEN,OTHER_TOKEN`. The allowlist itself cannot be expanded. Unapproved names fail even during credential-free diagnostics. Grant only the variables intended for that project's registry; this permission does not make an untrusted registry trustworthy. Prefer short-lived, read-only npm tokens on isolated runners.
