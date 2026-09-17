@@ -394,7 +394,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!hit && iteration === 1) records.push({ schemaVersion: 1, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
-        await copyTree(snapshotRoot, root);
         const noteOmittedAddons = (omitted: number) => { if (omitted) log(`Omitted ${omitted} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
@@ -491,6 +490,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
+          // Cached output and a reusable bundle already own their input files.
+          // Materialize a writable workspace only for an actual source/bundle job.
+          if (project.mode === "source" || !sharedBundle) await copyTree(snapshotRoot, root);
           const installBuildDeps = (filters?: string[]) => phase(options.progress, "build-deps", () => installDependencies(root, plan, toolchain, undefined, installCache, options.offline, filters), undefined, `${platform.os}/${platform.architecture}`);
           const runBundle = () => stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           const scoped = !sharedBundle && project.mode !== "source" ? buildDependencyFilters(plan, project.targetPath) : undefined;
