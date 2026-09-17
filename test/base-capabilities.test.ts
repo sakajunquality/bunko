@@ -126,6 +126,15 @@ test.each(["amd64", "arm64"])("paired libc addons retain real base findings on %
   expect(baseCapabilities(tree, {}, "/", [musl, gnu]).inactiveNativeVariants).toEqual([]);
 });
 
+test("recognizes sharp-style linuxmusl and implicit glibc addon names", () => {
+  const tree: BaseFilesystem = new Map([["lib/ld-linux-aarch64.so.1", { type: "file", mode: 0o755, size: 24 }]]);
+  const glibc = { path: "app/node_modules/@img/sharp-linux-arm64/lib/sharp-linux-arm64.node", architecture: "arm64" as const, needed: ["libc.so.6"] };
+  const musl = { path: "app/node_modules/@img/sharp-linuxmusl-arm64/lib/sharp-linuxmusl-arm64.node", architecture: "arm64" as const, needed: ["libc.so"] };
+  const result = baseCapabilities(tree, {}, "/", [glibc, musl]);
+  expect(result.inactiveNativeVariants).toEqual([{ path: musl.path, libc: "musl", baseLibc: "glibc", alternative: glibc.path }]);
+  expect(result.requirements.filter((item) => item.requiredBy === musl.path).every((item) => item.status === "inactive-libc-variant")).toBe(true);
+});
+
 test("libc-looking names without matching ELF and Linux variant evidence are not suppressed", () => {
   const tree: BaseFilesystem = new Map([["lib/ld-linux-aarch64.so.1", { type: "file", mode: 0o755, size: 24 }]]);
   for (const suffix of [".node", "-linux-arm64-musl.so", "-musl.node"]) {

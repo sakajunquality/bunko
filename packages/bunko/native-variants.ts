@@ -10,13 +10,20 @@ const loaders: Record<string, Record<Libc, string>> = {
 function variant(binary: NativeBinary): { libc: Libc; key: string } | undefined {
   if (!binary.path.endsWith(".node")) return;
   const cpu = binary.architecture === "amd64" ? "(?:x64|amd64)" : binary.architecture === "arm64" ? "arm64" : undefined;
-  if (!cpu || !new RegExp(`linux[.-]${cpu}[.-](?:gnu|glibc|musl)(?=[@./]|$)`).test(binary.path)) return;
+  if (!cpu) return;
+  const explicit = new RegExp(`linux[.-]${cpu}[.-](gnu|glibc|musl)(?=[@./]|$)|linux(gnu|glibc|musl)[.-]${cpu}(?=[@./]|$)`).exec(binary.path);
+  const implicit = new RegExp(`linux[.-]${cpu}(?=[@./]|$)`).test(binary.path);
+  if (!explicit && !implicit) return;
   const glibc = binary.needed.includes("libc.so.6"), musl = binary.needed.includes("libc.so") || binary.needed.includes(loaders[binary.architecture]!.musl.replace("ld-", "libc."));
   if (glibc === musl) return;
   const libc: Libc = glibc ? "glibc" : "musl";
   const labels = [...binary.path.matchAll(/[.-](gnu|glibc|musl)(?=[@./]|$)/g)].map((match) => match[1] === "musl" ? "musl" : "glibc");
-  if (!labels.length || labels.some((label) => label !== libc)) return;
-  return { libc, key: `${binary.architecture}:${binary.path.replace(/([.-])(?:gnu|glibc|musl)(?=[@./]|$)/g, "$1libc")}` };
+  if (labels.some((label) => label !== libc)) return;
+  const key = binary.path
+    .replace(new RegExp(`linux[.-]${cpu}[.-](?:gnu|glibc|musl)(?=[@./]|$)`, "g"), `linux-${binary.architecture}-libc`)
+    .replace(new RegExp(`linux(?:gnu|glibc|musl)[.-]${cpu}(?=[@./]|$)`, "g"), `linux-${binary.architecture}-libc`)
+    .replace(new RegExp(`linux[.-]${cpu}(?=[@./]|$)`, "g"), `linux-${binary.architecture}-libc`);
+  return { libc, key: `${binary.architecture}:${key}` };
 }
 
 /** Advisory selection only: preserve every binary and requirement, and never infer runtime ABI compatibility. */

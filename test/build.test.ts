@@ -404,3 +404,11 @@ test("failure-report errors preserve the original error identity and message", a
   expect(original.message).toContain("failure report could not be written");
   await writeFailureReport(destination, {}, Object.freeze(new Error("immutable failure")));
 });
+
+test("failure reports redact temporary paths and credential-shaped errors", async () => {
+  const root = await temporary(); directories.push(root); const destination = join(root, "report.json");
+  await writeFailureReport(destination, { schemaVersion: 3, status: "failed", error: "failed at /private/var/folders/ab/cd/T/bunko-1234/output with Bearer eyJhbGciOiJIUzI1NiJ9.payload" }, new Error("failure"));
+  const report = await readFile(destination, "utf8");
+  expect(report).toContain("<build-root>/output"); expect(report).toContain("Bearer <redacted>");
+  expect(report).not.toContain("bunko-1234"); expect(report).not.toContain("eyJhbGciOiJIUzI1NiJ9.payload");
+});

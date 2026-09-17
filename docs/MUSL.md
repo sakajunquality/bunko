@@ -32,7 +32,7 @@ The base must contain the architecture's executable musl loader and the runtime'
 
 ## Native dependencies and certificates
 
-Native addons must have compatible Linux musl builds. Bun's cross-platform install may retain both GNU and musl optional variants; bunko preserves valid pairs and reports the opposite variant as inactive. An active addon requiring glibc `libc.so.6` fails an explicit musl build. Installing gcompat does not make arbitrary glibc native addons supported. Other native library/ABI requirements still require application testing; static file presence does not prove linker search or symbol compatibility.
+Native addons must have compatible Linux musl builds. Bun's cross-platform install may retain both GNU and musl optional variants; bunko preserves valid pairs and reports the opposite variant as inactive. Common package naming conventions such as `linux-arm64`/`linuxmusl-arm64` are recognized when their ELF dependencies agree. An active addon requiring glibc `libc.so.6` fails an explicit musl build. Installing gcompat does not make arbitrary glibc native addons supported. Other native library/ABI requirements still require application testing; static file presence does not prove linker search or symbol compatibility.
 
 Use `runtime.caCertificates` and, when needed for native clients, `runtime.systemCaTrust` as described in [certificate trust](RUNTIME_INJECTION.md). Injection does not import the host's CA store. An Alpine base's CA certificates do not automatically trust private issuers.
 
