@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installerCredentials, installerOutputTail, redactInstallerOutput } from "../packages/bunko/install-diagnostics.ts";
+import { installerCredentials, installerOutputTail, redactErrorMessage, redactInstallerOutput } from "../packages/bunko/install-diagnostics.ts";
 import { dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { loadProject } from "../packages/bunko/config.ts";
 import { selectToolchain } from "../packages/bunko/toolchain.ts";
@@ -32,6 +32,10 @@ describe("installer output redaction", () => {
     expect(redactInstallerOutput("error: \x1b[31mfailed\x1b[0m to link /tmp/bunko-abc/runtime-1-amd64/node_modules/left-pad\r\n", ["/tmp/bunko-abc/runtime-1-amd64"])).toBe("error: failed to link <build-root>/node_modules/left-pad\n");
     const plain = "error: failed to download left-pad@1.3.0: 503 Service Unavailable\n  https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\nFailed to install 1 package\n";
     expect(redactInstallerOutput(plain, [""])).toBe(plain);
+  });
+  test("redacts temporary build roots and credential-shaped error text", () => {
+    expect(redactErrorMessage("failed at /private/var/folders/ab/cd/T/bunko-1234/output with Bearer eyJhbGciOiJIUzI1NiJ9.payload"))
+      .toBe("failed at <build-root>/output with Bearer <redacted>");
   });
   test("tail keeps the last lines, prefers stderr, falls back to stdout, and is empty without output", () => {
     const stderr = Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join("\n") + "\n";

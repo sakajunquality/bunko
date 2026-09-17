@@ -16,6 +16,7 @@ import { parseAssetContexts } from "./asset-contexts.ts";
 import { exportMetadata } from "./metadata.ts";
 import { dependencyMap } from "./dependency-map.ts";
 import { registryTLS } from "../oci/tls.ts";
+import { redactErrorMessage } from "./install-diagnostics.ts";
 /*! bunko — MIT License
 
 Copyright (c) 2026 sakajunquality
@@ -561,7 +562,7 @@ export async function main(argv: string[]): Promise<number> {
     };
     return telemetry ? await new Telemetry(telemetry, () => buildOptions.log?.("OpenTelemetry export incomplete; build result is unchanged\n")).run(command!, execute, (code) => code !== 0) : await execute();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = redactErrorMessage(error instanceof Error ? error.message : String(error));
     process.stderr.write(jsonProgress ? JSON.stringify({ schemaVersion: 1, type: "error", message }) + "\n" : `bunko: ${message}\n`);
     return rebaseDryRun && error instanceof RebaseDecisionError ? error.exitCode : 1;
   }

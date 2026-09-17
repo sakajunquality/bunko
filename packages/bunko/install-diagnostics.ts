@@ -30,6 +30,14 @@ export function redactInstallerOutput(text: string, roots: string[] = [], secret
   return output;
 }
 
+/** Redact error strings before they are exposed in reports or machine-readable CLI output. */
+export function redactErrorMessage(text: string, roots: string[] = []): string {
+  let output = redactInstallerOutput(text, roots);
+  // Build scratch directories are random and may appear without the exact root.
+  output = output.replace(/(?:\/private)?\/(?:var\/folders\/[^/\s]+\/[^/\s]+\/T|tmp|private\/tmp)\/bunko-[^/\s]+/g, "<build-root>");
+  return output;
+}
+
 /** The last `limit` nonblank redacted lines of stderr (or stdout when stderr is empty), formatted as an error-message suffix; empty when the installer printed nothing. */
 export function installerOutputTail(stderr: string, stdout: string, root: string, limit = 20, secrets: string[] = []): string {
   const lines = redactInstallerOutput(stderr.trim() ? stderr : stdout, [root], secrets).split("\n").map((line) => line.trimEnd()).filter(Boolean).map((line) => line.length > 512 ? `${line.slice(0, 512)}…` : line);

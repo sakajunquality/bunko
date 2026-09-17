@@ -42,6 +42,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { BlobStore } from "../oci/blob-store.ts";
 import { registryCredentials } from "../oci/credential-sources.ts";
+import { redactErrorMessage } from "./install-diagnostics.ts";
 import { assertFileAvailable, exportDockerArchive, loadArchive } from "../oci/archive.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import { assembleImage, isRootUser, nonrootUser } from "../oci/image.ts";
@@ -171,7 +172,13 @@ export async function writeReport(path: string, value: unknown, written?: Set<st
 
 /** A secondary report failure must not replace the original build/publication error. */
 export async function writeFailureReport(path: string, value: unknown, original: unknown, written?: Set<string>): Promise<void> {
-  try { await writeReport(path, value, written); }
+  const sanitize = (item: unknown, key?: string): unknown => {
+    if (typeof item === "string") return key && /(?:error|message|detail)/i.test(key) ? redactErrorMessage(item) : item;
+    if (Array.isArray(item)) return item.map((child) => sanitize(child, key));
+    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([childKey, child]) => [childKey, sanitize(child, childKey)]));
+    return item;
+  };
+  try { await writeReport(path, sanitize(value), written); }
   catch {
     if (original instanceof Error) {
       try { original.message += " (failure report could not be written)"; } catch { /* Preserve immutable errors too. */ }
