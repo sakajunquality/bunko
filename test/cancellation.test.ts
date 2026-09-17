@@ -54,7 +54,7 @@ test("cancellation drains a stubborn owned child before removing staged dummy cr
     import {runInvocation, spawn, mkdtemp} from './packages/runtime/invocation.ts';
     const result = await runInvocation(async () => {
       const directory = await mkdtemp(${JSON.stringify(join(scratch, "owned-"))});
-      await Bun.write(directory + '/.npmrc', '//registry.invalid/:_authToken=dummy-fixture-only');
+      await Bun.write(directory + '/.npmrc', '//registry.npmjs.org/:_authToken=dummy-fixture-only');
       const child = spawn([process.execPath, '--eval', ${JSON.stringify(`process.on('SIGTERM', () => {}); const grandchild = Bun.spawn([process.execPath, '--eval', 'setInterval(() => {}, 1000)'], {stdout:'ignore', stderr:'ignore'}); await Bun.write(${JSON.stringify(childReady)}, String(grandchild.pid)); setInterval(() => {}, 1000);`)}], {stdout:'ignore', stderr:'ignore'});
       while (!await Bun.file(${JSON.stringify(childReady)}).exists()) await Bun.sleep(10);
       await Bun.write(${JSON.stringify(ready)}, String(child.pid));
@@ -95,7 +95,7 @@ test("cancelled dependency installation removes the staged npmrc but preserves t
     import {cp} from 'node:fs/promises';
     process.exitCode = await runInvocation(async () => {
       const {source} = await workspaceFixture(${JSON.stringify(root)});
-      await Bun.write(source + '/.npmrc', '//registry.invalid/:_authToken=dummy-fixture-only');
+      await Bun.write(source + '/.npmrc', '//registry.npmjs.org/:_authToken=dummy-fixture-only');
       const found = await discover({path: source});
       const project = await loadProject({path: source + '/services/api'}, found.workspace);
       const plan = await dependencyPlan(project, source, false);

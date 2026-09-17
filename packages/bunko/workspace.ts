@@ -1,3 +1,4 @@
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { object } from "../oci/digest.ts";
@@ -14,8 +15,8 @@ export interface Workspace {
 }
 
 export async function readPackage(directory: string, path = ""): Promise<WorkspacePackage> {
-  const text = await readFile(join(directory, path, "package.json"), "utf8");
-  return { path, text, manifest: object(JSON.parse(text), "package.json") };
+  const text = await readConfigInput(directory, join(path, "package.json"));
+  return { path, text, manifest: object(parseConfigInput(text, "package.json", JSON.parse), "package.json") };
 }
 
 // Glob.scan accepts leading ./ segments, but Glob.match does not. Use the

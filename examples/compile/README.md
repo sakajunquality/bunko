@@ -24,3 +24,5 @@ Use unused output paths. The build downloads a compatible public base and verifi
 Expected output includes `"message":"Hello from a compiled Bun application!"`, `"architecture":"x64"` (or `"arm64"`), and the selected Bun release's revision. No writable application directory or network connection is needed at runtime. The report records `mode: "compile"`, deterministic verification, and authenticated `compileRuntime` metadata.
 
 See the [compile-mode guide](../../docs/COMPILE.md) for prerequisites, platforms, assets, publishing, and unsupported features. The executable still needs compatible system libraries; this example does not produce a static or scratch-compatible binary.
+
+For memory-sensitive workloads, set `bunko.runtime.args` to `["--smol", "--no-install"]` to embed these Bun execution flags. Application arguments remain in `bunko.args`. See [compile runtime options](../../docs/COMPILE.md#runtime-options) for the supported subset and writable profiling directories.

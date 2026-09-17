@@ -1,3 +1,5 @@
+import { npmEnvironment } from "./npm-environment.ts";
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { X509Certificate } from "node:crypto";
@@ -17,16 +19,14 @@ export interface NpmCertificate { pem: string; files: string[] }
 /** Read transport trust from the original project, never from a staged relative path. */
 export async function npmCertificate(directory: string, validate = true): Promise<NpmCertificate | undefined> {
   let npmrc: string;
-  try { npmrc = await readFile(resolve(directory, ".npmrc"), "utf8"); }
+  try { npmrc = await readConfigInput(directory, ".npmrc"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
   const values = npmrc.split(/\r?\n/).filter((line) => /^\s*cafile\s*=/.test(line)).map((line) => line.slice(line.indexOf("=") + 1).trim());
   if (!values.length) return;
   if (values.length !== 1 || !values[0]) throw new Error("npm cafile must be specified once with a nonempty path");
   if (!validate) return;
   const value = values[0]!.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
-    const value = process.env[name];
-    if (!value || /[\r\n\0]/.test(value)) throw new Error("Missing or invalid npm cafile environment variable");
-    return value;
+    return npmEnvironment(name);
   });
   try {
     const path = resolve(directory, value), canonical = await realpath(path);

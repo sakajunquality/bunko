@@ -36,7 +36,7 @@ test("npm cafile uses original project paths, remains outside cache metadata, an
   const stage = join(root, "stage"); await cp(fixture.source, stage, { recursive: true }); await rm(join(stage, "ca.pem"));
   await installDependencies(stage, plan, toolchain, undefined, fixture.cache);
   expect(await Bun.file(join(stage, ".bunko-build/install-home/npm-ca.pem")).exists()).toBe(false);
-  await writeFile(join(fixture.source, ".npmrc"), "cafile=${UNSET_TEST_CA_PATH}\n");
+  await writeFile(join(fixture.source, ".npmrc"), "cafile=${BUNKO_NPM_UNSET_TEST_CA_PATH}\n");
   await expect(npmCertificate(fixture.source)).rejects.toThrow("environment variable");
   await expect(npmCertificate(fixture.source, false)).resolves.toBeUndefined();
   await writeFile(certificate, "private key or invalid certificate");

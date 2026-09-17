@@ -1,3 +1,4 @@
+import { assertActionCLI } from "../scripts/action-compatibility.ts";
 import { appendFile, mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -39,6 +40,7 @@ export function imageResults(report: unknown): ActionImage[] {
   if (!report || typeof report !== "object" || Array.isArray(report)) throw new Error("Invalid build Action report");
   const record = report as Record<string, unknown>;
   if (record.status !== undefined && record.status !== "success") throw new Error("Build Action report describes a failed build");
+  if (![2, 3].includes(Number(record.schemaVersion))) throw new Error("Unsupported build report schema; use matching Action and CLI versions");
   const targets = Array.isArray(record.targets) ? record.targets : [record];
   if (!targets.length) throw new Error("Build Action report has no targets");
   return targets.map((item) => {
@@ -88,6 +90,7 @@ export async function runBuildAction(inputs: Inputs): Promise<void> {
   const outputs: Record<string, string> = { report: invocation.report };
   let appended = 0, failure: unknown;
   try {
+    await assertActionCLI(executable, invocation.args);
     // Arguments are passed directly without shell interpolation or command echoing.
     const child = Bun.spawn([executable, ...invocation.args], { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
     const code = await child.exited;

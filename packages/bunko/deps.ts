@@ -1,3 +1,5 @@
+import { npmEnvironment } from "./npm-environment.ts";
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { spawn } from "../runtime/invocation.ts";
 import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
@@ -177,7 +179,7 @@ export async function dependencyPlan(project: Project, root: string, validateCre
   }
   const resolution: Record<string, string> = {};
   let npmrc: string | undefined;
-  try { npmrc = await readFile(join(workspace?.directory ?? project.directory, ".npmrc"), "utf8"); }
+  try { npmrc = await readConfigInput(workspace?.directory ?? project.directory, ".npmrc"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   if (npmrc) {
     const lines: string[] = [];
@@ -188,10 +190,7 @@ export async function dependencyPlan(project: Project, root: string, validateCre
       const key = line.slice(0, equals).trim();
       if (key === "cafile") continue;
       const value = line.slice(equals + 1).trim().replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => {
-        if (!validateCredentials && !/^(?:@[^:]+:)?registry$/.test(key)) return "bunko-credential-placeholder";
-        const value = process.env[name];
-        if (value === undefined || /[\r\n]/.test(value)) throw new Error(`Missing or invalid .npmrc environment variable: ${name}`);
-        return value;
+        return npmEnvironment(name, validateCredentials || /^(?:@[^:]+:)?registry$/.test(key));
       });
       if (/^(?:@[^:]+:)?registry$/.test(key)) {
         const url = new URL(value);
@@ -199,6 +198,15 @@ export async function dependencyPlan(project: Project, root: string, validateCre
         resolution[key] = url.toString();
       } else if (!/^(?:\/\/[^\s=]+:)?(?:_authToken|_auth|username|_password|always-auth)$/.test(key)) throw new Error(`Unsupported .npmrc option: ${key}`);
       lines.push(`${key}=${value}`);
+    }
+    const registryHosts = new Set(["registry.npmjs.org", ...Object.values(resolution).map((value) => new URL(value).host)]);
+    for (const line of lines) {
+      const key = line.slice(0, line.indexOf("="));
+      if (/^\/\//.test(key)) {
+        let host: string;
+        try { host = new URL(`https:${key.slice(0, key.lastIndexOf(":"))}`).host; } catch { throw new Error("Invalid npm credential scope"); }
+        if (!registryHosts.has(host)) throw new Error("npm credential scopes must match a declared registry host");
+      } else if (["_authToken", "_auth", "username", "_password"].includes(key)) throw new Error("npm credentials require an explicit registry host scope");
     }
     npmrc = lines.join("\n") + "\n";
   }

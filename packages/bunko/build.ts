@@ -132,6 +132,7 @@ export async function assertReportWritable(path: string): Promise<void> {
     value.schemaVersion === 2 && typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root ||
     value.schemaVersion === 3 && status && Array.isArray(value.targets) ||
     value.schemaVersion === 1 && status && ["push-layout", "rebase"].includes(String(value.command)) ||
+    value.schemaVersion === 1 && value.command === "base-status" && Array.isArray(value.results) ||
     value.schemaVersion === 4 && status && value.command === "resolve" ||
     value.schemaVersion === 5 && status && value.command === "apply"
   );
@@ -472,7 +473,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
         const appKey = cacheKey({ kind: "app", format: "application-v2", builder: context.builder.digest, packFormat, epoch: timestamp,
-          compileRuntime: compileRuntimes[index]?.metadata, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
+          compileRuntime: compileRuntimes[index]?.metadata, compileRuntimeArgs: project.mode === "compile" ? project.runtimeArgs : undefined, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });
         const namedOutputs = project.entrypoints ? Object.fromEntries(Object.entries(project.entrypoints).map(([name, path]) => [name, project.mode === "source" ? join(project.targetPath, path) : path.replace(/\.[^.]+$/, project.runtimeKind === "node" ? ".mjs" : ".js")])) : undefined;
@@ -783,6 +784,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       mapped.set(project.directory, staged);
     }
     const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
+    for (const host of new Set(Object.values(plan.resolution).map((value) => new URL(value).host))) if (host !== "registry.npmjs.org") options.log?.(`Using configured npm registry host ${host}\n`);
     assertLockToolchain(plan, toolchain);
     for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();

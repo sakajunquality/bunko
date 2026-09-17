@@ -251,3 +251,17 @@ test("CLI warns once per insecure origin across multiple projects on every invoc
     }
   } finally { await server.stop(true); }
 });
+
+test("external and symlinked reference targets require explicit operator permission", async () => {
+  const f = await fixture(); const context = join(f.root, "manifests"); await mkdir(context);
+  for (const target of ["../app", f.source, "linked"]) {
+    if (target === "linked") await symlink(f.source, join(context, target));
+    await expect(resolveDocuments({ ...f.options, context, stdin: async () => `image: bunko://${target}\n` })).rejects.toThrow("escapes --context");
+  }
+  const result = await resolveDocuments({ ...f.options, context, allowExternalContext: true, stdin: async () => "image: bunko://../app\n" });
+  expect(result.output).toContain("registry.test/");
+});
+
+test("oversized reference scalars are rejected before template matching", () => {
+  expect(() => parseInput("large.yaml", `image: 'bunko://${"${".repeat(40000)}'\n`)).toThrow("4096");
+});

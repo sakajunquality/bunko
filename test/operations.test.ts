@@ -62,7 +62,7 @@ test("target-bound workspace dependencies resolve through a per-target map", asy
   await expect(importDependencies(`layout:${output}`, platform, "/app", workspace.lock, join(root, "wrong-target"), {}, "services/worker")).rejects.toThrow("mismatch");
   const mock = new MockRegistry(), registry = { fetcher: mock.fetch, credentials: async () => undefined };
   const yaml = join(root, "pod.yaml"); await writeFile(yaml, `image: bunko://${source}\n`);
-  const result = await resolveDocuments({ files: [yaml], repo: "registry.test/map", baseLayout: await baseLayout(join(root, "base")), localCache: false,
+  const result = await resolveDocuments({ context: workspace.source, files: [yaml], repo: "registry.test/map", baseLayout: await baseLayout(join(root, "base")), localCache: false,
     registry, installCache: workspace.cache, externalDepsByTarget: { [source]: { "linux/amd64": `layout:${output}` } } });
   expect(result.targets[0]!.images[0]!.dependencyArtifact).toBe(packed.digest);
   expect(result.output).toContain("registry.test/map/fixture-api@sha256:");

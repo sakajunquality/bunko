@@ -214,7 +214,7 @@ Projection checks escaping links, special files, install-script requirements, an
 
 ## 10. Resolve
 
-`bunko resolve -f FILE|DIR|- --repo PREFIX [--context DIR]` accepts repeated inputs. Input paths are cwd-relative; URI paths are cwd- or context-relative, or absolute. Directories read regular .yaml/.yml/.json files by name; only --recursive visits children. Child symlinks are not followed. Explicit files are deduplicated by canonical path, and repeated stdin is read once.
+`bunko resolve -f FILE|DIR|- --repo PREFIX [--context DIR]` accepts repeated inputs. Input paths are cwd-relative; URI paths are cwd- or context-relative, or absolute, but canonical targets and their workspace roots must remain within the context. An operator can explicitly grant trusted manifests access outside it with `--allow-external-context`. Reference scalars are limited to 4096 characters before template detection. Directories read regular .yaml/.yml/.json files by name; only --recursive visits children. Child symlinks are not followed. Explicit files are deduplicated by canonical path, and repeated stdin is read once.
 
 Use a YAML AST to identify complete bunko://path string values and their source ranges. Do not replace mapping keys or their descendants, comments, strings that do not begin with bunko://, or ${...}/{{...}} templates. URI query/fragment/backslash/control characters are rejected. YAML errors/warnings, unknown tags, duplicate keys, and undefined aliases fail before building.
 
@@ -313,7 +313,7 @@ Compile mode currently accepts a single emitted JavaScript server entrypoint. Li
 
 The current source contract additionally includes [source-preserving packaging](SOURCE_MODE.md), [explicit workspace defaults, local toolchain requirements, runtime arguments, asset exclusions/modes and application CA certificates](CONFIGURATION.md), and [prepared base layouts with bounded offline builds](OFFLINE.md). These focused specifications define the corresponding configuration and validation boundaries. The immutable rc.3 release does not include these additions.
 
-Source mode preserves the sanitized source tree and the production dependency topology, supports computed runtime imports, and invokes Bun with `--no-install`. It rejects bundler options, invocation defines, closure and shared dependency strategies. Runtime argument arrays precede the source entrypoint; compiled applications use ordinary application arguments instead.
+Source mode preserves the sanitized source tree and the production dependency topology, supports computed runtime imports, and invokes Bun with `--no-install`. It rejects bundler options, invocation defines, closure and shared dependency strategies. Runtime argument arrays precede the source entrypoint; compiled applications embed the execution-only runtime option subset and keep ordinary application arguments separate (see COMPILE.md).
 
 [System font asset mappings](FONTS.md) permit validated non-executable fonts and accompanying notices beneath `/usr/share/fonts` and `/usr/local/share/fonts`, with per-platform base path checks. Renderer discovery and color-format support remain application/base concerns; the guide records tested configurations and limitations.
 

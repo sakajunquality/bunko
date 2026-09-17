@@ -1,11 +1,13 @@
 import { validateUser } from "../oci/image.ts";
+
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { runtimeKind, nodeMajor, nodePath, nodeArguments } from "./node-runtime.ts";
 import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
 import { platform } from "./platforms.ts";
 export { platform };
 import type { FileMode } from "../oci/tar.ts";
-import { validateRuntimeArgs } from "./runtime-args.ts";
+import { validateRuntimeArgs, compileRuntimeArgs } from "./runtime-args.ts";
 import { inheritedWorkspaceDefaults, workspaceDefaults } from "./workspace-defaults.ts";
 import { toolchainRequirements, type ToolchainRequirements } from "./toolchain-policy.ts";
 import { assetMappings, type AssetMapping } from "./asset-contexts.ts";
@@ -255,8 +257,8 @@ export function validateDependencySpecs(manifest: Record<string, unknown>, works
 export async function loadProject(options: BuildOptions, workspace?: Workspace): Promise<Project> {
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
-  const manifestText = await readFile(join(directory, "package.json"), "utf8");
-  const manifest = object(JSON.parse(manifestText), "package.json");
+  const manifestText = await readConfigInput(directory, "package.json");
+  const manifest = object(parseConfigInput(manifestText, "package.json", JSON.parse), "package.json");
   if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);
@@ -315,8 +317,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
   if (runtimeCAs.length > 16 || runtimeCAs.some((path) => /[?*\[\]{}]/.test(path))) throw new Error("runtime.caCertificates accepts at most sixteen exact relative paths");
   if (runtime.systemCaTrust !== undefined && typeof runtime.systemCaTrust !== "boolean") throw new Error("runtime.systemCaTrust must be boolean");
   if (runtime.systemCaTrust && !runtimeCAs.length) throw new Error("runtime.systemCaTrust requires runtime.caCertificates");
-  const runtimeArgs = (kind === "node" ? nodeArguments : validateRuntimeArgs)(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
-  if (mode === "compile" && runtimeArgs.length) throw new Error("runtime.args requires bundle or source mode; use args for compiled application arguments");
+  const runtimeArgs = (kind === "node" ? nodeArguments : mode === "compile" ? compileRuntimeArgs : validateRuntimeArgs)(options.runtimeArgs === undefined ? strings(runtime.args, "runtime.args") : strings(options.runtimeArgs, "runtimeArgs"));
   const runtimeInject = options.runtimeInject ?? runtime.inject;
   if (runtimeInject !== undefined && runtimeInject !== "release") throw new Error("runtime.inject must be release");
   if (runtimeInject && mode === "compile") throw new Error("Runtime injection requires bundle mode or source mode");
