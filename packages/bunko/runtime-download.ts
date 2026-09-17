@@ -123,7 +123,7 @@ export async function runtimeBytes(url: string, limit: number, fetcher: Fetcher 
       throw new Error("Runtime release redirect failed");
     } catch (error) {
       if (!retry || attempt >= 2) throw new Error(error instanceof Error && /^(Runtime|Unexpected|Invalid|Empty)/.test(error.message) ? error.message : "Runtime release connection or body transfer failed");
-    } finally { /* The deadline owns process termination. */ }
+    } finally { clearTimeout(timer); }
     await pause(100 * (attempt + 1));
   }
 }

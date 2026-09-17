@@ -206,3 +206,11 @@ test("process deadlines return even when a child ignores SIGTERM", async () => {
   expect(Date.now() - start).toBeLessThan(2000);
   await child.exited; expect(child.signalCode).toBe("SIGKILL");
 });
+
+test("successful runtime downloads release their deadline and let the process exit", async () => {
+  const path = new URL("../packages/bunko/runtime-download.ts", import.meta.url).pathname;
+  const child = Bun.spawn([process.execPath, "-e", `import {runtimeBytes} from ${JSON.stringify(path)}; await runtimeBytes('https://github.com/fixture', 32, async()=>new Response('verified-fixture'));`], { stdout: "ignore", stderr: "pipe" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
+  try { expect(await child.exited).toBe(0); expect(child.signalCode).toBeNull(); }
+  finally { clearTimeout(timer); }
+});
