@@ -183,7 +183,7 @@ export function runtimeELF(bytes: Buffer, platform: Platform, libc: Libc = "glib
   return { interpreter, needed, glibcSymbols };
 }
 
-export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { libc?: Libc; cache?: string | false; offline?: boolean; fetcher?: Fetcher; log?: (message: string) => void } = {}) {
+export async function downloadRuntime(toolchain: Toolchain, platform: Platform, options: { destination: string; libc?: Libc; cache?: string | false; offline?: boolean; fetcher?: Fetcher; log?: (message: string) => void }) {
   if (!Bun.which("gpgv")) throw new Error("Verified runtime selection requires gpgv (install GnuPG); unsigned verification is not supported");
   const libc = runtimeLibc(options.libc);
   const asset = runtimeAsset(toolchain, platform, libc), base = `https://github.com/oven-sh/bun/releases/download/bun-v${toolchain.version}`;
@@ -227,7 +227,8 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
       // An authenticated official archive must contain the selected toolchain identity.
       // Actual --revision execution is deliberately left to check-base --run.
       const revision = releaseRevision(executable, toolchain);
-      return { executable, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc, cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
+      await writeFile(options.destination, executable, { mode: 0o600, flag: "wx" });
+      return { executable: { source: options.destination, size: executable.length }, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc, cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
     }, () => true, 35 * 60_000);
   } finally { if (ephemeral) await rm(ephemeral, { recursive: true, force: true }); }
 }

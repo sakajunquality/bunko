@@ -142,7 +142,7 @@ export function assertRuntimeBase(metadata: InjectedRuntime, tree: BaseFilesyste
   }
 }
 
-export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem, libraryPath = ""): TarEntry[] {
+export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer | { source: string; size: number }, tree: BaseFilesystem, libraryPath = ""): TarEntry[] {
   const path = pathName(metadata.path.slice(1));
   if (!path || metadata.path !== `/${path}`) throw new Error("Invalid runtime injection destination");
   for (const parent of ancestors(path).slice(0, -1)) {
@@ -152,10 +152,10 @@ export function runtimeEntries(metadata: InjectedRuntime, executable: Buffer, tr
   const existing = tree.get(path);
   if (existing && existing.type !== "file") throw new Error("Runtime destination overlaps a non-regular base entry");
   assertRuntimeBase(metadata, tree, libraryPath);
-  return [{ path, type: "file", content: executable, executable: true }];
+  return [{ path, type: "file", ...(Buffer.isBuffer(executable) ? { content: executable } : executable), executable: true }];
 }
 
-export async function injectedLayer(store: BlobStore, metadata: InjectedRuntime, executable: Buffer, tree: BaseFilesystem, epoch: number, libraryPath = "") {
+export async function injectedLayer(store: BlobStore, metadata: InjectedRuntime, executable: Buffer | { source: string; size: number }, tree: BaseFilesystem, epoch: number, libraryPath = "") {
   const entries = runtimeEntries(metadata, executable, tree, libraryPath);
   const notice = runtimeNotices[metadata.version];
   if (!notice) throw new Error("Missing injected runtime licensing notices");

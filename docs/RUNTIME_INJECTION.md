@@ -58,3 +58,20 @@ A Bun-only pass is not native-addon or application certification. `bun run test:
 - [Distroless base contents](https://github.com/GoogleContainerTools/distroless/blob/main/base/README.md)
 
 Runtime injection does not preserve source-module locations or repair module-relative asset reads. See [application compatibility](APPLICATION_COMPATIBILITY.md).
+
+### Build-local runtime sharing
+
+Within one build, targets using the same pinned runtime asset share an authenticated
+executable file in private build scratch. Signature, archive checksum, ELF and
+revision checks complete before the file becomes available. Image-specific paths
+and metadata remain independent. Verification of distinct assets is serialized to
+avoid multiplying transient archive and executable buffers by `--jobs`; the verified
+executables are subsequently streamed into injected layers. Compile jobs receive
+separate copies of the verified input. Scratch remains available until all consumers
+finish and is removed with the build's other temporary files.
+
+This does not make archive verification fully streaming: one archive and its
+extracted executable can still be buffered during verification. Sharing lasts for
+one build invocation and does not replace verification of persistent cache inputs
+in the next invocation. `--no-cache` retains this build-local sharing without
+persisting downloads.

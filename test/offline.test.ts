@@ -48,7 +48,7 @@ test("offline mode rejects remote operations and missing verified runtime cache 
     expect(() => offlineOptions({ path: ".", offline: true, ...options })).toThrow("Offline");
   }
   const directory = await root(); let requests = 0;
-  await expect(downloadRuntime(await selectToolchain(), { os: "linux", architecture: "amd64" }, { offline: true, cache: join(directory, "runtime"), fetcher: async () => { requests++; throw new Error("unexpected network"); } })).rejects.toThrow("Offline runtime cache");
+  await expect(downloadRuntime(await selectToolchain(), { os: "linux", architecture: "amd64" }, { destination: join(directory, "executable"), offline: true, cache: join(directory, "runtime"), fetcher: async () => { requests++; throw new Error("unexpected network"); } })).rejects.toThrow("Offline runtime cache");
   expect(requests).toBe(0);
 });
 
