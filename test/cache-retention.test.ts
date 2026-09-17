@@ -100,8 +100,11 @@ test("closure plan bytes are credited with the record they name and orphans befo
   const applied = await pruneLocal(directory, true, 0, usage.managedBytes);
   expect(applied.deleted).toEqual([planPath(orphanKey)]);
   expect(orphanBytes).toBeGreaterThan(0);
+  await writeFile(planPath(planKey), canonicalJSON({ ...plan, packFormat: "another-supported-writer" }));
+  const foreign = await pruneLocal(directory, true, Number.MAX_SAFE_INTEGER);
+  expect(foreign.deleted).toEqual([]);
   // Obsolete indexes are unusable even while their content-addressed layer survives.
-  for (const obsolete of [{ layout: "closure-plan-v1" }, { packFormat: "obsolete" }]) {
+  for (const obsolete of [{ layout: "closure-plan-v1" }]) {
     await writeFile(planPath(planKey), canonicalJSON({ ...plan, ...obsolete }));
     const expired = await pruneLocal(directory, true, Number.MAX_SAFE_INTEGER);
     expect(expired.deleted).toEqual([planPath(planKey)]);
