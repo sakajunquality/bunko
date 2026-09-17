@@ -1,9 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { credentialHost, configuredCredentials, type Credential, type HelperRunner } from "./credentials.ts";
+import { configuredCredentials, type Credential, type HelperRunner } from "./credentials.ts";
 import { object } from "./digest.ts";
-import { registryHost } from "./registry-host.ts";
 
 export function podmanConfigPaths(env: Record<string, string | undefined>): string[] {
   if (env.REGISTRY_AUTH_FILE !== undefined) { if (!env.REGISTRY_AUTH_FILE) throw new Error("REGISTRY_AUTH_FILE must not be empty"); return [env.REGISTRY_AUTH_FILE]; }
@@ -15,11 +14,6 @@ export async function podmanCredentials(registry: string, env: Record<string, st
     let config: Record<string, unknown>;
     try { if ((await stat(path)).size > 1024 * 1024) throw new Error(); config = object(JSON.parse(await readFile(path, "utf8")), "Podman auth configuration"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" && env.REGISTRY_AUTH_FILE === undefined) continue; throw new Error("Cannot read Podman credential configuration"); }
-    for (const key of [...Object.keys(object(config.auths ?? {}, "Podman auths")), ...Object.keys(object(config.credHelpers ?? {}, "Podman credential helpers"))]) {
-      let host: string;
-      try { host = registryHost(credentialHost(key), true); } catch { continue; }
-      if (host === registry && key.replace(/^https?:\/\//, "").replace(/\/$/, "").includes("/") && !/^https?:\/\/index\.docker\.io\/v1\/$/.test(key)) throw new Error("Repository-scoped Podman credentials cannot be used as host-wide credentials");
-    }
     let configured = false;
     const credential = await configuredCredentials(config, registry, helper, () => { configured = true; claimed?.(); }, true);
     if (configured) return credential;

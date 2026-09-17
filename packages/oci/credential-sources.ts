@@ -26,9 +26,10 @@ export function registryCredentials(values?: string[], options: CredentialSource
   const sources = authSources(values, env.BUNKO_AUTH_SOURCES);
   const explicit = values !== undefined || env.BUNKO_AUTH_SOURCES !== undefined;
   const file = dockerConfigPath(env);
-  if (!explicit) return Object.assign(dockerCredentials(file, options.helper), { bridge: false });
+  if (!explicit) return Object.assign(dockerCredentials(file, options.helper), { bridge: false, sensitivePaths: [file] });
   const pending = new Map<string, Promise<Credential | undefined>>();
   const cache = new Map<string, Credential | undefined>();
+  const generations = new Map<string, number>();
   async function lookup(registry: string): Promise<Credential | undefined> {
     for (const source of sources) {
       let credential: Credential | undefined;
@@ -57,11 +58,19 @@ export function registryCredentials(values?: string[], options: CredentialSource
   }
   const provider: CredentialProvider = (input, refresh) => {
     const registry = registryHost(input, true);
-    const active = pending.get(registry); if (active) return active;
+    const key = `${refresh ? "refresh" : "initial"}\0${registry}`;
+    const active = pending.get(`refresh\0${registry}`) ?? pending.get(key);
+    if (active) return active;
     const cached = cache.get(registry);
     if (!refresh && cache.has(registry) && (!cached?.expires || cached.expires > Date.now() + 30_000)) return Promise.resolve(cached);
-    const work = lookup(registry).then((value) => { cache.set(registry, value); return value; }).finally(() => pending.delete(registry));
-    pending.set(registry, work); return work;
+    const generation = (generations.get(registry) ?? 0) + 1;
+    generations.set(registry, generation);
+    const work = lookup(registry).then((value) => {
+      // An older lookup may finish after refresh; it must not restore stale credentials.
+      if (generations.get(registry) === generation) cache.set(registry, value);
+      return value;
+    }).finally(() => { if (pending.get(key) === work) pending.delete(key); });
+    pending.set(key, work); return work;
   };
   provider.bridge = sources.some((source) => source !== "docker");
   provider.sensitivePaths = [...(sources.includes("aws") ? [env.AWS_WEB_IDENTITY_TOKEN_FILE, env.AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE].filter((path): path is string => Boolean(path)) : []),...(sources.includes("podman") ? podmanConfigPaths(env) : []),...(sources.includes("docker") ? [file] : [])];

@@ -359,7 +359,7 @@ export async function main(argv: string[]): Promise<number> {
     const concurrencyText = values["publish-concurrency"] ?? process.env.BUNKO_PUBLISH_CONCURRENCY;
     if (concurrencyText !== undefined && (!/^\d+$/.test(concurrencyText) || Number(concurrencyText) < 1 || Number(concurrencyText) > 32)) throw new Error("Publication concurrency must be an integer from 1 to 32");
     const reportedInsecureOrigins = new Set<string>();
-    const credentials = values.offline ? async () => undefined : registryCredentials(values["auth-source"]);
+    const credentials = registryCredentials(values["auth-source"]);
     const registry = {
       credentials,
       publishConcurrency: concurrencyText === undefined ? undefined : Number(concurrencyText),
