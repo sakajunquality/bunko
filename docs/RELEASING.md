@@ -1,6 +1,6 @@
 # Release distribution and setup Action
 
-The current published release is **0.12.0**. The dedicated [Marketplace setup Action](https://github.com/marketplace/actions/setup-bunko) is versioned independently: setup-bunko v0.1.1 installs CLI v0.8.0 by default. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. The published 0.12.0 CLI supports Linux/macOS runners and Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`, validated with 1.3.13 and 1.4.2. Bun 1.4.0/1.4.1 users can retain immutable v0.10.0; see [compatibility](COMPATIBILITY.md). Version 0.1.4 remains available for Bun 1.3.11/1.3.12. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
+The current published release is **0.12.0**. The dedicated [Marketplace setup Action](https://github.com/marketplace/actions/setup-bunko) is versioned independently: setup-bunko v0.2.0 installs CLI v0.12.0 by default. The [published alpha.2 validation](PUBLISHED_RELEASE_VALIDATION.md) records historical installation and registry evidence; it does not certify a later release. The artifact is a bundled JavaScript CLI run by Bun. The published 0.12.0 CLI supports Linux/macOS runners and Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`, validated with 1.3.13 and 1.4.2. Bun 1.4.0/1.4.1 users can retain immutable v0.10.0; see [compatibility](COMPATIBILITY.md). Version 0.1.4 remains available for Bun 1.3.11/1.3.12. Native standalone executables remain future work. npm distribution is implemented through a separate [verified packaging workflow](NPM_DISTRIBUTION.md).
 
 For maintainers, follow the [release checklist](RELEASE_CHECKLIST.md) for commit/tag guards, publication order, consumer verification and failure recovery.
 
@@ -30,7 +30,7 @@ Public release assets can be downloaded without repository credentials, subject 
 
 ## Use the setup Action
 
-Use the dedicated [setup-bunko Action](https://github.com/marketplace/actions/setup-bunko). Pin the Action to the reviewed v0.1.1 source commit; its default CLI is v0.8.0, independent of the Action's own release number:
+Use the dedicated [setup-bunko Action](https://github.com/marketplace/actions/setup-bunko). Pin the Action to the reviewed v0.2.0 source commit; its default CLI is v0.12.0, independent of the Action's own release number:
 
 ```yaml
 permissions:
@@ -39,18 +39,18 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
     with:
       persist-credentials: false
-  - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
+  - uses: sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516 # v0.2.0
     with:
       version: v0.12.0
       bun-version: 1.4.2
   - run: bunko version
 ```
 
-`version` may be omitted to use the CLI default recorded in that setup-bunko release. The wrapper forwards an explicit CLI version to the installer pinned in the bunko repository; its own v0.1.1 tag never selects CLI v0.1.1. Updating the CLI release does not change an existing wrapper release's default. Maintainers update the wrapper's implementation pin, CLI default, documentation and consumer tests together, then publish a separate Action release.
+`version` may be omitted to use the CLI default recorded in that setup-bunko release. The wrapper forwards an explicit CLI version to the installer pinned in the bunko repository; its own v0.2.0 tag never selects CLI v0.2.0. Updating the CLI release does not change an existing wrapper release's default. Maintainers update the wrapper's implementation pin, CLI default, documentation and consumer tests together, then publish a separate Action release.
 
 | Input | Default / purpose |
 | --- | --- |
-| `version` | `v0.8.0`; full published CLI release version, never an implicit latest lookup |
+| `version` | `v0.12.0`; full published CLI release version, or opt-in `latest` stable resolution |
 | `bun-version` | `1.4.2`; installs Bun through the pinned setup-bun Action |
 | `repository` | `sakajunquality/bunko`; trusted GitHub.com repository hosting release assets |
 | `token` | `${{ github.token }}`; read access to release assets and attestations |
@@ -60,7 +60,7 @@ steps:
 
 Linux and macOS are supported; Windows is not. Self-hosted runners need Bash, the prerequisites of [setup-bun](https://github.com/oven-sh/setup-bun), and a current GitHub CLI supporting `gh attestation verify`. Release sources on GitHub Enterprise Server are not supported. A local distribution skips payload downloads; provenance verification may still require network access. For unsigned historical releases, explicitly set `verify-attestation: 'false'`; checksum verification remains mandatory. See [release provenance](RELEASE_PROVENANCE.md).
 
-The Action adds `bunko` to PATH and exposes `version` (without the `v` prefix) and `bunko-path` outputs. Each installation uses an isolated runner temporary directory, with no persistent CLI cache. Registry authentication is separate; see [building in CI](CI.md). Published-tag installation passed on Linux and macOS in [the setup-bunko consumer run](https://github.com/sakajunquality/setup-bunko/actions/runs/34757444461).
+The Action adds `bunko` to PATH and exposes `version` (without the `v` prefix) and `bunko-path` outputs. Each installation uses an isolated runner temporary directory, with no persistent CLI cache. Registry authentication is separate; see [building in CI](CI.md). Published v0.2.0 tag installation, using both the default CLI and `latest`, passed on Linux and macOS in [the setup-bunko consumer run](https://github.com/sakajunquality/setup-bunko/actions/runs/35196791920).
 
 A job's GITHUB_TOKEN ordinarily accesses its own repository. For a different private release repository, supply a token with read access. The installer follows HTTPS redirects and strips the token when leaving api.github.com.
 
@@ -99,6 +99,6 @@ Historical pre-release review and validation are recorded in [RELEASE_REVIEW.md]
 
 ### Selecting the latest stable CLI
 
-The setup installer on current main also accepts `version: latest`. It resolves the configured GitHub repository's latest published stable release once, then verifies and installs that exact release. The output `version` contains the concrete version, never `latest`. This capability requires an Action implementation containing this change; earlier immutable Action tags retain their original behavior.
+Starting with setup-bunko v0.2.0, the setup installer also accepts `version: latest`. It resolves the configured GitHub repository's latest published stable release once, then verifies and installs that exact release. The output `version` contains the concrete version, never `latest`. This capability requires an Action implementation containing this change; earlier immutable Action tags retain their original behavior.
 
 Prefer an explicit version for reproducible builds. `latest` follows GitHub's latest-release designation, not npm dist-tags or the numerically highest tag. Checksums and the default signed provenance/tag verification remain enabled; `source-commit`, if supplied, must match the resolved release. There is no persistent CLI cache. `latest` with `distribution-directory` is rejected: local distributions require an explicit version. No release, a prerelease/draft response, or an invalid tag fails without falling back to an older version.
