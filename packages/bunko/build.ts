@@ -1,3 +1,4 @@
+import { assertFormatVersion, type PersistedFormat } from "../compatibility/formats.ts";
 import { cleanupAfterTasks } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
@@ -129,7 +130,12 @@ export async function assertReportWritable(path: string): Promise<void> {
   if (info.size <= 32 * 1024 * 1024) {
     try { value = JSON.parse(await readFile(path, "utf8")); } catch { /* Non-report files must stay untouched. */ }
   }
+  const formats: Record<string, PersistedFormat> = { build: "build-report", resolve: "resolve-report", apply: "apply-report", rebase: "rebase-report", "base-status": "base-status-report", "push-layout": "push-layout-report" };
+  if (value && typeof value.command === "string" && Object.hasOwn(formats, value.command)) assertFormatVersion(formats[value.command]!, value.schemaVersion);
   const status = value?.status === "success" || value?.status === "failed";
+  if (value && value.command === undefined && (
+    typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root || status && Array.isArray(value.targets)
+  )) assertFormatVersion("build-report", value.schemaVersion);
   const report = value && (
     value.schemaVersion === 2 && typeof value.target === "string" && Array.isArray(value.images) && value.root && typeof value.root === "object" && "digest" in value.root ||
     value.schemaVersion === 3 && status && Array.isArray(value.targets) ||

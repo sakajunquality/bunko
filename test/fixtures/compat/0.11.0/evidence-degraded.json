@@ -1,0 +1,7 @@
+{
+  "included": [
+    "runtime-package@1.0.0",
+    "bundled-package@2.0.0"
+  ],
+  "comment": "bunko:build-evidence:v2 {\"lockDigest\":\"sha256:665e025b61da4a886e761c33568b9d9b4a3a68cbf4b5761f5d2a9de2252212b7\",\"omitted\":{\"declaredOnlyPackages\":20000,\"includedPackages\":0,\"lockChecksums\":20000},\"packages\":[{\"lockChecksums\":[],\"name\":\"bundled-package\",\"states\":[\"bundled\"],\"version\":\"2.0.0\"},{\"lockChecksums\":[],\"name\":\"runtime-package\",\"states\":[\"runtime\"],\"version\":\"1.0.0\"}],\"schemaVersion\":2,\"scope\":\"application-inventory\"}"
+}
