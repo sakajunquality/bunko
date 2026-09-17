@@ -1,6 +1,6 @@
 # Cache evolution proposal
 
-This proposal tracks #220, #223 and #229. The current patch improves diagnostics and prevents pruning a closure plan solely because its packing fingerprint belongs to another CLI. Compatible packing identities no longer include the CLI or host Bun version. Version-aware retention remains a follow-up. Leased staging and conservative residue reclamation are implemented. New-format lock recovery is implemented as described below.
+This proposal tracks #220, #223 and #229. The current patch improves diagnostics and prevents pruning a closure plan solely because its packing fingerprint belongs to another CLI. Compatible packing identities no longer include the CLI or host Bun version. Version-aware retention reports unknown data conservatively and supports retaining current-format registry tags. Leased staging and conservative residue reclamation are implemented. New-format lock recovery is implemented as described below.
 
 ## Immediate behavior
 
@@ -12,7 +12,7 @@ For manual recovery, first stop every build/prune process sharing that cache, in
 
 Recovery uses an OS-backed SQLite exclusive lock, without committed data or journal/WAL sidecars. The permanent `.bunko-lock.sqlite` inode must never be replaced during use. New writers retain the original directory guard inside that mutex, so older mkdir-lock writers still serialize with them and their guards are never automatically removed. Reliable filesystem locking is required. A crash before owner metadata is written, PID reuse, or an owner on another host still requires manual inspection. Acceptance must include SIGKILL between every publication step, PID reuse/foreign namespaces, two competing reclaimers, slow live writers, missing/malformed owner files, symlink attacks, and cross-filesystem copies.
 
-Content-addressed copies now use separately leased staging directories. Publication retains compare-and-rename under the metadata lock. Prune reclaims old owned temporary/unreferenced blobs after validating every known record; unknown record formats still stop the operation. Future skip-and-count support must disable orphan reclamation when unknown records may contain references. Residue is accounted separately and revalidated before deletion.
+Content-addressed copies now use separately leased staging directories. Publication retains compare-and-rename under the metadata lock. Prune reclaims old owned temporary/unreferenced blobs after validating every known record; unknown record formats are reported without traversal. Unknown records disable all blob and orphan reclamation because they may contain references. Residue is accounted separately and revalidated before deletion.
 
 ## Packing and semantic identity
 

@@ -1,3 +1,4 @@
+import { cacheLayout } from "./cache-layout.ts";
 import { cacheBackend, type CacheBackend } from "./cache-backends.ts";
 import type { CacheLocation } from "./cache-backend-options.ts";
 import { metric } from "./telemetry.ts";
@@ -235,6 +236,7 @@ export class CacheDriver {
     if (this.local) {
       let found = false;
       try {
+        if (!await cacheLayout(this.local!.root)) throw new Error("Unsupported cache layout");
         const value = await readMetadata(join(this.local!.root, "keys", kind, `${key.slice(7)}.json`)); found = true;
         const record = this.validate(value, key, kind, expected);
         await this.store.copyFrom(this.local!, record.layer.descriptor);
@@ -276,6 +278,7 @@ export class CacheDriver {
     if (!this.local) return;
     let found = false;
     try {
+      if (!await cacheLayout(this.local.root)) throw new Error("Unsupported cache layout");
       const value = await readMetadata(join(this.local.root, "plans", "deps", `${planKey.slice(7)}.json`)); found = true;
       return validateClosurePlan(value, planKey, expected);
     } catch (error) { if (found || (error as NodeJS.ErrnoException).code !== "ENOENT") { this.invalidPlans.add(planKey); this.options.log("Ignoring invalid local dependency closure plan\n"); } }
@@ -375,6 +378,7 @@ export class CacheDriver {
     const temporary = join(dir, `.tmp-${randomUUID()}`);
     try {
       await withCacheLock(this.local.root, async () => {
+        if (!await cacheLayout(this.local!.root, true)) throw new Error("Unsupported cache layout");
         // A plan must never outlive the record it names, so reconfirm that record under this
         // lock: a prune between persisting the layer and indexing it leaves no orphan behind.
         try { this.validate(await readMetadata(join(this.local!.root, "keys", "deps", `${record.key.slice(7)}.json`)), record.key, "deps", { destination: record.destination, platform: record.platform }); }
@@ -401,6 +405,7 @@ export class CacheDriver {
     const temporary = join(dir, `.tmp-${randomUUID()}`);
     try {
       await withStagedCacheBlob(this.local.root, this.store, record.layer.descriptor, async (staged) => withCacheLock(this.local!.root, async () => {
+      if (!await cacheLayout(this.local!.root, true)) throw new Error("Unsupported cache layout");
       if (!this.invalidLocal.has(record.key)) {
         let previous: CacheRecord | undefined;
         try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }

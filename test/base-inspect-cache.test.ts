@@ -196,7 +196,7 @@ test("base inspections are counted by cache-info and reclaimed by prune", async 
   const superseded = await pruneLocal(f.cache, false, Number.MAX_SAFE_INTEGER);
   expect(superseded.keys).toContain(join(baseInspectDirectory, "base-inspect-v0", `${"a".repeat(64)}.json`));
   await mkdir(join(f.cache, baseInspectDirectory, "unrelated"), { recursive: true });
-  await expect(pruneLocal(f.cache)).rejects.toThrow("unknown base inspection namespaces");
+  expect((await pruneLocal(f.cache)).unmanaged).toContain(join(baseInspectDirectory, "unrelated"));
 }, 120000);
 
 test("a record round-trips the inspected tree exactly", async () => {
