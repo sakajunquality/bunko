@@ -23,9 +23,11 @@ export interface RegistryOptions {
   credentials?: CredentialProvider;
   insecure?: string[];
   retries?: number;
-  /** Deadline for response headers and initial upload progress; not a total body deadline. */
+  /** Deadline for GET/HEAD response headers, excluding response-body transfer. */
   headersTimeoutMs?: number;
-  /** Maximum idle time between download chunks or upload stream consumption. */
+  /** Total deadline for each write attempt, including upload and response headers (default 30 minutes). */
+  writeTimeoutMs?: number;
+  /** Maximum idle time between download chunks. */
   bodyIdleTimeoutMs?: number;
   maxRetryDelayMs?: number;
   /** Parallel per-blob publication work within one manifest, 1–32; see publishConcurrency. */
@@ -162,6 +164,7 @@ export class RegistryClient {
     const http = new URL(`http://${registry}`).origin;
     this.origin = this.insecureOrigins.has(http) ? http : new URL(`https://${registry}`).origin;
     if (options.headersTimeoutMs !== undefined && (!Number.isFinite(options.headersTimeoutMs) || options.headersTimeoutMs <= 0)) throw new Error("Registry header timeout must be positive");
+    if (options.writeTimeoutMs !== undefined && (!Number.isFinite(options.writeTimeoutMs) || options.writeTimeoutMs <= 0 || options.writeTimeoutMs > 2_147_483_647)) throw new Error("Registry write timeout must be positive and fit a timer");
     if (options.maxRetryDelayMs !== undefined && (!Number.isFinite(options.maxRetryDelayMs) || options.maxRetryDelayMs < 0 || options.maxRetryDelayMs > 30_000)) throw new Error("Registry retry delay limit must be between 0 and 30000 ms");
     const transport = options.fetcher ?? fetch;
     this.fetcher = (url, init) => {
@@ -281,35 +284,14 @@ export class RegistryClient {
           const token = this.tokens.get(key);
           if (url.origin === this.origin && token && token.expires > Date.now()) { this.reportInsecureCredentials(url); headers.set("Authorization", token.authorization); }
           if (!headers.has("Accept")) headers.set("Accept", [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "));
-          // Bound response headers and stalled upload consumption, not total transfer time.
+          // Fetch does not expose socket write completion: source EOF can precede transmission.
+          // Reads bound header waiting; writes use an explicit total attempt deadline instead.
           const controller = new AbortController();
-          let timer: ReturnType<typeof setTimeout>;
-          let finished = false;
-          const arm = (ms: number) => { if (finished) return; clearTimeout(timer); timer = setTimeout(() => controller.abort(), ms); };
           const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
-          let body = init.body;
-          let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-          if (body && (method === "PATCH" || method === "PUT")) {
-            const input = body instanceof ReadableStream ? body : body instanceof Blob ? body.stream()
-              : typeof body === "string" || body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? new Blob([body as BlobPart]).stream() : undefined;
-            if (input) {
-              reader = input.getReader();
-              body = new ReadableStream<Uint8Array>({
-                async pull(output) {
-                  try {
-                    const item = await reader!.read();
-                    if (item.done) { output.close(); arm(thisOptions.headersTimeoutMs ?? 120_000); }
-                    else { output.enqueue(item.value); arm(thisOptions.bodyIdleTimeoutMs ?? 120_000); }
-                  } catch (error) { output.error(error); }
-                },
-                cancel(reason) { return reader!.cancel(reason); },
-              });
-            }
-          }
-          const thisOptions = this.options;
-          arm(this.options.headersTimeoutMs ?? 120_000);
-          try { response = await this.fetcher(url, { ...init, body, headers, redirect: "manual", signal }); }
-          finally { finished = true; clearTimeout(timer!); if (reader) void reader.cancel().catch(() => {}); }
+          const timeout = retryable ? this.options.headersTimeoutMs ?? 120_000 : this.options.writeTimeoutMs ?? 30 * 60_000;
+          const timer = setTimeout(() => controller.abort(), timeout);
+          try { response = await this.fetcher(url, { ...init, headers, redirect: "manual", signal }); }
+          finally { clearTimeout(timer); }
 
           if (![301, 302, 303, 307, 308].includes(response.status)) break;
           const location = response.headers.get("Location");

@@ -191,7 +191,7 @@ describe("Distribution publication", () => {
     const publisher = new Publisher(`${host}/project/repository/image`, { credentials: anonymous, fetcher: async (input, init) => {
       if (init?.method === "PATCH") throw new Error("This provider requires monolithic uploads");
       if (init?.method === "PUT") {
-        expect(init.body).toBeInstanceOf(ReadableStream);
+        expect(init.body).toBeInstanceOf(Blob);
         expect(new Headers(init.headers).get("Content-Length")).toBe(String(bytes.length));
         expect(new URL(input).searchParams.get("state")).toBe("opaque");
       }
