@@ -1,4 +1,5 @@
-import { cacheTemporaryName, pruneStages, residueMinimumAge } from "./cache-residue.ts";
+import { cacheLayout, cacheLayoutFile } from "./cache-layout.ts";
+import { cacheTemporaryName, pruneStages, residueMinimumAge, stageName } from "./cache-residue.ts";
 import { baseInspectDirectory, baseInspectVersion, baseInspectVersionPattern, validateBaseInspection } from "./base-inspect.ts";
 import { cacheMetadataLimit, closurePlanLayout, packFormat } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
@@ -9,26 +10,31 @@ import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
 import { media } from "../oci/types.ts";
 import { withCacheLock } from "./cache-lock.ts";
 
-export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number; unreferencedBytes: number; temporaryBytes: number; residueBytes: number; residue: string[] }
+export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number; unreferencedBytes: number; temporaryBytes: number; residueBytes: number; residue: string[]; unmanaged: string[]; orphanReclamationSkipped: boolean }
 
 export async function pruneLocal(directory: string, execute = false, olderThanSeconds = 7 * 86400, keepBytes?: number): Promise<PruneResult> {
   if (!Number.isSafeInteger(olderThanSeconds) || olderThanSeconds < 0) throw new Error("Prune age must be non-negative integer seconds");
   if (keepBytes !== undefined && (!Number.isSafeInteger(keepBytes) || keepBytes < 0)) throw new Error("Cache budget must be non-negative integer bytes");
-  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0, residueBytes: 0, residue: [] };
+  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0, residueBytes: 0, residue: [], unmanaged: [], orphanReclamationSkipped: false };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
+    if (!await cacheLayout(directory)) { result.unmanaged.push(cacheLayoutFile); result.orphanReclamationSkipped = true; return result; }
+    for (const name of await readdir(directory)) {
+      if (!["keys", "plans", "blobs", baseInspectDirectory, cacheLayoutFile, ".bunko-lock", ".bunko-lock.sqlite"].includes(name) && !stageName.test(name) && !/^\.tmp-layout-[a-f0-9-]{36}$/.test(name) && !/^\.bunko-lock\.recovered-[a-f0-9-]{36}$/.test(name)) result.unmanaged.push(name);
+    }
     for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {
       try { const info = await lstat(join(directory, path)); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Prune refuses symlinked or non-directory cache paths"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    try { if ((await readdir(join(directory, "keys"))).some((name) => !["deps", "assets", "app", "runtime"].includes(name))) throw new Error("Prune refuses unknown cache key namespaces"); }
+    try { for (const name of await readdir(join(directory, "keys"))) if (!["deps", "assets", "app", "runtime"].includes(name)) result.unmanaged.push(`keys/${name}`); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    try { if ((await readdir(join(directory, "plans"))).some((name) => name !== "deps")) throw new Error("Prune refuses unknown cache plan namespaces"); }
+    try { for (const name of await readdir(join(directory, "plans"))) if (name !== "deps") result.unmanaged.push(`plans/${name}`); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     let inspectionVersions: string[] = [];
     try { inspectionVersions = (await readdir(join(directory, baseInspectDirectory))).sort(); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    if (inspectionVersions.some((name) => !baseInspectVersionPattern.test(name))) throw new Error("Prune refuses unknown base inspection namespaces");
+    for (const name of inspectionVersions) if (!baseInspectVersionPattern.test(name)) result.unmanaged.push(`${baseInspectDirectory}/${name}`);
+    inspectionVersions = inspectionVersions.filter((name) => baseInspectVersionPattern.test(name));
     const cutoff = Date.now() - olderThanSeconds * 1000;
     // `digest` is empty for metadata that owns no blob, such as a base inspection record.
     const records: { path: string; key: string; digest: string; bytes: Uint8Array; mtime: number }[] = [];
@@ -41,8 +47,9 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
       for (const name of names.sort()) {
         if (name.startsWith(".tmp-")) continue;
-        if (!/^[a-f0-9]{64}\.json$/.test(name)) throw new Error("Prune refuses unknown cache records");
+        if (!/^[a-f0-9]{64}\.json$/.test(name)) { result.unmanaged.push(join(dir, name).slice(directory.length + 1)); continue; }
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Cache key");
+        if (Number.isSafeInteger(value.schemaVersion) && (value.schemaVersion as number) > 1) { result.unmanaged.push(`keys/${kind}/${name}`); continue; }
         const layer = object(value.layer, "Cache layer"), blob = descriptor(layer.descriptor);
         if (value.schemaVersion !== 1 || value.key !== `sha256:${name.slice(0, 64)}` || value.kind !== kind || layer.kind !== kind || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
         records.push({ path, key: `${kind}/${name}`, digest: blob.digest, bytes, mtime: info.mtimeMs });
@@ -56,6 +63,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     // A record under a superseded version can never be read again whatever it contains, so it is
     // checked only for its name and envelope and is always reclaimed.
     for (const version of inspectionVersions) {
+      if (Number(version.split("-v").at(-1)) > Number(baseInspectVersion.split("-v").at(-1))) { result.unmanaged.push(`${baseInspectDirectory}/${version}`); continue; }
       const dir = join(directory, baseInspectDirectory, version);
       let names: string[];
       try { if ((await lstat(dir)).isSymbolicLink()) throw new Error("Prune refuses symlinked cache directories"); names = await readdir(dir); }
@@ -63,8 +71,9 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       const stale = version !== baseInspectVersion;
       for (const name of names.sort()) {
         if (name.startsWith(".tmp-")) continue;
-        if (!/^[a-f0-9]{64}\.json$/.test(name)) throw new Error("Prune refuses unknown cache records");
+        if (!/^[a-f0-9]{64}\.json$/.test(name)) { result.unmanaged.push(join(dir, name).slice(directory.length + 1)); continue; }
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Base inspection");
+        if (Number.isSafeInteger(value.schemaVersion) && (value.schemaVersion as number) > 1) { result.unmanaged.push(`${baseInspectDirectory}/${version}/${name}`); continue; }
         const digest = `sha256:${name.slice(0, 64)}` as const;
         if (value.schemaVersion !== 1 || value.kind !== "base-inspect" || value.version !== version || value.digest !== digest) throw new Error("Prune refuses inconsistent cache metadata");
         if (!stale) try { validateBaseInspection(value, digest); } catch { throw new Error("Prune refuses inconsistent cache metadata"); }
@@ -82,11 +91,13 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       for (const name of names.sort()) {
         if (name.startsWith(".tmp-")) continue;
-        if (!/^[a-f0-9]{64}\.json$/.test(name)) throw new Error("Prune refuses unknown cache records");
+        if (!/^[a-f0-9]{64}\.json$/.test(name)) { result.unmanaged.push(join(dir, name).slice(directory.length + 1)); continue; }
         const path = join(dir, name), { info, bytes } = await safeRead(path), value = object(JSON.parse(bytes.toString()), "Closure plan");
+        if (Number.isSafeInteger(value.schemaVersion) && (value.schemaVersion as number) > 1) { result.unmanaged.push(`plans/deps/${name}`); continue; }
         if (value.schemaVersion !== 1 || value.kind !== "deps-plan" || value.planKey !== `sha256:${name.slice(0, 64)}` || typeof value.packFormat !== "string") throw new Error("Prune refuses inconsistent cache metadata");
+        if (![closurePlanLayout, "closure-plan-v1"].includes(String(value.layout))) { result.unmanaged.push(`plans/deps/${name}`); continue; }
         assertDigest(value.key);
-        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout !== closurePlanLayout });
+        plans.push({ path, key: `plans/deps/${name}`, target: `deps/${value.key.slice(7)}.json`, bytes, mtime: info.mtimeMs, stale: value.layout === "closure-plan-v1" });
       }
     }
     // Account only for validated metadata and its referenced blobs. Unreferenced
@@ -106,6 +117,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     }
     // Complete CAS publication and old-style copies hold this metadata lock; new
     // copies live in separately leased staging directories. Retain recent residue.
+    result.orphanReclamationSkipped = result.unmanaged.length > 0;
     const residueCutoff = Math.min(cutoff, Date.now() - residueMinimumAge);
     const residue: { path: string; size: number; dev: number; ino: number; mtime: number }[] = [];
     for (const [subdir, temporary] of [["blobs", true], ["blobs/sha256", false]] as const) {
@@ -116,7 +128,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         const info = await lstat(join(directory, subdir, name));
         if (!info.isFile() || info.isSymbolicLink()) continue;
         if (temporary) result.temporaryBytes += info.size; else result.unreferencedBytes += info.size;
-        if (info.nlink === 1 && info.mtimeMs <= residueCutoff && (!temporary || cacheTemporaryName.test(name))) {
+        if (!result.orphanReclamationSkipped && info.nlink === 1 && info.mtimeMs <= residueCutoff && (!temporary || cacheTemporaryName.test(name))) {
           residue.push({ path: join(directory, subdir, name), size: info.size, dev: info.dev, ino: info.ino, mtime: info.mtimeMs });
         }
       }
@@ -143,7 +155,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       for (const plan of attached.get(record.key) ?? []) reclaim(plan);
       if (!record.digest) continue;
       const count = references.get(record.digest)! - 1; references.set(record.digest, count);
-      if (count === 0 && present.has(record.digest)) {
+      if (!result.orphanReclamationSkipped && count === 0 && present.has(record.digest)) {
         result.blobs.push(record.digest); result.bytes += sizes.get(record.digest)!; result.remainingBytes -= sizes.get(record.digest)!;
       }
     }
@@ -152,7 +164,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
       if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.dev !== item.dev || info.ino !== item.ino || info.size !== item.size || info.mtimeMs !== item.mtime) throw new Error("Cache residue changed during prune");
     }
     if (execute) for (const candidate of candidates) if (sha256((await safeRead(candidate.path)).bytes) !== sha256(candidate.bytes)) throw new Error("Cache changed during prune");
-    const stages = await pruneStages(directory, residueCutoff, execute);
+    const stages = result.orphanReclamationSkipped ? { bytes: 0, paths: [] } : await pruneStages(directory, residueCutoff, execute);
     result.residue = [...residue.map((item) => item.path), ...stages.paths];
     result.residueBytes = residue.reduce((sum, item) => sum + item.size, stages.bytes);
     // Residue is outside the managed-byte retention budget, even when reclaimed.
@@ -168,7 +180,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
 }
 
 /** Delete only selected owned tags; never fall back to manifest/blob deletion. */
-export async function pruneRegistry(repository: string, execute = false, registry: RegistryOptions = {}) {
+export async function pruneRegistry(repository: string, execute = false, registry: RegistryOptions = {}, options: { keepCurrent?: boolean } = {}) {
   const publisher = new Publisher(repository, registry), tags = new Set<string>();
   const scope = `repository:${publisher.ref.repository}:pull`;
   const path = `/v2/${publisher.ref.repository}/tags/list`;
@@ -188,7 +200,7 @@ export async function pruneRegistry(repository: string, execute = false, registr
     if (destination.origin !== url.origin || destination.pathname !== path) throw new Error("Tag pagination escaped repository");
     url = destination;
   }
-  const selected: { tag: string; digest: string }[] = [];
+  const selected: { tag: string; digest: string }[] = [], retained: string[] = [], unmanaged: string[] = [];
   for (const tag of [...tags].sort()) {
     const response = await publisher.client.request(`/v2/${publisher.ref.repository}/manifests/${tag}`, {}, [scope]);
     const bytes = await responseBytes(response), manifest = object(JSON.parse(Buffer.from(bytes).toString()), "Cache manifest");
@@ -201,10 +213,14 @@ export async function pruneRegistry(repository: string, execute = false, registr
     const configBytes = await responseBytes(responseConfig);
     if (sha256(configBytes) !== config.digest || configBytes.length !== config.size) throw new Error("Cache configuration digest mismatch");
     const value = object(JSON.parse(Buffer.from(configBytes).toString()), "Cache config");
+    if (Number.isSafeInteger(value.schemaVersion) && (value.schemaVersion as number) > 1) { unmanaged.push(tag); continue; }
     // A plan owns no layer, so the tag is checked against its own plan key instead of a layer descriptor.
     if (value.schemaVersion !== 1 || value.kind !== kind || (plan ? value.planKey !== `sha256:${key}`
       : value.key !== `sha256:${key}` || Buffer.compare(Buffer.from(canonicalJSON(object(value.layer, "Cache layer").descriptor)), Buffer.from(canonicalJSON(manifest.layers[0]))))) throw new Error("Cache tag and configuration disagree");
+    if (plan && ![closurePlanLayout, "closure-plan-v1"].includes(String(value.layout))) { unmanaged.push(tag); continue; }
     if (plan) assertDigest(value.key);
+    if (typeof value.packFormat !== "string") throw new Error("Invalid cache packing format");
+    if (options.keepCurrent && value.packFormat === packFormat) { retained.push(tag); continue; }
     selected.push({ tag, digest: sha256(bytes) });
   }
   const deleted: string[] = [];
@@ -217,5 +233,5 @@ export async function pruneRegistry(repository: string, execute = false, registr
     if (removal.status !== 202) throw new Error("Registry does not support tag-only deletion; use its retention policy. No manifest deletion was attempted");
     deleted.push(item.tag);
   }
-  return { dryRun: !execute, tags: selected, deleted, note: "Remote selection includes all validated bunko cache tags; retention age and reclaimed space are provider-specific." };
+  return { dryRun: !execute, tags: selected, retained, unmanaged, deleted, note: options.keepCurrent ? "Current packing-format tags are retained; retention age and reclaimed space are provider-specific." : "Remote selection includes all validated bunko cache tags; retention age and reclaimed space are provider-specific." };
 }

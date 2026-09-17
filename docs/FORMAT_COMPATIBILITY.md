@@ -10,7 +10,7 @@ Bunko is pre-1.0. Upgrading the CLI does not retroactively change immutable publ
 | Resolve/apply reports | schema 4 / 5 | Command identity is part of the format. |
 | Rebase/base-status reports | schema 1 plus command identity | Rebase `decision` and acceptance fields require a CLI from 0.9.0 onward. Actions require 0.10.0 onward and check the report shape. |
 | Provenance | SLSA predicate plus versioned Bunko buildType | Optional observations may grow; a changed meaning, required field or trust claim needs a new buildType. Consumers must not infer complete capture from optional fields. |
-| Cache metadata | Separate layer/plan/inspection formats | Caches are disposable optimizations, not interchange attestations. A cache miss after an upgrade is valid; destructive cleanup of foreign formats is a separate retention policy. |
+| Cache metadata | Separate layer/plan/inspection formats; optional root layout envelope with numeric reader protocol | Caches are disposable optimizations, not interchange attestations. A cache miss after an upgrade is valid; destructive cleanup of foreign formats is a separate retention policy. |
 
 ## Rules for future changes
 
@@ -20,7 +20,7 @@ A future security-bearing format revision should carry writer and minimum-reader
 
 Report destinations are protected from accidental overwrite. Known Bunko report shapes, including base-status, may be replaced. Unknown future schema versions are refused; use a new path after rollback instead of weakening the ownership check. Consumers must treat unknown optional report fields as uninterpreted, but reject unknown schema versions.
 
-CLI/config changes should be additive where practical. Renames need an alias and documented warning window; removals/default changes need a **Breaking changes** entry. A universal `since` registry and live previous-release cache/rebase fixture suite remain follow-up work, not features claimed by this policy. Bun support is an explicit tested set/range, not an automatic promise about two newest minors. `@types/bun` has its own package version and is not the supported executable matrix.
+CLI/config changes should be additive where practical. Renames need an alias and documented warning window; removals/default changes need a **Breaking changes** entry. A universal per-key `since` registry remains a future extension; no existing key is renamed by this change. Previous-release cache/report/static rebase acceptance is described below. Bun support is an explicit tested set/range, not an automatic promise about two newest minors. `@types/bun` has its own package version and is not the supported executable matrix.
 
 ## Release acceptance
 
@@ -47,3 +47,9 @@ The format catalog records evidence v1's minimum reader as 0.9.0 and v2's as
 These are feature-sensitive requirements, not a reason to add fields to an
 existing closed-world capsule. Writer/minimum-reader fields belong in the next
 explicit format revision; adding them to v1 would break readers unnecessarily.
+
+### Source CLI upgrade and rollback acceptance
+
+Run `bun scripts/validation/cache-upgrade.ts 0.10.0` and `bun scripts/validation/cache-upgrade.ts 0.11.0` with the pinned commits available in local Git history. The script extracts immutable released source and its lockfile, verifies that the installed dependency declarations match, and executes that historical source CLI. This is not an npm installation smoke test. If dependencies change, install the historical exact lock before extending the fixture; do not silently substitute incompatible parser/compiler versions.
+
+Each run covers a shared local cache, a loopback Distribution registry with fresh local caches, reuse of the same report path across upgrade/rollback, and current `base-status` / `rebase --dry-run` readers consuming the historical image. Warm asset hits and deterministic image digests are checked before and after rollback; the local flow includes current prune with an unlimited retention budget. Rebase uses static synthetic ELF fixtures and does not execute containers. Cloud credentials, real-registry retention policies and runtime smoke tests remain separate acceptance paths.

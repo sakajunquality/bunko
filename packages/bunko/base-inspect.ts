@@ -1,3 +1,4 @@
+import { cacheLayout } from "./cache-layout.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -88,6 +89,7 @@ export async function readBaseInspection(directory: string, digest: Digest, log:
   const path = baseInspectPath(directory, digest);
   let found = false;
   try {
+    if (!await cacheLayout(directory)) throw new Error("Unsupported cache layout");
     const file = Bun.file(path);
     if (file.size > cacheMetadataLimit) throw new Error("Base inspection record exceeds size limit");
     const bytes = await file.bytes(); found = true;
@@ -108,6 +110,7 @@ export async function writeBaseInspection(directory: string, digest: Digest, tre
   const temporary = join(dir, `.tmp-${randomUUID()}`);
   try {
     await withCacheLock(directory, async () => {
+      if (!await cacheLayout(directory, true)) throw new Error("Unsupported cache layout");
       await mkdir(dir, { recursive: true });
       await writeFile(temporary, bytes, { flag: "wx" });
       // The record is keyed by an immutable digest under a versioned path, so replacing an

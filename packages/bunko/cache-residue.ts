@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CacheMutexBusyError, cacheMutexFile, cacheMutexProtocol, withCacheMutex } from "./cache-mutex.ts";
 
 export const cacheTemporaryName = /^\.tmp-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
-const stageName = /^\.bunko-stage-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+export const stageName = /^\.bunko-stage-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export const residueMinimumAge = 3600_000;
 
 /** No PID-only reclamation: both the dead local owner and its matching exclusive

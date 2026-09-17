@@ -1,8 +1,10 @@
 # Unreleased
 
+Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
+
 ## Format changes
 
-- Unsupported rebase capsule and SBOM evidence revisions now produce typed, version-oriented diagnostics. `base-status` reports future capsules as `not-rebaseable` / `unsupported-format`, including when the selected base digest is current. Known security-bearing formats retain strict validation; no persisted schema or writer shape changes in this update.
+- Unsupported rebase capsule and SBOM evidence revisions now produce typed, version-oriented diagnostics. `base-status` reports future capsules as `not-rebaseable` / `unsupported-format`, including when the selected base digest is current. Known security-bearing formats retain strict validation; these diagnostics do not change capsule or evidence writer shapes.
 - Released ownership/evidence fixtures and an evidence reader rollback matrix document the supported boundary: ordinary v1 evidence remains readable by 0.9/0.10; degraded v2 evidence requires 0.11 or later.
 
 # v0.11.0
