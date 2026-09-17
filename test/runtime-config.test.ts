@@ -111,3 +111,10 @@ test("environment overrides remove inherited base and platform keys in check-con
     expect(target.inheritedDefaults).not.toContain("base"); expect(target.inheritedDefaults).not.toContain("platforms"); expect(target.platforms[0].architecture).toBe("arm64");
   }
 });
+
+test("named image users fail before fetching the base", async () => {
+  const directory = await temporary(); roots.push(directory); const source = await project(join(directory, "user-source"));
+  let requests = 0;
+  await expect(build({ path: source, imageUser: "nonroot", registry: { fetcher: async () => { requests++; throw new Error("network"); } } })).rejects.toThrow("numeric");
+  expect(requests).toBe(0);
+});
