@@ -2,6 +2,6 @@ steps:
   - name: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
     entrypoint: bash
     args: [-c, 'mkdir -p /workspace/output && chown 65532:65532 /workspace/output']
-  - name: ghcr.io/sakajunquality/bunko@sha256:a90e6a5b8916b91e766dab1acb840d50991c6f2f84cdfab1a1a8728940f07059
+  - name: ghcr.io/sakajunquality/bunko@sha256:7471b3afbd13e2ae51bdaf27d61a9d77b88f514f3bee45a7088440f4f25aa437
     env: [HOME=/tmp/bunko-home, XDG_CACHE_HOME=/tmp/bunko-cache]
     args: [build, /workspace, --push=false, --oci-layout, /workspace/output/image, --report, /workspace/output/report.json]
