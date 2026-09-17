@@ -4,6 +4,18 @@ The CLI process itself must run on a supported Bun version, including for diagno
 
 These settings are available in rc.4 and later. The immutable rc.3 release does not include them.
 
+## Runtime settings reference
+
+| Key | Meaning | Guide |
+| --- | --- | --- |
+| `runtime.kind` | `bun` (default) or `node`; `--runtime-kind` overrides it | [Node runtime](NODE_RUNTIME.md) |
+| `runtime.node` | Declared Node major (`22` or `24`), with supported engine/base selection rules | [Runtime identity](NODE_RUNTIME.md#bases-and-runtime-identity) |
+| `runtime.nodePath` | Absolute Node executable path in custom bases or layouts | [Node bases](NODE_RUNTIME.md#bases-and-runtime-identity) |
+| `runtime.bunPath` | Absolute Bun executable path (Bun mode only) | [Runtime injection](RUNTIME_INJECTION.md) |
+| `runtime.libc` | `glibc` or `musl` target policy | [musl support](MUSL.md) |
+| `runtime.inject` | `release` for authenticated Bun runtime injection | [Runtime injection](RUNTIME_INJECTION.md) |
+| `runtime.args` | Runtime-specific argv before the application entrypoint | [Runtime arguments](#bun-runtime-arguments) |
+
 ## Workspace defaults
 
 A workspace root can declare `bunko.defaults` for shared application settings:

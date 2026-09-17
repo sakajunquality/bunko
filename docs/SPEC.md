@@ -362,7 +362,9 @@ Version 0.4.0 also rejects explicitly selected credential/internal names (such a
 
 ## Registry credential sources
 
-Docker-compatible configuration remains the default. `--auth-source` (repeatable or comma-separated) replaces `BUNKO_AUTH_SOURCES`; explicit chains may select `docker`, `github`, `google`, and `podman`. Sources are evaluated in order for the exact registry host. A selected identity is authoritative: failures do not silently switch accounts, and an empty selected helper result allows anonymous access without trying another source. Expiring credentials refresh through the same source. Offline operations do not acquire cloud credentials.
+Docker-compatible configuration remains the default. `--auth-source` (repeatable or comma-separated) replaces `BUNKO_AUTH_SOURCES`; explicit chains may select `docker`, `github`, `google`, `aws`, and `podman`. Sources are evaluated in order for the exact registry host. A selected identity is authoritative: failures do not silently switch accounts, and an empty selected helper result allows anonymous access without trying another source. Expiring credentials refresh through the same source. Offline operations do not acquire cloud credentials.
+
+The `aws` source is explicit and host-bound to recognized ECR endpoints. It supports environment sessions, Web Identity, container credentials and IMDSv2 without invoking AWS CLI. The first configured identity is authoritative; failures do not switch accounts. Private ECR and ECR Public use their respective authorization APIs; Public uses `us-east-1`. Shared AWS profiles, SSO/process providers, and arbitrary credential endpoints are not implied. See [AWS authentication](REGISTRY_AUTH.md) and [live acceptance boundaries](validation/aws-registry-credentials.md).
 
 `auth-check REGISTRY [--scope repository:NAME:pull,push]` probes authentication through the normal registry client and reports redacted JSON. It never claims repository authorization from a successful `/v2/` probe. `doctor` remains offline.
 
