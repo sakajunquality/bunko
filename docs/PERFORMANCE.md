@@ -45,3 +45,14 @@ One macOS arm64 / Bun 1.3.11 run scanned 504 installed files. The first memoized
 ## Comparing image sizes
 
 The final log reports stored layer bytes per platform, including base layers, and the base/deps/assets/app/runtime breakdown. Units are decimal MB. The compression label reflects the actual media types; mixed or uncompressed bases are not described as fully compressed. These are descriptor totals, not push traffic or registry billing, and platforms are reported separately because they may share blobs. Docker archive export and local loading expand layers. Do not compare a local Docker size with a registry layer total as though both measured the same thing.
+
+Application preparation creates a writable source copy only when an application
+cache miss actually needs source packaging, bundling, or compilation. A cache hit
+and a second platform reusing the same bundle skip that unused copy. Source and
+compile jobs still receive separate writable workspaces, and determinism checks
+start each iteration with independent inputs.
+
+Registry cache export still verifies an already-published record's compressed
+payload and DiffID before reporting an idempotent export. Descriptor equality and
+HEAD alone do not detect a registry serving corrupt bytes under an existing digest.
+This validation cost is intentional; ordinary cache hits also verify consumed bytes.
