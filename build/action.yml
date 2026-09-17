@@ -1,5 +1,5 @@
 name: Build with bunko
-description: Build Bun applications with an installed bunko CLI and export all target results
+description: Build Bun applications with an installed bunko CLI and export all target results (requires bunko >=0.10.0 and <1; pin setup version)
 inputs:
   path:
     description: 'Application or workspace directory'

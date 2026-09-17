@@ -4,7 +4,7 @@ import { credentialLogin, passwordFromStdin } from "../oci/credential-config.ts"
 import { authCheck } from "./auth-check.ts";
 import { verifyKeylessImage } from "./keyless.ts";
 import { runInvocation } from "../runtime/invocation.ts";
-import { supportedBunVersion } from "./bun-version.ts";
+import { supportedBunVersion, supportedBunRange } from "./bun-version.ts";
 import { RebaseDecisionError } from "./rebase-decision.ts";
 import { baseStatus, rebaseTargets, rebasePolicyTemplate } from "./rebase-operations.ts";
 import { rebase } from "./rebase.ts";
@@ -231,7 +231,7 @@ export function booleanArguments(argv: string[], options: Record<string, { type:
 export async function main(argv: string[]): Promise<number> {
   let jsonProgress = false, rebaseDryRun = false;
   try {
-    if (!supportedBunVersion(Bun.version)) throw new Error(`Bunko requires Bun >=1.3.13 <1.5 (received ${Bun.version}). Upgrade Bun, or use bunko 0.1.4 for Bun 1.3.11/1.3.12.`);
+    if (!supportedBunVersion(Bun.version)) throw new Error(`Bunko requires Bun ${supportedBunRange} (received ${Bun.version}). Upgrade Bun, or use bunko 0.1.4 for Bun 1.3.11/1.3.12.`);
     const options = {
       "image-label": { type: "string", multiple: true },
       "image-annotation": { type: "string", multiple: true },
