@@ -31,7 +31,7 @@ export async function smokeRebase(store: BlobStore, images: { manifest: Descript
     await exportDockerArchive(store, image.manifest, archive, reference, 0);
     try {
       await command(["docker", "load", "--input", archive], `${platform} load`, loadTimeoutSeconds * 1000);
-      await command(["docker", "run", "--rm", "--name", container, "--pull=never", "--platform", `${image.platform.os}/${image.platform.architecture}`, "--read-only", "--network=none", "--user=65532:65532", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", "--entrypoint", argv[0]!, reference, ...argv.slice(1)], `${platform} run`, 60_000);
+      await command(["docker", "run", "--rm", "--name", container, "--pull=never", "--platform", `${image.platform.os}/${image.platform.architecture}`, "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--network=none", "--user=65532:65532", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", "--entrypoint", argv[0]!, reference, ...argv.slice(1)], `${platform} run`, 60_000);
     } finally {
       for (const args of [["docker", "rm", "--force", container], ["docker", "image", "rm", reference]]) try { await command(args, `${platform} cleanup`, 10_000, true); } catch { /* Preserve the acceptance result; resources have unique names. */ }
     }

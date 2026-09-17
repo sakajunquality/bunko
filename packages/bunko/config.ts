@@ -1,3 +1,4 @@
+import { validateUser } from "../oci/image.ts";
 import { runtimeKind, nodeMajor, nodePath, nodeArguments } from "./node-runtime.ts";
 import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
@@ -406,7 +407,7 @@ export async function loadProject(options: BuildOptions, workspace?: Workspace):
     runtimeLibc: libc,
     runtimeInject: runtimeInject as "release" | undefined,
     bunPath: runtimePath,
-    user: optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user"), env, labels, ports,
+    user: validateUser(optionalString(options.imageUser, "image user") ?? optionalString(config.user, "user")), env, labels, ports,
     args: strings(config.args, "args"),
     assetMappings: assetMappings(config.assetMappings),
     assets: [...new Set([...strings(config.assets, "assets").map((p) => relativePath(p, "assets pattern")), ...(dataPath ? ["bunkodata"] : [])])],

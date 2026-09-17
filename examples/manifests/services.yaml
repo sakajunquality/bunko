@@ -11,6 +11,15 @@ spec:
     metadata:
       labels: { app: api }
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: scratch
+          emptyDir: { sizeLimit: 64Mi }
       containers:
         - name: api
           image: bunko://services/api
@@ -18,7 +27,21 @@ spec:
             - containerPort: 3000
           # bunko images default to the nonroot 65532:65532 user, so these
           # hardening defaults hold without an explicit bunko.user.
+          env:
+            - { name: TMPDIR, value: /tmp }
+            - { name: XDG_CACHE_HOME, value: /tmp }
+          volumeMounts:
+            - { name: scratch, mountPath: /tmp }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: '1', memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+          livenessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
           securityContext:
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
@@ -36,12 +59,35 @@ spec:
     metadata:
       labels: { app: worker }
     spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      volumes:
+        - name: scratch
+          emptyDir: { sizeLimit: 64Mi }
       containers:
         - name: worker
           image: bunko://services/worker
           ports:
             - containerPort: 3000
+          env:
+            - { name: TMPDIR, value: /tmp }
+            - { name: XDG_CACHE_HOME, value: /tmp }
+          volumeMounts:
+            - { name: scratch, mountPath: /tmp }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: '1', memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+          livenessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
           securityContext:
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:

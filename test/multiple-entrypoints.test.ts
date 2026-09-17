@@ -23,7 +23,7 @@ test("one image contains named entries, shared chunks, and an overridable defaul
   const options = { path: f.source, baseLayout: f.base, gitMetadata: false, cacheDir: join(f.root, "cache") };
   const image = await build({ ...options, output: join(f.root, "out"), verifyDeterministic: true });
   const config = await readJSON<ImageConfig>(image.layout!, image.config);
-  expect(config.config?.Entrypoint).toEqual(["/usr/local/bin/bun"]);
+  expect(config.config?.Entrypoint).toEqual(["/usr/local/bin/bun", "--no-install"]);
   expect(config.config?.Cmd).toEqual(["/app/src/server.js", "default-argument"]);
   expect(image.defaultEntrypoint).toBe("server");
   expect(image.images[0]!.entrypoints).toEqual({ server: "/app/src/server.js", worker: "/app/src/worker.js" });
