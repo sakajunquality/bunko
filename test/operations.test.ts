@@ -84,7 +84,7 @@ test("dependency extraction accepts PAX paths and internal links but rejects tra
 
 test("apply never starts kubectl after invalid resolve and preserves kubectl exit status", async () => {
   const root = await fixture(), marker = join(root, "called"), kubectl = join(root, "kubectl");
-  await writeFile(kubectl, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(marker)},await Bun.stdin.text());console.log("applied");console.error("diagnostic");process.exit(7);`, { mode: 0o755 });
+  await writeFile(kubectl, `#!${process.execPath}\nif(process.argv[2] === "get") process.exit(0);await Bun.write(${JSON.stringify(marker)},await Bun.stdin.text());console.log("applied");console.error("diagnostic");process.exit(7);`, { mode: 0o755 });
   const invalid = join(root, "bad.yaml"), valid = join(root, "valid.yaml");
   await writeFile(invalid, 'image: "bunko://app "\n');
   await writeFile(valid, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: example\n");
@@ -142,7 +142,7 @@ test("apply preserves kubectl output if a report path becomes unwritable", async
   const root = await fixture(), report = join(root, "report.json"), kubectl = join(root, "kubectl"), input = join(root, "input.yaml");
   await writeFile(input, "kind: ConfigMap\napiVersion: v1\nmetadata: {name: test}\n");
   // A directory appearing at the report path is refused at write time; the earlier regular-file case is now an ordinary replacement.
-  await writeFile(kubectl, `#!${process.execPath}\nimport {mkdir} from "node:fs/promises";await Bun.stdin.text();await mkdir(${JSON.stringify(report)});console.log("applied");`, { mode: 0o755 });
+  await writeFile(kubectl, `#!${process.execPath}\nimport {mkdir} from "node:fs/promises";if(process.argv[2] === "get") process.exit(0);await Bun.stdin.text();await mkdir(${JSON.stringify(report)});console.log("applied");`, { mode: 0o755 });
   const result = await applyDocuments({ files: [input], context: root, kubectlPath: kubectl, report });
   expect(result.exit).toBe(1); expect(result.stdout).toBe("applied\n"); expect(result.stderr).toContain("Could not write apply report");
   expect(await readdir(report)).toEqual([]);
@@ -165,4 +165,26 @@ test("remote prune verifies ownership and never falls back to digest deletion", 
   expect((await pruneRegistry(repo, false, registry)).tags).toHaveLength(1); expect(deletes).toHaveLength(0);
   await expect(pruneRegistry(repo, true, registry)).rejects.toThrow("No manifest deletion");
   expect(deletes).toEqual([`/v2/cache/manifests/${tag}`]);
+});
+
+
+test("failed cluster preflight prevents registry writes even with client dry-run", async () => {
+  const root = await fixture(), remote = new MockRegistry();
+  const source = await project(join(root, "app")), base = await baseLayout(join(root, "base"));
+  const input = join(root, "input.yaml"), kubectl = join(root, "kubectl"), report = join(root, "report.json"), argsFile = join(root, "args.json");
+  await writeFile(input, "apiVersion: v1\nkind: Pod\nmetadata: { name: example }\nspec: { containers: [{name: app, image: 'bunko://app'}] }\n");
+  await writeFile(kubectl, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(argsFile)},JSON.stringify(process.argv.slice(2)));process.exit(4);`, { mode: 0o755 });
+  await expect(applyDocuments({ context: root, files: [input], baseLayout: base, kubectlPath: kubectl, kubeContext: "test-context", kubeDryRun: "client", kubeValidate: "false", repo: "registry.test/team", registry: { fetcher: remote.fetch, credentials: async () => undefined }, localCache: false, registryCache: false, gitMetadata: false, report })).rejects.toThrow("kubectl preflight failed (exit 4)");
+  expect(remote.requests.every((request) => ["GET", "HEAD"].includes(request.method))).toBe(true);
+  expect(JSON.parse(await readFile(argsFile, "utf8"))).toEqual(["get", "--raw=/version", "--request-timeout=10s", "--context", "test-context"]);
+  expect(JSON.parse(await readFile(report, "utf8")).phase).toBe("preflight");
+});
+
+for (const validate of ["strict", "warn", "ignore", "true", "false"]) test(`apply CLI forwards --validate=${validate}`, async () => {
+  const root = await fixture(), input = join(root, "input.yaml"), kubectl = join(root, "kubectl");
+  await writeFile(input, "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: example }\n");
+  await writeFile(kubectl, `#!${process.execPath}\nif(process.argv[2] === "get") process.exit(0);await Bun.stdin.text();console.log(JSON.stringify(process.argv.slice(2)));`, { mode: 0o755 });
+  const child = Bun.spawn([process.execPath, "packages/bunko/cli.ts", "apply", "-f", input, "--context", root, "--kubectl-path", kubectl, `--validate=${validate}`], { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(stderr).toBe(""); expect(exit).toBe(0); expect(JSON.parse(stdout)).toContain(`--validate=${validate}`);
 });

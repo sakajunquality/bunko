@@ -168,7 +168,7 @@ export function renderInputs(inputs: Input[], references: Map<string, string>): 
   return output;
 }
 
-export async function resolveDocuments(options: ResolveOptions): Promise<{ output: string; targets: BuildResult[] }> {
+export async function resolveDocuments(options: ResolveOptions, beforePublish?: (output: string) => Promise<void>): Promise<{ output: string; targets: BuildResult[] }> {
   options = supplyChainOptions(options);
   validateCacheOptions(options);
   if (options.externalDepsByTarget) options = { ...options, externalDepsByTarget: await canonicalDependencyMap(options.externalDepsByTarget) };
@@ -227,6 +227,7 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
     // Validate complete rendered output before any publication. Only the caller
     // writes stdout, after every finish and the optional report have succeeded.
     const output = renderInputs(inputs, references);
+    if (output.trim()) await beforePublish?.(output);
     for (const batch of batches) {
       await batch.finish();
       for (const target of batch.results) completed.add(names.get(target.target)!);
