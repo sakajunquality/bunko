@@ -1,3 +1,4 @@
+import { mapJobs } from "../packages/bunko/concurrency.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -115,14 +116,17 @@ describe("isolated Bun dependency preparation", () => {
     await expect(loadProject({ path: fixture.source })).rejects.toThrow("registry dependencies only");
   });
 
-  test("keeps npm credentials out of resolution metadata and removes install auth files", async () => {
+  test.each([false, true])("keeps npm credentials out of resolution metadata and removes install auth files (scope=%s)", async (scoped) => {
     const root = await dir(), fixture = await dependencyFixture(root);
     await writeFile(join(fixture.source, ".npmrc"), "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=private-test-token\n");
     const project = await loadProject({ path: fixture.source }), plan = await dependencyPlan(project, fixture.source);
     expect(JSON.stringify(plan.resolution)).not.toContain("private-test-token");
     const stage = join(root, "stage"); await cp(fixture.source, stage, { recursive: true });
-    await installDependencies(stage, plan, await selectToolchain(), undefined, fixture.cache);
-    expect(await Bun.file(join(stage, ".npmrc")).exists()).toBe(false);
+    await mapJobs([0], 1, async () => {
+      await installDependencies(stage, plan, await selectToolchain(), undefined, fixture.cache);
+      // Credentials must be gone before subsequent bundling, not just scope exit.
+      expect(await Bun.file(join(stage, ".npmrc")).exists()).toBe(false);
+    }, { cancelOnFailure: scoped });
     expect(await readFile(join(fixture.source, ".npmrc"), "utf8")).toContain("private-test-token");
   });
 

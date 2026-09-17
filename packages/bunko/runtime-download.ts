@@ -1,3 +1,4 @@
+import { cleanupAfterTasks } from "../runtime/invocation.ts";
 import { runWithDeadline } from "../runtime/invocation.ts";
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
@@ -58,7 +59,7 @@ export async function verifiedChecksums(signed: Uint8Array): Promise<string> {
       if (!match) throw new Error("Expected a clear-signed Bun checksum document");
       return match[1]!.split("\n").map((line) => line.startsWith("- ") ? line.slice(2) : line).join("\n");
     } finally { /* The deadline owns process termination. */ }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await cleanupAfterTasks(() => rm(root, { recursive: true, force: true })); }
 }
 export function archiveChecksum(text: string, asset: string): Digest {
   const names = new Map<string, string>();
@@ -230,5 +231,5 @@ export async function downloadRuntime(toolchain: Toolchain, platform: Platform, 
       await writeFile(options.destination, executable, { mode: 0o600, flag: "wx" });
       return { executable: { source: options.destination, size: executable.length }, metadata: { source: "github-release", version: toolchain.version, expectedRevision: toolchain.revision, releaseRevision: revision, revisionVerified: false, checksumDocumentDigest, noticeDigest: sha256(Buffer.from(runtimeNotices[toolchain.version]!)), archiveDigest: digest, executableDigest: sha256(executable), url: `${base}/${asset}.zip`, signer: runtimeSigner, policy: runtimePolicy, asset, libc, cpu: platform.architecture === "amd64" ? "x64-baseline" : "aarch64", path: "/usr/local/bin/bun", ...elf } satisfies InjectedRuntime };
     }, () => true, 35 * 60_000);
-  } finally { if (ephemeral) await rm(ephemeral, { recursive: true, force: true }); }
+  } finally { if (ephemeral) await cleanupAfterTasks(() => rm(ephemeral, { recursive: true, force: true })); }
 }

@@ -1,3 +1,4 @@
+import { cleanupAfterTasks } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
@@ -654,7 +655,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         return result;
       },
     };
-  } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+  } catch (error) { await cleanupAfterTasks(() => rm(temporary, { recursive: true, force: true })); throw error; }
 }
 
 /** Single-target API retained for callers that expect one BuildResult. */
@@ -813,7 +814,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       const input = await targetInputs(source, project, sourceDigest);
       const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtime, signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
-    });
+    }, { cancelOnFailure: true });
     prepared.splice(0, prepared.length, ...ordered);
     for (const item of prepared) item.result.syntaxValidation = { ...syntax.stats };
     const results = prepared.map((item) => item.result);

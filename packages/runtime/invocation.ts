@@ -9,17 +9,66 @@ interface Invocation {
   directories: Set<string>;
 }
 const current = new AsyncLocalStorage<Invocation>();
+interface AbortScope { signal: AbortSignal; draining: Set<Promise<unknown>>; detach: Set<() => void>; cleanups: (() => Promise<unknown>)[] }
+const scopes = new AsyncLocalStorage<AbortScope>();
+
+/** Cancel a cooperating task group without aborting its enclosing invocation or
+ * unrelated library calls. Child processes are terminated and drained before return. */
+export async function runAbortScope<T>(task: (abort: (reason: unknown) => void) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const scope: AbortScope = { signal: invocationSignal(controller.signal)!, draining: new Set(), detach: new Set(), cleanups: [] };
+  return scopes.run(scope, async () => {
+    let failed = false;
+    try { return await task((reason) => controller.abort(reason)); }
+    catch (error) { failed = true; controller.abort(error); throw error; }
+    finally {
+      try {
+        await Promise.all([...scope.draining]);
+        const cleanup = await Promise.allSettled(scope.cleanups.map((remove) => remove()));
+        if (cleanup.some((result) => result.status === "rejected")) throw new Error("Some task scratch could not be removed");
+      } catch (error) {
+        if (!failed) throw error;
+        process.stderr.write("bunko: task cleanup could not complete; scratch may be retained\n");
+      } finally { for (const detach of scope.detach) detach(); }
+    }
+  });
+}
+
+/** A callback's finally runs before its rejection can cancel siblings. Defer
+ * subprocess scratch cleanup until the whole group has drained, including the
+ * first failing callback. Outside a group preserve immediate cleanup. */
+export async function cleanupAfterTasks(cleanup: () => Promise<unknown>): Promise<void> {
+  const scope = scopes.getStore();
+  if (scope) scope.cleanups.push(cleanup);
+  else await cleanup();
+}
+
+async function killAndDrainGroup(child: Bun.Subprocess): Promise<void> {
+  killChild(child, "SIGKILL");
+  await child.exited;
+  if (process.platform === "win32") return;
+  for (;;) {
+    try { process.kill(-child.pid, 0); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
+    // A still-live group must retain scratch. CLI hard cancellation remains the
+    // escape hatch when the OS cannot reap it; do not race cleanup against it.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 /** Library calls outside a CLI invocation retain their existing behavior. */
-export function throwIfCancelled(): void { current.getStore()?.controller.signal.throwIfAborted(); }
+export function throwIfCancelled(): void { invocationSignal()?.throwIfAborted(); }
 export function invocationSignal(signal?: AbortSignal | null): AbortSignal | undefined {
-  const own = current.getStore()?.controller.signal;
+  const own = scopes.getStore()?.signal ?? current.getStore()?.controller.signal;
   return own && signal ? AbortSignal.any([own, signal]) : own ?? signal ?? undefined;
 }
 
 function killChild(child: Bun.Subprocess, signal: "SIGTERM" | "SIGKILL"): void {
   // Each CLI-owned process starts a new group on Unix, so its helpers receive the
-  // same signal. Outside an invocation we never alter process-group behavior.
+  // same signal. Outside an invocation or task scope, group behavior is unchanged.
   try { if (process.platform !== "win32") process.kill(-child.pid, signal); else child.kill(signal); }
   catch { try { child.kill(signal); } catch { /* Already exited. */ } }
 }
@@ -28,11 +77,24 @@ function trackedSpawn(allowCancelled: boolean): typeof Bun.spawn {
   return new Proxy(Bun.spawn, {
     apply(target, receiver, args) {
       if (!allowCancelled) throwIfCancelled();
-      const invocation = current.getStore();
-      if (invocation && process.platform !== "win32") {
+      const invocation = current.getStore(), scope = scopes.getStore();
+      if ((invocation || scope) && process.platform !== "win32") {
         args = Array.isArray(args[0]) ? [args[0], { ...args[1], detached: true }] : [{ ...args[0], detached: true }];
       }
       const child = Reflect.apply(target, receiver, args) as Bun.Subprocess;
+      if (scope && !allowCancelled) {
+        const abort = () => {
+          killChild(child, "SIGTERM");
+          // Keep escalation after the leader exits: descendants can retain pipes.
+          const escalation = new Promise<void>((resolve) => setTimeout(resolve, 1000)).then(() => killAndDrainGroup(child));
+          scope.draining.add(escalation); scope.draining.add(child.exited);
+        };
+        scope.signal.addEventListener("abort", abort, { once: true });
+        if (scope.signal.aborted) abort();
+        // A leader may exit while descendants retain output pipes. Keep group
+        // cancellation until the cooperating tasks finish draining those pipes.
+        scope.detach.add(() => scope.signal.removeEventListener("abort", abort));
+      }
       if (invocation) {
         invocation.children.add(child);
         if (allowCancelled) invocation.cleanup.add(child);
