@@ -1,6 +1,6 @@
 # v0.12.1
 
-This patch release hardens cancellation scratch retention, deferred import handling, cache identity/pruning safety, Docker credential matching and CI fixture reproducibility.
+This patch release hardens cancellation scratch retention, deferred import handling, cache identity/pruning safety, Docker credential matching and CI fixture reproducibility. Runtime-layer cache validation continues to authenticate the uncompressed DiffID while allowing equivalent compressed repacks, so a runtime descriptor digest can change without a runtime-content change.
 
 # v0.12.0
 

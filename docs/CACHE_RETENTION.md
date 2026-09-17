@@ -69,7 +69,7 @@ Bun's extracted package download cache is trusted build input. Reusing an entry 
 
 Prune results list layer key records as `<kind>/<digest>.json` and closure plan records as `plans/deps/<digest>.json` in `keys`. Cache events describe lookup attempts. Every closure build now records a `deps-plan` entry whose status is `local`, `registry`, `miss` or `bypass`, in local-only builds as well — it is the one report change a build with no registry cache sees. It describes the closure index rather than a layer, so anything that aggregates layer reuse rates should exclude it; an invalid or unavailable closure plan may be followed by a lookup of the newly projected content key.
 
-Orphaned closure plans and plans using an obsolete layout or pack format are reclaimed before age or byte-budget selection. Their dependency layers remain available unless those layer records are independently selected for pruning.
+Orphaned closure plans and plans using the superseded closure-plan layout are reclaimed before age or byte-budget selection. Plans with unknown layouts remain unmanaged and retain their possible references until a compatible reader can inspect them. Their dependency layers remain available unless those layer records are independently selected for pruning.
 
 ## Export outcomes and immutable repositories
 
