@@ -26,7 +26,7 @@ commandTests:
 metadataTest:
   user: '65532:65532'
   workdir: /app
-  entrypoint: [/usr/local/bin/bun]
+  entrypoint: [/usr/local/bin/bun, '--no-install']
   cmd: [/app/src/server.js]
   envVars:
     - key: BUNKO_DATA_PATH
