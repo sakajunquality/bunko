@@ -487,7 +487,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           }
         }
         if (native.length && !project.base && !options.baseLayout) throw new Error("Native dependencies require an explicit --base or bunko.base containing their shared libraries; the default distroless base may not provide libgcc/libstdc++ (use a suitable Bun slim/custom base)");
-        const appKey = cacheKey({ kind: "app", format: "application-v2", builder: context.builder.digest, packFormat, epoch: timestamp,
+        const appKey = cacheKey({ kind: "app", format: "application-v3", builder: context.builder.digest, packFormat, epoch: timestamp,
           compileRuntime: compileRuntimes[index]?.metadata, compileRuntimeArgs: project.mode === "compile" ? project.runtimeArgs : undefined, sourceDigest: context.inputDigest, toolchainExecutable: context.toolchainDigest, host: { os: process.platform, arch: process.arch }, targetPath: project.targetPath, entrypoint: project.entrypoint, entrypoints: project.entrypoints, defaultEntrypoint: project.defaultEntrypoint, mode: project.mode, build: project.build,
           destination: project.workdir, dependencies: depsLayer?.descriptor.digest, dependencyArtifact: dependencyArtifactDigest,
           aliases: await assetInputs(aliases), ...dependencyInputs(plan, toolchain, platform, base.descriptor.digest, project) });

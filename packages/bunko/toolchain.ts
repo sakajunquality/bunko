@@ -3,7 +3,7 @@ import { spawn } from "../runtime/invocation.ts";
 import { supportedBunVersion, supportedBunRange } from "./bun-version.ts";
 import { runtimeELF, releaseRevision, type downloadRuntime } from "./runtime-download.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
-import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
+import { locationHint, validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
 import { copyFile, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -138,6 +138,21 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     });
     delete map.sourceRoot;
     await writeFile(full, canonicalJSON(map));
+  }
+  // Module-location inlining can bake the random build snapshot into runnable code.
+  // A stable host path would still be invalid inside the image; require relocation instead.
+  const prefixes = [contextRoot, JSON.stringify(contextRoot).slice(1, -1)];
+  for (const path of Object.keys(outputs).filter((path) => /\.[cm]?js$/.test(path))) {
+    const code = await readFile(resolve(outdir, path), "utf8");
+    // Bun escapes non-ASCII paths (including TMPDIR) in emitted string literals.
+    const decoded = code.replace(/\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/g, (escape, point, unit, byte) => {
+      const value = Number.parseInt(point ?? unit ?? byte, 16);
+      return value <= 0x10ffff ? String.fromCodePoint(value) : escape;
+    });
+    if (prefixes.some((prefix) => code.includes(prefix) || decoded.includes(prefix))) {
+      const hint = locationHint(locations.packages);
+      throw new Error(`Bundle contains a build snapshot path in ${relative(outdir, resolve(outdir, path))}. ${hint ?? "Use source mode or an explicit runtime asset root"}. Module-location warnings cannot waive embedded build paths.`);
+    }
   }
   const inventory: InventoryEntry[] = [];
   const packageDirectories = new Set<string>();
