@@ -58,6 +58,7 @@ async function killAndDrainGroup(child: Bun.Subprocess): Promise<void> {
     // escape hatch when the OS cannot reap it; do not race cleanup against it.
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+  throw new Error("Cancelled process group did not exit before the drain deadline");
 }
 
 /** Library calls outside a CLI invocation retain their existing behavior. */
