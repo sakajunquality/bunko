@@ -80,12 +80,19 @@ export async function setup(options: SetupOptions) {
   const verifyAttestation = options.verifyAttestation !== false;
   if (!["linux", "darwin"].includes(process.platform)) throw new Error("setup-bunko currently supports Linux and macOS runners");
   if (options.sourceCommit && (!verifyAttestation || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(options.sourceCommit))) throw new Error("source-commit requires attestation verification and a full commit digest");
-  const tag = releaseTag(options.version), repository = options.repository ?? "sakajunquality/bunko";
+  const latest = options.version === "latest", repository = options.repository ?? "sakajunquality/bunko";
+  if (latest && options.distribution) throw new Error("latest cannot be used with distribution-directory; select an explicit release version");
+  let tag = latest ? "" : releaseTag(options.version);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || repository.split("/").some((part) => part === "." || part === "..")) throw new Error("Invalid release repository");
   let load: (name: string) => Promise<Uint8Array>;
   if (options.distribution) load = (name) => localAsset(options.distribution!, name);
   else {
-    const metadata = JSON.parse(Buffer.from(await githubBytes(new URL(`https://api.github.com/repos/${repository}/releases/tags/${tag}`), options.token, "application/vnd.github+json", options.fetcher)).toString());
+    const metadata = JSON.parse(Buffer.from(await githubBytes(new URL(`https://api.github.com/repos/${repository}/releases/${latest ? "latest" : `tags/${tag}`}`), options.token, "application/vnd.github+json", options.fetcher)).toString());
+    if (latest) {
+      if (typeof metadata.tag_name !== "string" || metadata.draft !== false || metadata.prerelease !== false) throw new Error("Unexpected latest stable release metadata");
+      tag = releaseTag(metadata.tag_name);
+      if (tag !== metadata.tag_name || tag.includes("-")) throw new Error("latest must resolve to a full stable release tag");
+    }
     if (metadata.tag_name !== tag || metadata.draft || !Array.isArray(metadata.assets)) throw new Error("Unexpected GitHub release metadata");
     load = (name) => {
       const assets = metadata.assets.filter((asset: { name?: string }) => asset.name === name);
