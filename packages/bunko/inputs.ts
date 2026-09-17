@@ -49,7 +49,7 @@ export async function targetInputs(root: string, project: Project, fallback: Dig
         const pending: Node[] = [source];
         while (pending.length) {
           const node = pending.pop()!, specifier = moduleSpecifier(node);
-          if (is(node, "ImportExpression") && node.phase === "defer") return { digest: fallback };
+          if ((is(node, "ImportDeclaration") && node.phase === "defer") || is(node, "ImportExpression") && node.phase === "defer") return { digest: fallback };
           if (specifier) { const text = stringValue(specifier); if (text === undefined) return { digest: fallback }; imports.push(text); }
           forEachChild(node, (child) => { pending.push(child); });
         }

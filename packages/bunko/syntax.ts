@@ -10,6 +10,7 @@ export function rejectMacroSyntax(code: string, name: string, analysis?: () => S
     const node = pending.pop()!;
     const declaration = is(node, "ImportDeclaration") || is(node, "ExportNamedDeclaration") || is(node, "ExportAllDeclaration") ? node : undefined;
     const dynamic = is(node, "CallExpression") && is(node.callee, "Import") ? node : undefined;
+    if (declaration && "phase" in declaration && declaration.phase === "defer") throw new Error(`Deferred imports are not supported: ${name}`);
     if (is(node, "ImportExpression") && node.phase === "defer") throw new Error(`Deferred imports are not supported: ${name}`);
     const specifier = moduleSpecifier(node), text = stringValue(specifier);
     let unsafeAttributes = false, dataLoader: string | undefined;
