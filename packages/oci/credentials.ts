@@ -56,18 +56,21 @@ export function dockerCredentials(file = process.env.BUNKO_DOCKER_CONFIG ?? join
 }
 
 export async function configuredCredentials(config: Record<string, unknown>, registry: string, helper: HelperRunner = runHelper, configured?: () => void, normalizeHosts = false): Promise<Credential | undefined> {
+    const isDockerDesktopToken = (key: string): boolean => /^(?:https?:\/\/)?(?:index\.docker\.io|registry-1\.docker\.io)\/v1\/(?:access-token|refresh-token)\/?$/.test(key);
     const matches = (key: string): boolean => {
       try { return (normalizeHosts ? registryHost(credentialHost(key), true) : credentialHost(key)) === registry; } catch { return false; }
     };
     const matchingEntry = (entries: Record<string, unknown>): [string, unknown] | undefined => {
-      const found = Object.entries(entries).filter(([key]) => matches(key));
+      const found = Object.entries(entries).filter(([key]) => matches(key) && !isDockerDesktopToken(key));
       if (normalizeHosts && found.length > 1) throw new Error("Ambiguous credential entries for registry");
       return found[0];
     };
     const helpers = config.credHelpers === undefined ? {} : object(config.credHelpers, "credHelpers");
     const auths = config.auths === undefined ? {} : object(config.auths, "auths");
     for (const key of [...Object.keys(helpers), ...Object.keys(auths)]) {
-      if (matches(key) && key.replace(/^https?:\/\//, "").replace(/\/$/, "").includes("/") && key !== "https://index.docker.io/v1/") throw new Error("Repository-scoped credentials cannot be used as host-wide credentials");
+      const normalized = key.replace(/^https?:\/\//, "").replace(/\/$/, "");
+      const dockerDesktopToken = isDockerDesktopToken(key);
+      if (matches(key) && normalized.includes("/") && key !== "https://index.docker.io/v1/" && !dockerDesktopToken) throw new Error("Repository-scoped credentials cannot be used as host-wide credentials");
     }
     const perRegistry = matchingEntry(helpers)?.[1];
     const selected = perRegistry === "" || perRegistry === undefined ? (config.credsStore === "" ? undefined : config.credsStore) : perRegistry;

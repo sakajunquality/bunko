@@ -24,7 +24,7 @@ bun scripts/validation/format-fixtures.ts --write
 Verify reproducibility without modifying fixtures:
 
 ```sh
-bun scripts/validation/format-fixtures.ts
+bun run test:format-fixtures
 ```
 
 The generator requires the recorded Git objects locally and executes those

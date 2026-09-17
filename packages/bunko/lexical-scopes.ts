@@ -17,6 +17,7 @@ export function lexicalScopes(source: SourceFile, includeClassHeritage = true) {
   }
   function collect(node: Node, outer: Scope) {
     if (is(node, "ImportDeclaration") && node.importKind === "type" || is(node, "ImportSpecifier") && node.importKind === "type" || is(node, "TSImportEqualsDeclaration") && node.importKind === "type") return;
+    if ((node.type.startsWith("TS") || ["VariableDeclaration", "ClassDeclaration", "FunctionDeclaration"].includes(node.type)) && (node as unknown as { declare?: boolean }).declare) return;
     if (node.type.startsWith("TS") && !runtimeTS.has(node.type)) return;
     let scope = outer;
     const fn = functions.has(node.type);

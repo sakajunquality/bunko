@@ -1,5 +1,5 @@
 import { assertFormatVersion, type PersistedFormat } from "../compatibility/formats.ts";
-import { cleanupAfterTasks } from "../runtime/invocation.ts";
+import { cleanupAfterTasks, retainScratch } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
@@ -396,7 +396,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           const key = cacheKey({ kind: "runtime", policy: cachePolicies.runtime, packFormat, epoch: timestamp, platform, metadata: runtime.metadata });
           const hit = await cache.get(key, "runtime", options.verifyDeterministic, { destination: project.bunPath, platform });
           // Authenticated bytes, not registry-supplied metadata, determine the injected layer.
-          if (hit && (hit.layer.descriptor.digest !== runtime.layer.descriptor.digest || hit.layer.diffId !== runtime.layer.diffId)) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
+          if (hit && hit.layer.diffId !== runtime.layer.diffId) throw new Error("Runtime layer cache disagrees with authenticated release bytes");
           if (!hit && iteration === 1) records.push({ schemaVersion: 1, writer: cacheWriter, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
@@ -745,9 +745,10 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const prepared: PreparedBuild[] = [];
   const finished = new Set<string>(), reports = new Set<string>();
   let reportSafe = true;
-  const dispose = async () => {
-    await Promise.all(prepared.map((item) => item.dispose()));
-    await rm(temporary, { recursive: true, force: true });
+  const dispose = async (reason?: unknown) => {
+    const retain = Boolean(reason && (typeof reason === "object" || typeof reason === "function") && (reason as Record<symbol, unknown>)[retainScratch]);
+    if (!retain) await Promise.all(prepared.map((item) => item.dispose()));
+    if (!retain) await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
     if (report && reportSafe && !reports.has(report)) await writeFailureReport(report, {
@@ -841,7 +842,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       } catch (error) { await failure(error); throw error; }
     } };
   } catch (error) {
-    try { await failure(error); } finally { await dispose(); }
+    try { await failure(error); } finally { await dispose(error); }
     throw error;
   }
 }

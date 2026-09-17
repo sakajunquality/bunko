@@ -10,6 +10,8 @@ export function rejectMacroSyntax(code: string, name: string, analysis?: () => S
     const node = pending.pop()!;
     const declaration = is(node, "ImportDeclaration") || is(node, "ExportNamedDeclaration") || is(node, "ExportAllDeclaration") ? node : undefined;
     const dynamic = is(node, "CallExpression") && is(node.callee, "Import") ? node : undefined;
+    if (declaration && "phase" in declaration && declaration.phase === "defer") throw new Error(`Deferred imports are not supported: ${name}`);
+    if (is(node, "ImportExpression") && node.phase === "defer") throw new Error(`Deferred imports are not supported: ${name}`);
     const specifier = moduleSpecifier(node), text = stringValue(specifier);
     let unsafeAttributes = false, dataLoader: string | undefined;
     const supported = (key: string | undefined, value: Node) => {
@@ -64,6 +66,7 @@ export function rejectApplicationImports(code: string, name: string, analysis?: 
       const access = member(node.callee);
       if ((is(node.callee, "Import") || is(node.callee, "Identifier") && node.callee.name === "require" || access && is(access.base, "Identifier") && access.base.name === "require" && access.name === "resolve") && stringValue(node.arguments[0]) === undefined) throw new Error(`Computed require/import is not supported in application source: ${name}`);
     }
+    if (is(node, "ImportExpression") && node.phase === "defer") throw new Error(`Deferred imports are not supported in application source: ${name}`);
     forEachChild(node, (child) => { pending.push(child); });
   }
 }

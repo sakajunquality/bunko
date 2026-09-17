@@ -33,9 +33,9 @@ async function lockDirectory<T>(directory: string, operation: () => Promise<T>, 
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const owner = await readOwner(lock);
-      if (owner?.schemaVersion === 2 && owner.protocol === cacheMutexProtocol && owner.mutexIdentity === identity && await deadLocalOwner(lock)) {
-        // Require both the matching OS mutex and a dead owner on this host.
-        // Legacy writers never remove a lock they did not acquire.
+      if (owner?.schemaVersion === 2 && owner.protocol === cacheMutexProtocol && owner.mutexIdentity === identity) {
+        // Holding the matching OS mutex is the race-free recovery authority. PID and
+        // hostname are diagnostic only because CI workers routinely change hosts.
         const recovered = `${lock}.recovered-${randomUUID()}`;
         await rename(lock, recovered);
         await rm(recovered, { recursive: true });

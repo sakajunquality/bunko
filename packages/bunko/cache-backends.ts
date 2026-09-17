@@ -1,4 +1,4 @@
-import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, type CacheExportEvent, type CacheRecord, type ClosurePlanRecord } from "./cache.ts";
+import { CacheDriver, CacheConflictError, CacheExportError, cacheMetadataLimit, recordIdentity, type CacheExportEvent, type CacheRecord, type ClosurePlanRecord } from "./cache.ts";
 import { canonicalCachePath, type CacheLocation } from "./cache-backend-options.ts";
 import type { BlobStore } from "../oci/blob-store.ts";
 import type { RegistryOptions } from "../oci/registry.ts";
@@ -39,7 +39,7 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
       async writePlan(record: ClosurePlanRecord) {
         // A plan this backend just supplied is already there; skip the round trip that would prove it.
         const previous = verifiedPlans.get(record.planKey);
-        if (previous && Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
+        if (previous && Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record)))) {
           const event: CacheExportEvent = { backend: "registry", destination, key: record.planKey, kind: record.kind, status: "already-present", bytes: 0, durationMs: 0 };
           recordMetrics(event); return { event };
         }
@@ -56,7 +56,7 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
       }
       if (location.type === "registry") {
         const previous = verified.get(record.key);
-        if (previous && Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) {
+        if (previous && Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record)))) {
           const event: CacheExportEvent = { backend: "registry", destination, key: record.key, kind: record.kind, status: "already-present", bytes: 0, durationMs: 0 };
           recordMetrics(event); return { event };
         }
@@ -76,7 +76,7 @@ export function cacheBackend(location: CacheLocation, store: BlobStore, registry
         const writer = new CacheDriver(store, { directory: location.path, strictLocal: true, lookupMetrics: false, log });
         const previous = await writer.get(record.key, record.kind, false, { destination: record.destination, platform: record.platform });
         if (previous) {
-          if (!Buffer.from(canonicalJSON(previous)).equals(Buffer.from(canonicalJSON(record)))) throw new CacheConflictError("Different output for the same local cache key");
+          if (!Buffer.from(recordIdentity(previous)).equals(Buffer.from(recordIdentity(record)))) throw new CacheConflictError("Different output for the same local cache key");
           event.status = "already-present";
         } else {
           // Recheck under the write lock without carrying an earlier invalid-read bypass.

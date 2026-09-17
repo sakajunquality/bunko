@@ -1,6 +1,6 @@
 # Cache distribution and retention
 
-Bunko caches use its own OCI artifact format. They are not BuildKit cache records. Native/generated dependency keys retain platform and base compatibility inputs; this change does not introduce rebase or relax those constraints.
+Bunko caches use its own OCI artifact format (schema v1 cache records and `tar-gzip-v4` packing). They are not BuildKit cache records. Native/generated dependency keys retain platform and base compatibility inputs; this change does not introduce rebase or relax those constraints.
 
 ```sh
 bunko build . --repo registry.example/team/app \
@@ -41,7 +41,7 @@ Writes follow the layer rules: a registry cache write destination is required, `
 
 `bunko prune --cache-repo REPO` enumerates plan tags with the same ownership checks it applies to layer tags — the tag, artifact type, config media type and the plan key recorded inside the config must all agree — and deletes them under the same tag-only deletion rules, previewing unless `--execute` is given. Plan artifacts are listed in `tags` alongside layer artifacts. Deleting a plan tag only removes an index; the closure layer it named survives until its own tag is deleted, and a build that finds no plan simply installs and projects again. Provider retention or lifecycle policies that expire tags by age treat plan artifacts like any other cache tag, so no separate rule is needed; expiring a `deps` layer while its plan survives is harmless, because a plan is honoured only once the layer it names resolves.
 
-The byte budget covers validated key metadata plus its unique referenced blobs. Unknown files, unreferenced CAS objects, temporary files, lock metadata and filesystem overhead are excluded from that budget. Owned crash residue is accounted and reclaimed separately as described below. This is a managed-byte budget, not a bound on total directory disk usage.
+The byte budget covers validated key metadata plus its unique referenced blobs. Unrelated root files such as `.DS_Store` are reported but do not block orphan blob reclamation; unknown cache namespaces, metadata paths and directories still stop reclamation until they are inspected. Unreferenced CAS objects, temporary files, lock metadata and filesystem overhead are excluded from that budget. Owned crash residue is accounted and reclaimed separately as described below. This is a managed-byte budget, not a bound on total directory disk usage.
 
 Budget pruning chooses the oldest metadata modification time first with a deterministic key tie-break. It is not access-time LRU. Shared blobs are counted once and retained until every selected reference is removed. `--older-than` remains available for age-based retention and cannot be combined with `--keep-bytes`. Both modes preview by default. Only `--execute` deletes; validation and the cache lock precede deletion. There is no automatic build-time GC. Bun's package download cache (`--install-cache`, by default `${XDG_CACHE_HOME:-~/.cache}/bunko/install/v1`) and the verified runtime download cache are separate directories outside this budget; `cache-info` and `prune` do not manage them, so reclaim their space directly.
 
