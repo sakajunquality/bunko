@@ -27,7 +27,7 @@ Host support is `>=1.3.13 <1.4 || >=1.4.2 <1.5`. Compile mode and runtime inject
 
 ## Quick start from source
 
-Bunko v0.11.0 requires Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`; CI covers Bun 1.3.13 and 1.4.2. Published **v0.10.0** retains `>=1.3.13 <1.5` and can still be used with Bun 1.4.0/1.4.1. Published 0.1.4 remains available for Bun 1.3.11/1.3.12. The distributed `dist/bunko.js` bundles its YAML and TypeScript parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
+Bunko v0.11.0 requires Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`; CI covers Bun 1.3.13 and 1.4.2. Published **v0.10.0** retains `>=1.3.13 <1.5` and can still be used with Bun 1.4.0/1.4.1. Published 0.1.4 remains available for Bun 1.3.11/1.3.12. The distributed `dist/bunko.js` bundles its YAML and Babel syntax parsers and requires no external npm runtime dependencies. Install development dependencies before running from source:
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts

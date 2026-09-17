@@ -4,7 +4,7 @@
 
 ## 1. Scope
 
-Bundle standalone and workspace Bun applications, compose them with base images, and publish to OCI Registries, export complete OCI layouts or Docker archives, or load into Docker/kind. Supported Bun range: `>=1.3.13 <1.5`; validation baseline: 1.3.13. The distributed `dist/bunko.js` has no external npm runtime dependencies. Its pinned parsers, `yaml` 2.9.0 and TypeScript 5.9.3, are bundled with their licenses.
+Bundle standalone and workspace Bun applications, compose them with base images, and publish to OCI Registries, export complete OCI layouts or Docker archives, or load into Docker/kind. Supported Bun range: `>=1.3.13 <1.4 || >=1.4.2 <1.5`; CI covers 1.3.13 and 1.4.2. The distributed `dist/bunko.js` has no external npm runtime dependencies. Its pinned YAML and Babel syntax parsers are bundled with their licenses; see [PARSER.md](PARSER.md).
 
 A build can target `linux/amd64` and `linux/arm64` together. An omitted arm64 variant means v8. Platforms have a stable index order. Building never executes target binaries or emulators. Docker archives, local/kind loading, and `--no-index` require one platform.
 

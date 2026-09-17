@@ -1,6 +1,6 @@
 # Source parser
 
-bunko uses the pinned `@babel/parser` 7.29.8 behind `packages/bunko/parser.ts`. The parser is included in the distributed CLI; no Babel installation or native parser library is required on the build host. TypeScript 6 remains a development-only typechecker. Updating that compiler is a separate acceptance step: [TypeScript 7 does not provide the former JavaScript compiler API](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
+bunko uses the pinned `@babel/parser` 7.29.8 behind `packages/bunko/parser.ts`. The parser is included in the distributed CLI; no Babel installation or native parser library is required on the build host. TypeScript 7.0.2 is a development-only native typechecker; its platform package is needed for repository development, not for running the distributed bunko CLI. The parser is independent of this compiler: [TypeScript 7 does not provide the former JavaScript compiler API](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
 
 The adapter supplies syntax trees, child traversal, parent links, literal module specifiers and reference classification. Macro/data-import guards, lexical scope analysis, Node runtime guards, module-location diagnostics and conservative workspace input discovery share this boundary. Parsing does not resolve modules, execute source, transform code or load project Babel plugins/configuration. Bun still performs the actual build and module resolution.
 

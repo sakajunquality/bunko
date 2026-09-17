@@ -35,8 +35,9 @@ test("macro detection ignores documentation, strings, regexes, template text and
     'const jsx = <p>import x from "y" with {"{"}</p>;',
   ].join("\n"));
   await rejectMacros(file, file);
-  // Real starter-project dev dependencies contain examples of import attributes.
-  for (const packageFile of ["typescript/lib/typescript.js", "bun-types/bun.d.ts"]) {
+  // Real development dependencies exercise the installed TypeScript entrypoint,
+  // a large parser implementation and declaration-only import documentation.
+  for (const packageFile of ["typescript/lib/version.cjs", "@babel/parser/lib/index.js", "bun-types/bun.d.ts"]) {
     const path = resolve("node_modules", packageFile);
     await rejectMacros(path, path);
   }
