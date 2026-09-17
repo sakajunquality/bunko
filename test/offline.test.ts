@@ -1,3 +1,6 @@
+import { canonicalJSON, sha256 } from "../packages/oci/digest.ts";
+import { media } from "../packages/oci/types.ts";
+import { MockRegistry } from "./mock-registry.ts";
 import { exportLayouts } from "../packages/oci/layout.ts";
 import { BlobStore } from "../packages/oci/blob-store.ts";
 import { LayoutSource, resolveBase } from "../packages/oci/source.ts";
@@ -94,4 +97,48 @@ test("prepare-base deduplicates normalized platform aliases and exports one mult
   expect(layout.manifests).toHaveLength(1);
   expect(layout.manifests[0].annotations["org.opencontainers.image.ref.name"]).toMatch(/^bunko\.local\/prepared-base:sha256-/);
   for (const platform of [amd64, arm64]) expect((await resolveBase(new LayoutSource(output), platform, new BlobStore(join(directory, `verify-${platform.architecture}`)))).config.architecture).toBe(platform.architecture);
+});
+
+
+test("prepared registry bases retain original nested index identity without fetching unselected platforms", async () => {
+  const directory = await root(), input = await baseLayout(join(directory, "base")), store = new BlobStore(input), remote = new MockRegistry();
+  const envelope = await Bun.file(join(input, "index.json")).json(), manifest = envelope.manifests[0];
+  const image = JSON.parse(Buffer.from(await store.read(manifest)).toString());
+  for (const blob of [image.config, ...image.layers]) remote.blobs.set(`registry.test/base/${blob.digest}`, await store.read(blob));
+  remote.manifests.set(`registry.test/base/${manifest.digest}`, { bytes: await store.read(manifest), type: media.manifest });
+  const nestedBytes = canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests: [manifest] });
+  const nested = { digest: sha256(nestedBytes), size: nestedBytes.length, mediaType: media.index, platform: { os: "linux", architecture: "amd64" } };
+  remote.manifests.set(`registry.test/base/${nested.digest}`, { bytes: nestedBytes, type: media.index });
+  const missing = { ...manifest, digest: sha256(Buffer.from("unselected")), platform: { os: "linux", architecture: "arm64", variant: "v8" } };
+  const bytes = canonicalJSON({ schemaVersion: 2, mediaType: media.index, manifests: [nested, missing] }), digest = sha256(bytes);
+  remote.manifests.set(`registry.test/base/${digest}`, { bytes, type: media.index });
+  const registry = { fetcher: remote.fetch, credentials: async () => undefined }, base = `registry.test/base@${digest}`;
+  const prepared = join(directory, "prepared"), repeated = join(directory, "repeated");
+  expect((await prepareBase({ base, registry, output: prepared })).sourceDigest).toBe(digest);
+  expect((await prepareBase({ baseLayout: prepared, output: repeated })).sourceDigest).toBe(digest);
+  expect((await new LayoutSource(prepared).baseRoot()).descriptor.digest).toBe(digest);
+  expect(await Bun.file(new BlobStore(prepared).path(missing.digest)).exists()).toBe(false);
+  expect(remote.requests.some((request) => request.url.pathname.includes(missing.digest))).toBe(false);
+  const path = await project(join(directory, "app"));
+  const options = { path, localCache: false, registryCache: false, gitMetadata: false, push: false };
+  const online = await build({ ...options, base, registry, output: join(directory, "online") });
+  for (const [number, baseLayout] of [prepared, repeated].entries()) {
+    const layout = join(directory, `offline-${number}`);
+    const offline = await build({ ...options, baseLayout, offline: true, output: layout });
+    const config = JSON.parse(Buffer.from(await new BlobStore(layout).read(offline.config)).toString());
+    const onlineConfig = JSON.parse(Buffer.from(await new BlobStore(online.layout!).read(online.config)).toString());
+    expect(config.config.Labels["org.bunko.base.index.digest"]).toBe(digest);
+    expect(config.config.Labels["org.bunko.base.digest"]).toBe(manifest.digest);
+    expect(config.config.Labels["org.bunko.base.index.digest"]).toBe(onlineConfig.config.Labels["org.bunko.base.index.digest"]);
+  }
+  await expect(build({ ...options, baseLayout: prepared, offline: true, platform: "linux/arm64", output: join(directory, "absent") })).rejects.toThrow();
+});
+
+test("single-manifest layouts do not label their transport envelope as an image index", async () => {
+  const directory = await root(), input = await baseLayout(join(directory, "base"));
+  const prepared = join(directory, "prepared"); await prepareBase({ baseLayout: input, output: prepared });
+  for (const base of [input, prepared]) {
+    const resolved = await resolveBase(new LayoutSource(base), { os: "linux", architecture: "amd64" }, new BlobStore(join(directory, "store")));
+    expect(resolved.indexDigest).toBeUndefined();
+  }
 });

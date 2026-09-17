@@ -1,3 +1,5 @@
+import { inspectRebase } from "../packages/oci/rebase.ts";
+import { rebaseMetadata, rebaseMetadataLabel } from "../packages/oci/rebase-metadata.ts";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -158,4 +160,31 @@ test("volume key order is immaterial while changed mount declarations require re
   expect((await rebase({ ...same.options, dryRun: true })).root.digest).toMatch(/^sha256:/);
   const changed = await fixture({ Volumes: { "/a": {} } }, { Volumes: { "/a": {}, "/z": {} } });
   await expect(rebase({ ...changed.options, dryRun: true })).rejects.toThrow("Volumes");
+});
+
+
+test("legacy layout-envelope capsules rebase only against their verified original envelope", async () => {
+  const f = await fixture(), store = new BlobStore(join(f.root, "legacy-store"));
+  const platform = { os: "linux", architecture: "amd64" } as const;
+  const baseSource = new LayoutSource(f.old.directory), envelope = await baseSource.root();
+  const old = await resolveBase(baseSource, platform, store);
+  const image = await resolveBase(new LayoutSource(f.built.layout!), platform, store);
+  const inspected = inspectRebase(image, old);
+  expect(() => inspectRebase(image, { ...old, indexDigest: envelope.descriptor.digest, layoutDigest: undefined })).toThrow("old base identity mismatch");
+  const legacyOptions = { ...inspected.options, labels: { ...inspected.options.labels, "org.bunko.base.index.digest": envelope.descriptor.digest } };
+  const config = structuredClone(image.config);
+  config.config!.Labels!["org.bunko.base.index.digest"] = envelope.descriptor.digest;
+  config.config!.Labels![rebaseMetadataLabel] = rebaseMetadata({ ...old, indexDigest: envelope.descriptor.digest }, inspected.layers, legacyOptions, inspected.context);
+  const c = await store.put(canonicalJSON(config), media.config);
+  const m = await store.put(canonicalJSON({ ...image.manifest, config: c }), media.manifest);
+  const legacy = join(f.root, "legacy");
+  await exportLayout(store, legacy, m, [c, ...image.manifest.layers], "legacy");
+  const result = await rebase({ ...f.options, image: `layout:${legacy}`, output: join(f.root, "rebased-legacy") });
+  expect(result.platforms[0]!.preservedLayers).toEqual(f.built.layers.map((layer) => layer.descriptor.digest));
+  expect(() => inspectRebase({ ...image, config }, { ...old, layoutDigest: undefined })).toThrow("old base identity mismatch");
+  const changed = structuredClone(config);
+  const capsule = JSON.parse(changed.config!.Labels![rebaseMetadataLabel]!);
+  capsule.base.indexDigest = f.built.root.digest;
+  changed.config!.Labels![rebaseMetadataLabel] = JSON.stringify(capsule);
+  expect(() => inspectRebase({ ...image, config: changed }, old)).toThrow("old base identity mismatch");
 });

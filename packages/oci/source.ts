@@ -8,7 +8,7 @@ import { descriptor, object, sha256 } from "./digest.ts";
 import { media, type BaseImage, type Descriptor, type ImageConfig, type ImageManifest, type Platform } from "./types.ts";
 
 export interface ImageSource {
-  root(): Promise<{ descriptor: Descriptor; bytes: Uint8Array }>;
+  root(): Promise<{ descriptor: Descriptor; bytes: Uint8Array; layout?: boolean; layoutDigest?: Descriptor["digest"] }>;
   blob(d: Descriptor): Promise<AsyncIterable<Uint8Array>>;
 }
 
@@ -29,6 +29,18 @@ export class LayoutSource implements ImageSource {
     if (marker.imageLayoutVersion !== "1.0.0") throw new Error("Unsupported OCI layout version");
     const bytes = await layoutMetadata(join(this.directory, "index.json"), 8 * 1024 * 1024);
     return { bytes, descriptor: { mediaType: media.index, digest: sha256(bytes), size: bytes.length } };
+  }
+  /** The layout envelope is transport metadata, not the image's source index. */
+  async baseRoot(): ReturnType<ImageSource["root"]> {
+    const root = await this.root();
+    const index = object(JSON.parse(Buffer.from(root.bytes).toString()), "OCI layout index");
+    if (index.schemaVersion !== 2 || index.mediaType !== undefined && index.mediaType !== media.index || !Array.isArray(index.manifests)) throw new Error("Invalid OCI layout index");
+    const candidates = index.manifests.map(descriptor).filter((entry) => !entry.artifactType || [media.config, media.dockerConfig].includes(entry.artifactType as typeof media.config));
+    if (candidates.length !== 1) return { ...root, layout: true, layoutDigest: root.descriptor.digest };
+    const selected = candidates[0]!;
+    const bytes = await layoutMetadata(new BlobStore(this.directory).path(selected.digest), 8 * 1024 * 1024);
+    if (bytes.length !== selected.size || sha256(bytes) !== selected.digest) throw new Error(`Blob digest/size mismatch: ${selected.digest}`);
+    return { descriptor: selected, bytes, layoutDigest: root.descriptor.digest };
   }
   async blob(d: Descriptor) {
     const path = new BlobStore(this.directory).path(d.digest);
@@ -173,19 +185,23 @@ export function validateImageConfig(value: unknown, platform: Platform, layerCou
 }
 
 export async function resolveBase(source: ImageSource, platform: Platform, store: BlobStore, lazy = false): Promise<BaseImage> {
-  const root = await source.root();
+  const root = await (source instanceof LayoutSource ? source.baseRoot() : source.root());
+  const declared = root.descriptor.platform;
+  if (declared && (declared.os !== platform.os || declared.architecture !== platform.architecture || (declared.variant ?? (declared.architecture === "arm64" ? "v8" : undefined)) !== (platform.variant ?? (platform.architecture === "arm64" ? "v8" : undefined)))) throw new Error(`Expected exactly one base for ${platform.os}/${platform.architecture}, found 0`);
   await store.putStream(ReadableBytes(root.bytes), root.descriptor.mediaType, root.descriptor);
   async function metadata(d: Descriptor): Promise<Record<string, unknown>> {
     if (d.size > 8 * 1024 * 1024) throw new Error("Base metadata exceeds size limit");
     if (d.digest !== root.descriptor.digest) await store.putStream(await source.blob(d), d.mediaType, d);
     return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Base metadata");
   }
+  let indexDigest: BaseImage["indexDigest"];
   async function select(d: Descriptor, depth: number): Promise<{ descriptor: Descriptor; manifest: ImageManifest }> {
     if (depth > 8) throw new Error("Base index nesting limit exceeded");
     const value = await metadata(d);
     if (value.schemaVersion !== 2 || (value.mediaType != null && value.mediaType !== d.mediaType)) throw new Error("Unsupported or inconsistent base manifest schema");
     if ([media.index, media.dockerIndex].includes(d.mediaType as typeof media.index)) {
       if (!Array.isArray(value.manifests)) throw new Error("Invalid base index");
+      if (!indexDigest && !(depth === 0 && root.layout)) indexDigest = d.digest;
       const candidates = value.manifests.map(descriptor).filter((child) => {
         // OCI 1.1 index entries may carry artifactType; ko and BuildKit set it to the image config media type on
         // ordinary platform images. Only non-image artifacts (attestations, SBOMs, signatures) are skipped here; the
@@ -217,7 +233,8 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
     ...selected,
     manifest: { ...selected.manifest, layers },
     config,
-    indexDigest: [media.index, media.dockerIndex].includes(root.descriptor.mediaType as typeof media.index) ? root.descriptor.digest : undefined,
+    indexDigest,
+    ...(root.layoutDigest ? { layoutDigest: root.layoutDigest } : {}),
   };
 }
 

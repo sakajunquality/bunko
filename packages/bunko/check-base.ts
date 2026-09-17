@@ -34,7 +34,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
   const source = options.baseLayout ? new LayoutSource(resolve(options.baseLayout)) : new RegistrySource(reference,
     { ...options.registry, credentials: options.registry?.credentials ?? registryCredentials() });
   const requirements = options.requirementsReport ? await reportRequirements(options.requirementsReport) : undefined;
-  const pinned = await source.root();
+  const pinned = await (source instanceof LayoutSource ? source.baseRoot() : source.root());
   const directory = await mkdtemp(join(tmpdir(), "bunko-check-base-"));
   try {
     const results = [];

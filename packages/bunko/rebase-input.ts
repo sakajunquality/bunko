@@ -27,7 +27,8 @@ export async function rebaseInput(reference: string, registry: RegistryOptions, 
     }
     return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Rebase image metadata");
   }
-  const source: ImageSource = { root: async () => root, blob: origin.blob.bind(origin) };
+  const imageRoot = origin instanceof LayoutSource ? await origin.baseRoot() : root;
+  const source: ImageSource = { root: async () => imageRoot, blob: origin.blob.bind(origin) };
   async function resolveImage(platform: Platform): Promise<BaseImage> {
     const result = await resolveBase(source, platform, store, true);
     const raw = await json(result.descriptor);
