@@ -20,7 +20,7 @@ jobs:
         env:
           VERSION: ${{ vars.BUNKO_REBASE_VERSION }}
         run: '[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]'
-      - uses: sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3 # v0.1.1
+      - uses: sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516 # v0.2.0
         with:
           version: ${{ vars.BUNKO_REBASE_VERSION }}
       - name: Assess reviewed targets

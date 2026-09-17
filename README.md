@@ -176,7 +176,7 @@ Resolve directly into Docker or kind with `resolve --local` or `resolve --kind`.
 
 Use `--progress=json` for stage events on stderr. `.bunkoignore` excludes optional context inputs; required inputs cannot be ignored. `--cache-from` adds ordered trusted registry/local read locations, `--cache-to` selects explicit write destinations, `--cache-write=false` suppresses explicit exports and Registry cache writes, and `cache-info` / `prune --keep-bytes` provide managed local retention. See [Cache retention](docs/CACHE_RETENTION.md) for the trust boundary and explicit deletion contract.
 
-Version v0.8.0 provides [`bunko rebase`](docs/REBASE.md): replace a compatible, digest-pinned base while preserving application layers, with explicit configuration ownership, multi-platform preflight and new attestations. Existing v0.7.0 images need rebuilding with ownership metadata before rebasing.
+Version v0.12.0 provides [`bunko rebase`](docs/REBASE.md): replace a compatible, digest-pinned base while preserving application layers, with explicit configuration ownership, multi-platform preflight and new attestations. Existing v0.7.0 images need rebuilding with ownership metadata before rebasing.
 
 `metadata IMAGE@DIGEST --metadata-dir DIR` exports exact SPDX/provenance payloads. `--base-sbom`, `--deps-verify-key` and the opt-in `--supply-chain-policy ci` add explicit inventory linkage and producer policy. See [Metadata](docs/METADATA.md) for partial coverage and signing requirements. Private CA/mTLS configuration and zstd base reading are supported; generated layers remain gzip.
 
@@ -208,7 +208,7 @@ Ordinary tests need no network or Docker and include independent Python 3 tarfil
 - [Validation records and transfer measurements](docs/VALIDATION.md)
 - [Original v0.1 proposal, translated into English](docs/archive/SPEC-v0.1.md)
 
-Release preparation and GitHub Actions installation are documented in [RELEASING.md](docs/RELEASING.md). The dedicated [`sakajunquality/setup-bunko@fda03465af86c838bffea96da6b07d8c523f4fa3`](https://github.com/marketplace/actions/setup-bunko) Action (v0.1.1) installs bunko v0.8.0 and Bun 1.4.2 by default, with checksum and provenance verification enabled. Its Action version is independent of the CLI version; use `version` to select another published CLI release. The existing `sakajunquality/bunko@...` setup entry point remains supported with its original version resolution and provenance verification enabled by default on new revisions. See [the compatibility entry point](docs/RELEASING.md#existing-setup-entry-point) for those defaults.
+Release preparation and GitHub Actions installation are documented in [RELEASING.md](docs/RELEASING.md). The dedicated [`sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516`](https://github.com/marketplace/actions/setup-bunko) Action (v0.2.0) installs bunko v0.12.0 and Bun 1.4.2 by default, with checksum and provenance verification enabled. Its Action version is independent of the CLI version; use `version` to select another published CLI release or opt into `latest` stable resolution. The existing `sakajunquality/bunko@...` setup entry point remains supported with its original version resolution and provenance verification enabled by default on new revisions. See [the compatibility entry point](docs/RELEASING.md#existing-setup-entry-point) for those defaults.
 
 Licensed under [MIT](LICENSE). Bundled dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
