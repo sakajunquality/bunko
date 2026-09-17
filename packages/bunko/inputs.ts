@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, dirname, posix } from "node:path";
 import { isBuiltin } from "node:module";
-import { forEachChild, moduleSpecifier, parseSource, stringValue, type Node } from "./parser.ts";
+import { forEachChild, is, moduleSpecifier, parseSource, stringValue, type Node } from "./parser.ts";
 import type { Project } from "./config.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { Digest } from "../oci/types.ts";
@@ -49,6 +49,7 @@ export async function targetInputs(root: string, project: Project, fallback: Dig
         const pending: Node[] = [source];
         while (pending.length) {
           const node = pending.pop()!, specifier = moduleSpecifier(node);
+          if (is(node, "ImportExpression") && node.phase === "defer") return { digest: fallback };
           if (specifier) { const text = stringValue(specifier); if (text === undefined) return { digest: fallback }; imports.push(text); }
           forEachChild(node, (child) => { pending.push(child); });
         }

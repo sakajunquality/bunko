@@ -746,8 +746,9 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
   const finished = new Set<string>(), reports = new Set<string>();
   let reportSafe = true;
   const dispose = async (reason?: unknown) => {
-    await Promise.all(prepared.map((item) => item.dispose()));
-    if (!(reason && (typeof reason === "object" || typeof reason === "function") && (reason as Record<symbol, unknown>)[retainScratch])) await rm(temporary, { recursive: true, force: true });
+    const retain = Boolean(reason && (typeof reason === "object" || typeof reason === "function") && (reason as Record<symbol, unknown>)[retainScratch]);
+    if (!retain) await Promise.all(prepared.map((item) => item.dispose()));
+    if (!retain) await rm(temporary, { recursive: true, force: true });
   };
   const failure = async (error: unknown) => {
     if (report && reportSafe && !reports.has(report)) await writeFailureReport(report, {

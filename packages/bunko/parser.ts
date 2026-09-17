@@ -78,6 +78,7 @@ export function moduleSpecifier(node: Node): Node | undefined {
   if (is(node, "ImportDeclaration") || is(node, "ExportNamedDeclaration") || is(node, "ExportAllDeclaration")) return node.source ?? undefined;
   if (is(node, "TSExternalModuleReference")) return node.expression;
   if ((is(node, "CallExpression") || is(node, "OptionalCallExpression")) && (is(node.callee, "Import") || is(node.callee, "Identifier") && node.callee.name === "require")) return node.arguments[0];
+  if (is(node, "ImportExpression")) return node.source;
 }
 /** Parse only. No transforms, module resolution, plugins loaded from disk or code execution. */
 export function parseSource(code: string, name: string): SourceFile {
