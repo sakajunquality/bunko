@@ -75,4 +75,6 @@ export interface BaseImage {
   descriptor: Descriptor;
   config: ImageConfig;
   indexDigest?: Digest;
+  /** Verified transport envelope identity, accepted only for legacy rebase capsules. */
+  layoutDigest?: Digest;
 }

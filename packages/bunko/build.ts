@@ -226,7 +226,7 @@ interface BuildContext {
   closure: (projects: Project[], platform: Platform, iteration: number, notice: string) => Promise<Awaited<ReturnType<typeof dependencyClosure>>>;
   /** Undeclared-import findings are reported once per closure, whether they were projected or replayed from a plan. */
   closureNotices: Set<string>;
-  sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
+  sources: Map<string, Promise<{ source: LayoutSource | RegistrySource; pinned: { bytes: Uint8Array; descriptor: Descriptor; layout?: boolean }; trees: Map<Digest, Promise<BaseFilesystem>> }>>;
 }
 interface PreparedBuild {
   targetKey: string; result: BuildResult; store: BlobStore; descriptors: Descriptor[]; refName: string;
@@ -297,7 +297,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     const sourceKey = options.baseLayout ? `layout:${resolve(options.baseLayout)}` : `registry:${baseRef}`;
     if (!context.sources.has(sourceKey)) context.sources.set(sourceKey, (async () => {
       const source = options.baseLayout ? new LayoutSource(resolve(options.baseLayout)) : new RegistrySource(baseRef, registry);
-      return { source, pinned: await source.root(), trees: new Map<Digest, Promise<BaseFilesystem>>() };
+      return { source, pinned: await (source instanceof LayoutSource ? source.baseRoot() : source.root()), trees: new Map<Digest, Promise<BaseFilesystem>>() };
     })());
     const { source, pinned, trees } = await context.sources.get(sourceKey)!;
     const baseAnnotations = (digest: Digest): Record<string, string> => ({ "org.opencontainers.image.base.digest": digest,

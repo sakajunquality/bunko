@@ -93,7 +93,9 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   let meta: any; try { meta = JSON.parse(capsule); } catch { fail("capsule is not JSON"); }
   const root = record(meta, "capsule"); assertFormatVersion("rebase-capsule", root.version); exactKeys(root, ["version", "base", "generatedLayers", "platform", "context", "ownership", "topLevel"], "capsule");
   const bi = record(root.base, "base"); exactKeys(bi, ["manifestDigest", "configDigest", "indexDigest", "layerCount"], "base");
-  if (!same({ manifestDigest: oldBase.descriptor.digest, configDigest: oldBase.manifest.config.digest, ...(oldBase.indexDigest ? { indexDigest: oldBase.indexDigest } : {}), layerCount: oldBase.manifest.layers.length }, bi)) fail("old base identity mismatch");
+  // Releases through v0.12.2 recorded the verified layout envelope as the base index.
+  const expectedIndex = oldBase.layoutDigest !== undefined && bi.indexDigest === oldBase.layoutDigest ? oldBase.layoutDigest : oldBase.indexDigest;
+  if (!same({ manifestDigest: oldBase.descriptor.digest, configDigest: oldBase.manifest.config.digest, ...(expectedIndex ? { indexDigest: expectedIndex } : {}), layerCount: oldBase.manifest.layers.length }, bi)) fail("old base identity mismatch");
   if (image.manifest.layers.length < oldBase.manifest.layers.length) fail("layer prefix is missing");
   for (let i = 0; i < oldBase.manifest.layers.length; i++) if (!same(image.manifest.layers[i], oldBase.manifest.layers[i])) fail("layer prefix mismatch");
   validateConfig(image.config);
@@ -135,7 +137,7 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   if (context.runtimeOrigin !== "injected" && layers.some((layer) => layer.kind === "runtime")) fail("runtime layer requires injected runtime");
   if (!/^\d+\.\d+\.\d+$/.test(context.bunVersion) || !/^[a-f0-9]{7,40}$/.test(context.bunRevision)) fail("invalid build toolchain version or revision");
   for (const [key, expected] of [["org.bunko.mode", context.mode], ["org.bunko.runtime.libc", context.libc], ["org.bunko.bun.version", context.bunVersion], ["org.bunko.bun.revision", context.bunRevision]] as const) if (labels[key] !== expected) fail(`missing or mismatched ${key}`);
-  if (rebaseMetadata(oldBase, layers, options, context) !== capsule) fail("capsule is non-canonical or tampered");
+  if (rebaseMetadata({ ...oldBase, indexDigest: expectedIndex }, layers, options, context) !== capsule) fail("capsule is non-canonical or tampered");
   const reconstructed = imageConfig(oldBase.config, layers, options);
   reconstructed.config!.Labels![rebaseMetadataLabel] = capsule;
   if (!same(reconstructed, image.config)) fail("config reconstruction mismatch");
