@@ -437,7 +437,7 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "cache-info") {
       if (positionals.length !== 1) throw new Error("cache-info accepts no positional path");
       const result = await pruneLocal(values["cache-dir"] ?? process.env.BUNKO_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bunko", "v1"), false, 0, Number.MAX_SAFE_INTEGER);
-      process.stdout.write(JSON.stringify({ managedBytes: result.managedBytes, scope: "validated key metadata and referenced blobs; unreferenced files are excluded" }) + "\n"); return 0;
+      process.stdout.write(JSON.stringify({ managedBytes: result.managedBytes, unreferencedBytes: result.unreferencedBytes, temporaryBytes: result.temporaryBytes, reclaimableResidueBytes: result.residueBytes, scope: "validated key metadata and referenced blobs; unreferenced files are excluded" }) + "\n"); return 0;
     }
     if (command === "prune") {
       if (values["dry-run"] === false) throw new Error("prune requires --execute for deletion; --dry-run=false is unsupported");

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pause } from "../runtime/invocation.ts";
 
 export const cacheMutexProtocol = "sqlite-exclusive-v1";
+export class CacheMutexBusyError extends Error {}
 export const cacheMutexFile = ".bunko-lock.sqlite";
 
 /** SQLite's OS lock is released on process death. No cache metadata is stored in
@@ -34,7 +35,7 @@ export async function withCacheMutex<T>(directory: string, deadline: number, tas
         break;
       } catch (error) {
         if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
-        if (Date.now() >= deadline) throw new Error(`Cache is locked by another operation: ${join(directory, ".bunko-lock")}`);
+        if (Date.now() >= deadline) throw new CacheMutexBusyError(`Cache is locked by another operation: ${join(directory, ".bunko-lock")}`);
         await pause(50);
       }
     }

@@ -15,6 +15,7 @@ import { RegistrySource } from "../oci/source.ts";
 import { media, type Digest, type Layer, type Platform } from "../oci/types.ts";
 import { hashFile } from "./files.ts";
 import { withCacheLock } from "./cache-lock.ts";
+import { withStagedCacheBlob } from "./cache-stage.ts";
 import { mapFiles } from "./concurrency.ts";
 import { boundedMap } from "../oci/concurrency.ts";
 import { archivePath, assertArchiveEntries, type TarEntry } from "../oci/tar.ts";
@@ -383,7 +384,7 @@ export class CacheDriver {
     const dir = join(this.local.root, "keys", record.kind);
     const temporary = join(dir, `.tmp-${randomUUID()}`);
     try {
-      await withCacheLock(this.local.root, async () => {
+      await withStagedCacheBlob(this.local.root, this.store, record.layer.descriptor, async (staged) => withCacheLock(this.local!.root, async () => {
       if (!this.invalidLocal.has(record.key)) {
         let previous: CacheRecord | undefined;
         try { previous = this.validate(await readMetadata(join(dir, `${record.key.slice(7)}.json`)), record.key, record.kind, { destination: record.destination, platform: record.platform }); }
@@ -394,11 +395,12 @@ export class CacheDriver {
           if (valid) throw new CacheConflictError("Different output for the same cache key; refusing to overwrite a concurrent or nondeterministic build");
         }
       }
-      await this.local!.copyFrom(this.store, record.layer.descriptor);
+      await mkdir(join(this.local!.root, "blobs", "sha256"), { recursive: true });
+      await rename(staged, this.local!.path(record.layer.descriptor.digest));
       await mkdir(dir, { recursive: true });
       await writeFile(temporary, bytes, { flag: "wx" });
       await rename(temporary, join(dir, `${record.key.slice(7)}.json`));
-      }, () => !this.persistence.disabled);
+      }, () => !this.persistence.disabled));
     } catch (error) { if (error instanceof CacheConflictError || this.options.strictLocal) throw error; this.persistence.disabled = true; this.options.log(`Could not persist local ${record.kind} cache; another writer may be busy, or check write permissions and .bunko-lock/owner.json\n`); }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
