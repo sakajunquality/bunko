@@ -48,7 +48,7 @@ export async function gitLabels(directory: string, log?: (message: string) => vo
   // Status may invoke clean/process filters, including filters in submodule repositories.
   // Preserve revision/source, but do not claim a clean tree when safe inspection is unavailable.
   const configNames = await run(["config", "--null", "--name-only", "--list"]);
-  const index = await run(["ls-files", "--stage", "-z"]);
+  const index = await run(["ls-files", "--stage", "-z", "--", ":/"]);
   const safeStatus = configNames !== undefined && index !== undefined
     && !configNames.split("\0").some((name) => /^filter\..*\.(clean|process)$/.test(name))
     && !index.split("\0").some((entry) => entry.startsWith("160000 "));
