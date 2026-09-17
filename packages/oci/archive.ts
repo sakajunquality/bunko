@@ -1,3 +1,5 @@
+import { runWithDeadline } from "../runtime/invocation.ts";
+import { invocationSignal, throwIfCancelled } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { createWriteStream } from "node:fs";
 import { link, lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
@@ -36,7 +38,7 @@ export async function exportDockerArchive(store: BlobStore, manifest: Descriptor
     }
     entries.push({ path: "manifest.json", type: "file", content: canonicalJSON([{ Config: configName, RepoTags: [tag], Layers: layers }]) });
     const archive = join(temporary, "image.tar");
-    await pipeline(Readable.from(tar(entries, epoch)), createWriteStream(archive, { flags: "wx" }));
+    await pipeline(Readable.from(tar(entries, epoch)), createWriteStream(archive, { flags: "wx" }), { signal: invocationSignal() });
     // Hard-link within the output filesystem provides an atomic no-overwrite commit.
     await link(archive, output);
   } finally { await rm(temporary, { recursive: true, force: true }); }
@@ -44,7 +46,7 @@ export async function exportDockerArchive(store: BlobStore, manifest: Descriptor
 
 async function command(args: string[]): Promise<string> {
   const child = spawn(args, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  const [stdout, stderr, code] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 300_000, "External command");
   if (code !== 0) throw new Error(`${args[0]} ${args[1]} failed (exit ${code}): ${stderr.trim()}`);
   return stdout.trim();
 }

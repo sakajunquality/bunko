@@ -1,3 +1,4 @@
+import { invocationSignal, throwIfCancelled } from "../runtime/invocation.ts";
 import { mkdtemp } from "../runtime/invocation.ts";
 import { runtimeNotices } from "./runtime-notices.ts";
 import { canonicalJSON } from "../oci/digest.ts";
@@ -81,7 +82,7 @@ export async function applyLayers(store: BlobStore, base: BaseImage, temporary: 
             if (!body.readableEnded) for await (const chunk of body) void chunk;
           })().then(() => next(), (error) => { body.destroy(error as Error); tar.destroy(error as Error); });
         });
-        await pipeline(createReadStream(file), tar);
+        await pipeline(createReadStream(file), tar, { signal: invocationSignal() });
         for (const path of tree.keys()) {
           const chain = ancestors(path);
           if (opaque.has("") || chain.some((p) => removed.has(p)) || chain.slice(0, -1).some((p) => opaque.has(p) || overlay.has(p) && overlay.get(p)!.type !== "directory")) tree.delete(path);

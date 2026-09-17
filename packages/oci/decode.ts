@@ -1,3 +1,4 @@
+import { invocationSignal, throwIfCancelled } from "../runtime/invocation.ts";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { Transform, Writable } from "node:stream";
@@ -14,9 +15,9 @@ export async function decodeLayer(store: BlobStore, d: Descriptor, diffId: Diges
   const meter = new Transform({ transform(chunk, _encoding, callback) { size += chunk.length; if (size > maxBytes) { callback(new Error("Decoded layer exceeds size limit")); return; } hash.update(chunk); callback(null, chunk); } });
   const source = createReadStream(store.path(d.digest));
   const destination = output ? createWriteStream(output, { flags: "wx" }) : new Writable({ write(_chunk, _encoding, callback) { callback(); } });
-  if (d.mediaType === media.gzip || d.mediaType === media.dockerGzip) await pipeline(source, createGunzip(), meter, destination);
-  else if (d.mediaType === media.zstd) await pipeline(source, createZstdDecompress({ params: { [constants.ZSTD_d_windowLogMax]: 27 } }), meter, destination);
-  else if (d.mediaType === media.tar) await pipeline(source, meter, destination);
+  if (d.mediaType === media.gzip || d.mediaType === media.dockerGzip) await pipeline(source, createGunzip(), meter, destination, { signal: invocationSignal() });
+  else if (d.mediaType === media.zstd) await pipeline(source, createZstdDecompress({ params: { [constants.ZSTD_d_windowLogMax]: 27 } }), meter, destination, { signal: invocationSignal() });
+  else if (d.mediaType === media.tar) await pipeline(source, meter, destination, { signal: invocationSignal() });
   else throw new Error(`Cannot decode layer media type: ${d.mediaType}`);
   if (`sha256:${hash.digest("hex")}` !== diffId) throw new Error(`Layer DiffID mismatch: ${d.digest}`);
 }

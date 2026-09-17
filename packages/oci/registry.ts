@@ -23,9 +23,9 @@ export interface RegistryOptions {
   credentials?: CredentialProvider;
   insecure?: string[];
   retries?: number;
-  /** Deadline for GET/HEAD response headers; it never limits body transfers. */
+  /** Deadline for response headers and initial upload progress; not a total body deadline. */
   headersTimeoutMs?: number;
-  /** Maximum idle time between blob body chunks; active transfers have no total deadline. */
+  /** Maximum idle time between download chunks or upload stream consumption. */
   bodyIdleTimeoutMs?: number;
   maxRetryDelayMs?: number;
   /** Parallel per-blob publication work within one manifest, 1–32; see publishConcurrency. */
@@ -281,13 +281,36 @@ export class RegistryClient {
           const token = this.tokens.get(key);
           if (url.origin === this.origin && token && token.expires > Date.now()) { this.reportInsecureCredentials(url); headers.set("Authorization", token.authorization); }
           if (!headers.has("Accept")) headers.set("Accept", [media.index, media.manifest, media.dockerIndex, media.dockerManifest, "application/octet-stream"].join(", "));
-          // A whole-request deadline also aborts Bun's response stream and
-          // slow PATCH bodies. Only bound the wait for GET/HEAD headers here.
-          const controller = retryable ? new AbortController() : undefined;
-          const timer = controller ? setTimeout(() => controller.abort(), this.options.headersTimeoutMs ?? 120_000) : undefined;
-          const signal = controller ? init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal : init.signal;
-          try { response = await this.fetcher(url, { ...init, headers, redirect: "manual", signal }); }
-          finally { clearTimeout(timer); }
+          // Bound response headers and stalled upload consumption, not total transfer time.
+          const controller = new AbortController();
+          let timer: ReturnType<typeof setTimeout>;
+          let finished = false;
+          const arm = (ms: number) => { if (finished) return; clearTimeout(timer); timer = setTimeout(() => controller.abort(), ms); };
+          const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+          let body = init.body;
+          let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+          if (body && (method === "PATCH" || method === "PUT")) {
+            const input = body instanceof ReadableStream ? body : body instanceof Blob ? body.stream()
+              : typeof body === "string" || body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? new Blob([body as BlobPart]).stream() : undefined;
+            if (input) {
+              reader = input.getReader();
+              body = new ReadableStream<Uint8Array>({
+                async pull(output) {
+                  try {
+                    const item = await reader!.read();
+                    if (item.done) { output.close(); arm(thisOptions.headersTimeoutMs ?? 120_000); }
+                    else { output.enqueue(item.value); arm(thisOptions.bodyIdleTimeoutMs ?? 120_000); }
+                  } catch (error) { output.error(error); }
+                },
+                cancel(reason) { return reader!.cancel(reason); },
+              });
+            }
+          }
+          const thisOptions = this.options;
+          arm(this.options.headersTimeoutMs ?? 120_000);
+          try { response = await this.fetcher(url, { ...init, body, headers, redirect: "manual", signal }); }
+          finally { finished = true; clearTimeout(timer!); if (reader) void reader.cancel().catch(() => {}); }
+
           if (![301, 302, 303, 307, 308].includes(response.status)) break;
           const location = response.headers.get("Location");
           await response.body?.cancel();

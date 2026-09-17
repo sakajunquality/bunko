@@ -1,3 +1,4 @@
+import { runWithDeadline } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { referenceOutput } from "./references.ts";
 import { readFile, rm } from "node:fs/promises";
@@ -45,7 +46,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     if (options.serverSide) args.push("--server-side");
     if (options.kubeDryRun) args.push(`--dry-run=${options.kubeDryRun}`);
     const child = spawn(args, { env: process.env, stdin: new Blob([resolved.output]), stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    const [stdout, stderr, exit] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 300_000, "External command");
     if (report) {
       try { await writeReport(report, { schemaVersion: 5, command: "apply", status: exit === 0 ? "success" : "failed", phase, exit, resolution }, written); }
       catch { return { exit: exit || 1, stdout, stderr: `${stderr}bunko: Could not write apply report; kubectl output is preserved\n` }; }

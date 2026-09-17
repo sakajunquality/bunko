@@ -1,3 +1,4 @@
+import { runWithDeadline } from "../runtime/invocation.ts";
 import { invocationSignal, throwIfCancelled, pause } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { libcLoader, runtimeLibc, type Libc } from "./libc.ts";
@@ -49,15 +50,14 @@ export async function verifiedChecksums(signed: Uint8Array): Promise<string> {
     await writeFile(join(root, "checksums.asc"), signed, { mode: 0o600 });
     const child = spawn([executable, "--homedir", root, "--keyring", join(root, "trusted.gpg"), "--status-fd", "1", join(root, "checksums.asc")],
       { cwd: root, env: { HOME: root, GNUPGHOME: root, PATH: process.env.PATH ?? "", LANG: "C" }, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-    const timer = setTimeout(() => child.kill(), 30_000);
     try {
-      const [status, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+      const [status, code] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), child.exited]), 30_000, "Runtime verification");
       assertSignatureStatus(status, code);
       const text = Buffer.from(signed).toString("utf8").replaceAll("\r\n", "\n");
       const match = /^-----BEGIN PGP SIGNED MESSAGE-----\nHash: [A-Z0-9, ]+\n\n([\s\S]*?)\n-----BEGIN PGP SIGNATURE-----\n/.exec(text);
       if (!match) throw new Error("Expected a clear-signed Bun checksum document");
       return match[1]!.split("\n").map((line) => line.startsWith("- ") ? line.slice(2) : line).join("\n");
-    } finally { clearTimeout(timer); }
+    } finally { /* The deadline owns process termination. */ }
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 export function archiveChecksum(text: string, asset: string): Digest {
@@ -123,7 +123,7 @@ export async function runtimeBytes(url: string, limit: number, fetcher: Fetcher 
       throw new Error("Runtime release redirect failed");
     } catch (error) {
       if (!retry || attempt >= 2) throw new Error(error instanceof Error && /^(Runtime|Unexpected|Invalid|Empty)/.test(error.message) ? error.message : "Runtime release connection or body transfer failed");
-    } finally { clearTimeout(timer); }
+    } finally { /* The deadline owns process termination. */ }
     await pause(100 * (attempt + 1));
   }
 }

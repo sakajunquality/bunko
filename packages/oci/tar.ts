@@ -1,3 +1,4 @@
+import { invocationSignal, throwIfCancelled } from "../runtime/invocation.ts";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { posix } from "node:path";
@@ -113,6 +114,7 @@ const padding = (size: number) => Buffer.alloc((512 - size % 512) % 512);
 export async function* tar(input: TarEntry[], epoch: number, roots?: string[]): AsyncGenerator<Uint8Array> {
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error("Invalid tar epoch");
   for (const entry of entriesWithParents(input, roots?.map(archivePath))) {
+    throwIfCancelled();
     const path = splitPath(entry.path);
     const size = entry.type === "file" ? ("content" in entry ? entry.content.byteLength : entry.size) : 0;
     const target = entry.type === "symlink" ? entry.target : "";
@@ -137,7 +139,8 @@ export async function* tar(input: TarEntry[], epoch: number, roots?: string[]): 
         yield entry.content;
       } else {
         let read = 0;
-        for await (const chunk of createReadStream(entry.source)) {
+        for await (const chunk of createReadStream(entry.source, { signal: invocationSignal() })) {
+          throwIfCancelled();
           read += chunk.length;
           if (read > size) throw new Error(`File changed while packing: ${entry.path}`);
           yield chunk;
@@ -160,7 +163,7 @@ export async function packLayer(store: BlobStore, entries: TarEntry[], kind: Lay
   // Fixed gzip envelope, including the portable OS=255 byte.
   const input = Readable.from(hashedTar());
   const gzip = createGzip({ level: 6 });
-  const compression = pipeline(input, gzip);
+  const compression = pipeline(input, gzip, { signal: invocationSignal() });
   // Attach a rejection handler immediately, before the blob store creates its file.
   // The pipeline may fail before normalizedGzip starts consuming it.
   void compression.catch(() => { });
