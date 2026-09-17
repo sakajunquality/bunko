@@ -1,10 +1,40 @@
 # Unreleased
 
-Retire Bun 1.4.0/1.4.1 and retain Bun 1.3.13 and 1.4.2 in CI and verified compile/injection pins. The host range becomes `>=1.3.13 <1.4 || >=1.4.2 <1.5`. Upgrade Bun to 1.4.2 or keep bunko v0.10.0 when an older 1.4 runtime is required. This change is not included in the immutable v0.10.0 artifacts.
+# v0.11.0
 
-## Format changes
+This release adds compile-mode execution arguments and hardens credential handling, repository inputs, image execution, Node compatibility, rebase acceptance and cancellation.
 
-Oversized SBOM build evidence may use v2 with explicit omission counts. Released 0.9.0/0.10.0 readers reject it during `rebase --sbom`; use a CLI containing #208. Node rebase capsules require readers from 0.9.0 onward. Build/rebase Actions now preflight bunko >=0.10.0 and <1 and validate report schemas. See [format compatibility](FORMAT_COMPATIBILITY.md) for rollback and remaining migration work.
+## Compatibility and migration
+
+- Supported host Bun versions are `>=1.3.13 <1.4 || >=1.4.2 <1.5`, with CI and verified runtime/compile pins for 1.3.13 and 1.4.2. Upgrade Bun 1.4.0/1.4.1 to 1.4.2, or retain bunko v0.10.0.
+- Explicit image users must be canonical numeric `uid[:gid]`. Replace names such as `nonroot` with `65532:65532`. Named, signed and zero-padded base users fall back to the nonroot default.
+- Bun bundle images now include `--no-install`, matching source images. Undeclared computed imports cannot download dependencies during image execution.
+- Project npm credential expansion requires `BUNKO_NPM_*` names or exact operator permission through `BUNKO_NPM_CREDENTIAL_ENV`. Credentials must have a declared registry host scope. Existing `${NPM_TOKEN}` configurations need an explicit grant or a renamed variable.
+- Resolve/apply targets must stay inside `--context`; trusted external targets require `--allow-external-context`. Project configuration symlinks are rejected. Git dirty-state metadata is omitted when status could execute configured filters or inspect submodules.
+- Build/rebase Actions require bunko >=0.10.0 and <1, fail early with a version hint, and validate report schemas. Published setup-bunko v0.1.1 remains immutable and defaults to CLI v0.8.0; select the CLI version explicitly.
+
+## Runtime and build behavior
+
+- Compile mode accepts a validated subset of `runtime.args` through Bun's `--compile-exec-argv`, keeping application arguments separate and incorporating execution options into cache identity.
+- Node builds accept portable guarded Bun references and inspect relevant runtime inputs. Runtime major metadata is checked against the selected base where supported. Bun diagnostics retain their existing policy boundary.
+- Rebase checks Docker availability before publication, reports smoke failures with platform/exit information, permits a configurable image-load deadline, exposes attestation inputs in the Action, and avoids repeated source inspection for base-status.
+- Keyless signing supports projected token symlinks, ignores an empty explicit environment token when selecting providers, and removes the obsolete GitLab token fallback.
+- Container examples document signal handling, nonroot execution, read-only roots and writable temporary storage.
+
+## Security and reliability
+
+- Registry requests suppress Bun verbose fetch diagnostics so Authorization values do not appear in CI logs. Credential refresh is separated from ordinary in-flight lookup; offline credential validation and sensitive-file exclusions still run.
+- Repository-selected npm variables and configuration paths are constrained before parsing. Git metadata disables execution-capable hooks/fsmonitor and skips unsafe status inspection.
+- Child-process deadlines escalate uncooperative processes, cleanup receives a bounded grace period, and packing/decoding/copy operations observe cancellation.
+- Registry writes have a separate 30-minute total attempt budget, configurable programmatically. Read-header limits do not abort a still-progressing upload after local source EOF. Failed writes retain publisher reconciliation instead of unconditional retries.
+- Cache diagnostics identify confirmed dead local owners, cap lock waits and report crash residue; pruning preserves foreign-format closure plans under ordinary age/budget rules. Automatic lock recovery and cache layout redesign remain follow-ups.
+- Release publication selects only the exact version's notes; privileged workflows narrow write permissions, disable lifecycle scripts during installation and share a checksum-pinned cosign installer. Third-party notices match the bundled parser version.
+
+## Format changes and limitations
+
+Oversized SBOM build evidence degrades with explicit omission counts rather than failing the build. Its v2 form is rejected by released 0.9.0/0.10.0 readers during `rebase --sbom`; use 0.11.0 to retain that evidence. Node rebase capsules require readers from 0.9.0 onward. See the persisted-format compatibility guide for rollback boundaries.
+
+Runtime memory sharing, automatic cache lease recovery, stable per-layer cache identities, remote retention controls and historical format interoperability fixtures remain open work. This release does not add a general OS package scanner, automatic VEX decisions or broader live cloud-provider certification.
 
 # v0.10.0
 

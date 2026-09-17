@@ -5,7 +5,7 @@ Bunko is pre-1.0. Upgrading the CLI does not retroactively change immutable publ
 | Format | Current reader/writer contract | Upgrade and rollback |
 | --- | --- | --- |
 | Rebase ownership capsule | `version: 1`; strictly validated fields affecting ownership/security | Bun runtime images retain the older shape. Node runtime `kind` was added in 0.9.0 and is not understood by 0.8.x readers. Rebuild/use a newer reader; do not strip fields to bypass rejection. |
-| SPDX build evidence | v1 normally, v2 for size degradation on unreleased main | Released 0.9.0/0.10.0 readers reject v2 during `rebase --sbom`. Use a reader containing #208; omitted evidence is unknown, not absence. |
+| SPDX build evidence | v1 normally, v2 for size degradation since 0.11.0 | Released 0.9.0/0.10.0 readers reject v2 during `rebase --sbom`. Use a reader from 0.11.0 onward; omitted evidence is unknown, not absence. |
 | Build reports | schema 2 single-target, schema 3 target collection | Optional fields may be added; consumers check the schema and only depend on documented fields. |
 | Resolve/apply reports | schema 4 / 5 | Command identity is part of the format. |
 | Rebase/base-status reports | schema 1 plus command identity | Rebase `decision` and acceptance fields require a CLI from 0.9.0 onward. Actions require 0.10.0 onward and check the report shape. |
