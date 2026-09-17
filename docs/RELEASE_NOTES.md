@@ -1,3 +1,7 @@
+# v0.12.1
+
+This patch release hardens cancellation scratch retention, deferred import handling, cache identity/pruning safety, Docker credential matching and CI fixture reproducibility.
+
 # v0.12.0
 
 Cache writes now use OS-backed crash recovery and leased staging. Local prune can explicitly reclaim old owned residue, while unknown layouts and references are retained conservatively. Packing identity is independent of CLI patch versions, with a one-time cold-cache transition from version-qualified keys. Records include diagnostic writer metadata; the optional root envelope uses a numeric layout-reader protocol. Remote `prune --keep-current` preserves the current packing format. Cache writers compare the stable record identity while ignoring diagnostic writer metadata. See [CACHE_RETENTION.md](CACHE_RETENTION.md) for rollback and accounting contracts.
