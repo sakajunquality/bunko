@@ -1,3 +1,4 @@
+import { assertFormatVersion } from "../compatibility/formats.ts";
 import { validateImageConfig } from "./source.ts";
 import { assembleImage, imageConfig, type ImageOptions } from "./image.ts";
 import { canonicalJSON, assertDigest } from "./digest.ts";
@@ -90,8 +91,7 @@ export function inspectRebase(image: BaseImage, oldBase: BaseImage): { options: 
   const capsule = labels[rebaseMetadataLabel]; if (typeof capsule !== "string") fail("capsule is missing");
   if (Buffer.byteLength(capsule, "utf8") > 64 * 1024) fail("capsule exceeds 64 KiB UTF-8 limit");
   let meta: any; try { meta = JSON.parse(capsule); } catch { fail("capsule is not JSON"); }
-  const root = record(meta, "capsule"); exactKeys(root, ["version", "base", "generatedLayers", "platform", "context", "ownership", "topLevel"], "capsule");
-  if (root.version !== 1) fail("unsupported capsule version");
+  const root = record(meta, "capsule"); assertFormatVersion("rebase-capsule", root.version); exactKeys(root, ["version", "base", "generatedLayers", "platform", "context", "ownership", "topLevel"], "capsule");
   const bi = record(root.base, "base"); exactKeys(bi, ["manifestDigest", "configDigest", "indexDigest", "layerCount"], "base");
   if (!same({ manifestDigest: oldBase.descriptor.digest, configDigest: oldBase.manifest.config.digest, ...(oldBase.indexDigest ? { indexDigest: oldBase.indexDigest } : {}), layerCount: oldBase.manifest.layers.length }, bi)) fail("old base identity mismatch");
   if (image.manifest.layers.length < oldBase.manifest.layers.length) fail("layer prefix is missing");

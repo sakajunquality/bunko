@@ -1,0 +1,74 @@
+[
+  {
+    "reader": "0.9.0",
+    "writer": "0.9.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.9.0",
+    "writer": "0.10.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.9.0",
+    "writer": "0.11.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.9.0",
+    "writer": "0.11.0",
+    "fixture": "evidence-degraded.json",
+    "accepted": false
+  },
+  {
+    "reader": "0.10.0",
+    "writer": "0.9.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.10.0",
+    "writer": "0.10.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.10.0",
+    "writer": "0.11.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.10.0",
+    "writer": "0.11.0",
+    "fixture": "evidence-degraded.json",
+    "accepted": false
+  },
+  {
+    "reader": "0.11.0",
+    "writer": "0.9.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.11.0",
+    "writer": "0.10.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.11.0",
+    "writer": "0.11.0",
+    "fixture": "evidence.json",
+    "accepted": true
+  },
+  {
+    "reader": "0.11.0",
+    "writer": "0.11.0",
+    "fixture": "evidence-degraded.json",
+    "accepted": true
+  }
+]

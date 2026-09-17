@@ -1,0 +1,49 @@
+[
+  {
+    "version": "0.8.0",
+    "tag": "v0.8.0",
+    "commit": "9ec19b72a2ef8b65d3933154484a7de5b301a620",
+    "writerFiles": {
+      "packages/oci/image.ts": "777dfa8af5375cf9eefbc0356f77bda3876ebe61",
+      "packages/oci/rebase-metadata.ts": "ef133031521ad593fd239adeb3be8ae6de26eaa0",
+      "packages/oci/digest.ts": "d13c159acf214eac904a6e389a647c500939a56b",
+      "packages/oci/types.ts": "4d557cc3f0b50eafa3af995887391ffb160aca55"
+    }
+  },
+  {
+    "version": "0.9.0",
+    "tag": "v0.9.0",
+    "commit": "5d140475499615246998df479276e50e5b0f006d",
+    "writerFiles": {
+      "packages/oci/image.ts": "80fc8d8d7f80e704161fb7ccb74d37b0c8c804c3",
+      "packages/oci/rebase-metadata.ts": "229e6de5d2286fee89e91084ff950eb759479769",
+      "packages/oci/digest.ts": "d13c159acf214eac904a6e389a647c500939a56b",
+      "packages/oci/types.ts": "4d557cc3f0b50eafa3af995887391ffb160aca55",
+      "packages/bunko/sbom-evidence.ts": "73c21c47108875481a68858d3bfaabd44b270d6a"
+    }
+  },
+  {
+    "version": "0.10.0",
+    "tag": "v0.10.0",
+    "commit": "8a8a26ad8c1b2a79ab75603dbb5109f10f18f266",
+    "writerFiles": {
+      "packages/oci/image.ts": "80fc8d8d7f80e704161fb7ccb74d37b0c8c804c3",
+      "packages/oci/rebase-metadata.ts": "229e6de5d2286fee89e91084ff950eb759479769",
+      "packages/oci/digest.ts": "d13c159acf214eac904a6e389a647c500939a56b",
+      "packages/oci/types.ts": "4d557cc3f0b50eafa3af995887391ffb160aca55",
+      "packages/bunko/sbom-evidence.ts": "73c21c47108875481a68858d3bfaabd44b270d6a"
+    }
+  },
+  {
+    "version": "0.11.0",
+    "tag": "v0.11.0",
+    "commit": "9caa1c3b086be9eaea779dec525e5f5e9356920e",
+    "writerFiles": {
+      "packages/oci/image.ts": "bd1f127d5bcc64b44061cb9df83163f370e212ce",
+      "packages/oci/rebase-metadata.ts": "229e6de5d2286fee89e91084ff950eb759479769",
+      "packages/oci/digest.ts": "d13c159acf214eac904a6e389a647c500939a56b",
+      "packages/oci/types.ts": "4d557cc3f0b50eafa3af995887391ffb160aca55",
+      "packages/bunko/sbom-evidence.ts": "91d29f1e6d94f203b5ac6bae54266d484aea33d9"
+    }
+  }
+]
