@@ -121,6 +121,7 @@ Options:
   --runtime-path <path>  Runtime path checked by check-base
   --verify-key <file>     Public key for verify
   --private-signatures  Verify signatures without transparency-log evidence
+  --validate <mode>      apply only: strict, warn, ignore (true/false aliases)
   --kube-dry-run <mode>   apply only: client, server or none
   --deps-artifact <platform=ref>  Prepared dependency OCI artifact; repeat per platform
   --deps-strategy <name>   production (default) or closure
@@ -265,6 +266,7 @@ export async function main(argv: string[]): Promise<number> {
       "server-side": { type: "boolean" },
       "field-manager": { type: "string" },
       "kube-dry-run": { type: "string" },
+      validate: { type: "string" },
       execute: { type: "boolean" },
       "older-than": { type: "string" },
       lockfile: { type: "string" },
@@ -544,10 +546,10 @@ export async function main(argv: string[]): Promise<number> {
     if (command === "apply") {
       const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, allowExternalContext: values["allow-external-context"], recursive: values.recursive, selector: values.selector,
         kubectlPath: values["kubectl-path"], kubeContext: values["kube-context"], namespace: values.namespace, serverSide: values["server-side"],
-        fieldManager: values["field-manager"], kubeDryRun: values["kube-dry-run"] as "none" | "client" | "server" | undefined });
+        kubeValidate: values.validate as "strict" | "warn" | "ignore" | "true" | "false" | undefined, fieldManager: values["field-manager"], kubeDryRun: values["kube-dry-run"] as "none" | "client" | "server" | undefined });
       process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.exit;
     }
-    if (values["kubectl-path"] || values["kube-context"] || values.namespace || values["server-side"] || values["field-manager"] || values["kube-dry-run"]) throw new Error("Kubernetes options require apply");
+    if (values["kubectl-path"] || values["kube-context"] || values.namespace || values["server-side"] || values["field-manager"] || values["kube-dry-run"] || values.validate !== undefined) throw new Error("Kubernetes options require apply");
     if (command === "resolve") {
       const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, allowExternalContext: values["allow-external-context"], recursive: values.recursive, selector: values.selector });
       process.stdout.write(result.output);

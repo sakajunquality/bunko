@@ -3,7 +3,7 @@ export function validateCommandOptions(command: string, names: string[]): void {
   const signing = "sign sign-identity-token sigstore-config sign-tlog";
   const build = "runtime-arg registry-mirror define otel asset-context base-sbom deps-verify-key supply-chain-policy deps-map registry-config publish-concurrency progress image-label image-annotation image-user image-refs repo bare tag tag-conflict push oci-layout tarball local kind kind-cluster base base-layout platform bun-path cache cache-dir cache-repo cache-from cache-to cache-write cache-export-error local-cache registry-cache app-cache install-cache asset-cache runtime-kind runtime-libc runtime-inject runtime-cache insecure-registry dry-run reproducible verify-deterministic git-metadata index jobs mode sbom sbom-evidence provenance sign-key cosign-path report target deps-strategy shared-deps module-locations";
   const input = "filename context allow-external-context recursive selector";
-  const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run";
+  const kube = "kubectl-path kube-context namespace server-side field-manager kube-dry-run validate";
   const diagnostic = "deep runtime-arg define asset-context target platform mode module-locations deps-strategy shared-deps format";
   // why/closure-info install Linux production dependencies; they take the install cache but no image registry options.
   const closure = "target platform deps-strategy shared-deps bun-path install-cache cache local-cache json";

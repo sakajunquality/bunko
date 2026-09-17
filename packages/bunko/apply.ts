@@ -10,10 +10,11 @@ import { canonicalOutput } from "../oci/layout.ts";
 
 export interface ApplyOptions extends ResolveOptions {
   kubectlPath?: string; kubeContext?: string; namespace?: string; serverSide?: boolean;
+  kubeValidate?: "strict" | "warn" | "ignore" | "true" | "false";
   fieldManager?: string; kubeDryRun?: "none" | "client" | "server";
 }
 
-/** Resolve and publish all targets before starting kubectl. Kubernetes itself
+/** Preflight the cluster before publication, then apply the resolved documents. Kubernetes itself
  * does not provide an atomic multi-resource apply transaction. */
 export async function applyDocuments(options: ApplyOptions): Promise<{ exit: number; stdout: string; stderr: string }> {
   if (options.local) throw new Error("apply requires --kind for local cluster loading; use resolve --local for Docker");
@@ -26,6 +27,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   const kubectl = Bun.which(options.kubectlPath ?? "kubectl");
   if (!kubectl) throw new Error("apply requires kubectl on PATH or --kubectl-path");
   if (options.kubeDryRun !== undefined && !["none", "client", "server"].includes(options.kubeDryRun)) throw new Error("--kube-dry-run must be none, client or server");
+  if (options.kubeValidate !== undefined && !["strict", "warn", "ignore", "true", "false"].includes(options.kubeValidate)) throw new Error("--validate must be strict, warn, ignore, true or false");
   const report = options.report ? await canonicalOutput(options.report) : undefined;
   if (report) await assertReportWritable(report);
   await assertReportNotInput(report, options.files.filter((file) => file !== "-"));
@@ -35,7 +37,15 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   let phase = "resolve";
   let resolution: unknown;
   try {
-    const resolved = await resolveDocuments({ ...options, report: resolutionReport });
+    const resolved = await resolveDocuments({ ...options, report: resolutionReport }, async () => {
+      phase = "preflight";
+      const args = [kubectl, "get", "--raw=/version", "--request-timeout=10s"];
+      if (options.kubeContext !== undefined) args.push("--context", options.kubeContext);
+      const child = spawn(args, { env: process.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const [, , exit] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 15_000, "kubectl preflight");
+      if (exit !== 0) throw new Error(`kubectl preflight failed (exit ${exit}); check kubeconfig, --kube-context and cluster connectivity. No images were published.`);
+      phase = "resolve";
+    });
     resolution = JSON.parse(await readFile(resolutionReport, "utf8")); phase = "apply";
     if (!resolved.output.trim()) {
       if (report) await writeReport(report, { schemaVersion: 5, command: "apply", status: "success", phase: "skipped", exit: 0, resolution }, written);
@@ -44,6 +54,7 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     const args = [kubectl, "apply", "-f", "-"];
     for (const [flag, value] of [["--context", options.kubeContext], ["--namespace", options.namespace], ["--field-manager", options.fieldManager]]) if (value !== undefined) args.push(flag!, value);
     if (options.serverSide) args.push("--server-side");
+    if (options.kubeValidate !== undefined) args.push(`--validate=${options.kubeValidate}`);
     if (options.kubeDryRun) args.push(`--dry-run=${options.kubeDryRun}`);
     const child = spawn(args, { env: process.env, stdin: new Blob([resolved.output]), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exit] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 300_000, "External command");
