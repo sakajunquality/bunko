@@ -1,5 +1,10 @@
 # Unreleased
 
+## Format changes
+
+- Unsupported rebase capsule and SBOM evidence revisions now produce typed, version-oriented diagnostics. `base-status` reports future capsules as `not-rebaseable` / `unsupported-format`, including when the selected base digest is current. Known security-bearing formats retain strict validation; no persisted schema or writer shape changes in this update.
+- Released ownership/evidence fixtures and an evidence reader rollback matrix document the supported boundary: ordinary v1 evidence remains readable by 0.9/0.10; degraded v2 evidence requires 0.11 or later.
+
 # v0.11.0
 
 This release adds compile-mode execution arguments and hardens credential handling, repository inputs, image execution, Node compatibility, rebase acceptance and cancellation.

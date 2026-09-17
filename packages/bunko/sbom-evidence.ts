@@ -1,3 +1,4 @@
+import { assertFormatVersion } from "../compatibility/formats.ts";
 import { canonicalJSON, object, sha256 } from "../oci/digest.ts";
 import type { Digest } from "../oci/types.ts";
 import type { InventoryEntry } from "./deps.ts";
@@ -86,6 +87,9 @@ export function evidenceComment(evidence: BuildEvidence): string {
 
 /** Only preserve our bounded, validated evidence during rebase; never copy arbitrary annotations. */
 export function readEvidence(comment: string, included: Set<string>): BuildEvidence {
+  if (Buffer.byteLength(comment) > maxEvidenceBytes) throw new Error("Unsupported SBOM build evidence");
+  const declared = /^bunko:build-evidence:v([0-9]{1,10}) /.exec(comment);
+  if (declared) assertFormatVersion("sbom-evidence", Number(declared[1]));
   const prefix = comment.startsWith(evidencePrefixV2) ? evidencePrefixV2 : evidencePrefix;
   if (!comment.startsWith(prefix) || Buffer.byteLength(comment) > maxEvidenceBytes) throw new Error("Unsupported SBOM build evidence");
   const value = object(JSON.parse(comment.slice(prefix.length)), "SBOM build evidence");

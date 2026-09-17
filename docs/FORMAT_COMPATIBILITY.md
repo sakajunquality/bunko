@@ -25,3 +25,25 @@ CLI/config changes should be additive where practical. Renames need an alias and
 ## Release acceptance
 
 Record format changes, reader requirements, rollback behavior and cache invalidation in the release section. In addition to current-schema validation, exercise images/SBOMs/reports produced by the previous supported releases. For the next breaking cache change, test mixed-version readers/writers/prune against the same local and registry stores before enabling cross-version reuse. Historical base-inspect v1/v3 namespaces remain historical cache formats; a directory's namespace is not a global manifest of every record version.
+
+## Released-reader evidence and future-version diagnostics
+
+The checked-in [compatibility fixtures](../test/fixtures/compat/README.md) preserve
+ownership metadata from each released minor since 0.8 and evidence from each minor
+since 0.9. Their generator verifies immutable writer source identities and checks
+an evidence reader/writer rollback matrix. This is serialization evidence on
+synthetic inputs, not a claim of complete historical CLI or container acceptance.
+
+Unsupported numeric ownership/evidence revisions raise `UnsupportedFormatError`
+with code `BUNKO_UNSUPPORTED_FORMAT`, the format, observed version, supported
+versions, and whether the version is newer than this reader. Malformed known
+formats still fail strict validation. `base-status` identifies an unsupported
+capsule as `not-rebaseable` with reason `unsupported-format`, even when the base
+digest is current; this requires a compatible reader, not necessarily an image
+rebuild. Authentication and transport failures retain their separate diagnostics.
+
+The format catalog records evidence v1's minimum reader as 0.9.0 and v2's as
+0.11.0. Rebase capsule v1 starts at 0.8.0, but the Node variant requires 0.9.0.
+These are feature-sensitive requirements, not a reason to add fields to an
+existing closed-world capsule. Writer/minimum-reader fields belong in the next
+explicit format revision; adding them to v1 would break readers unnecessarily.

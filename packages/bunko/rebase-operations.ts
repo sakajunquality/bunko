@@ -1,3 +1,4 @@
+import { assertFormatVersion, UnsupportedFormatError } from "../compatibility/formats.ts";
 import { lstat, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -65,6 +66,10 @@ export async function baseStatus(targets: RebaseTarget[], registry: RegistryOpti
           try {
           const image = await input.image(p);
           if (!image.config.config?.Labels?.["org.bunko.rebase.metadata"]) { results.push({ ...common, status: "not-rebaseable", reason: "metadata-missing" }); continue; }
+          const capsuleText = image.config.config.Labels["org.bunko.rebase.metadata"]!;
+          if (Buffer.byteLength(capsuleText) > 64 * 1024) throw new Error("Oversized rebase metadata");
+          const capsule = object(JSON.parse(capsuleText), "Rebase metadata");
+          assertFormatVersion("rebase-capsule", capsule.version);
           const metadata = await input.json(image.descriptor);
           const annotations = object(metadata.annotations ?? {}, "Image annotations") as Record<string, string>;
           const current = annotations["org.opencontainers.image.base.digest"];
@@ -72,9 +77,7 @@ export async function baseStatus(targets: RebaseTarget[], registry: RegistryOpti
           if (!oldBase) {
             const name = (root.annotations as Record<string, string> | undefined)?.["org.opencontainers.image.base.name"] ?? annotations["org.opencontainers.image.base.name"];
             if (name) {
-              const capsule = image.config.config!.Labels!["org.bunko.rebase.metadata"]!;
-              if (Buffer.byteLength(capsule) > 64 * 1024) throw new Error("Oversized rebase metadata");
-              const identity = object(object(JSON.parse(capsule), "Rebase metadata").base, "Rebase base");
+              const identity = object(capsule.base, "Rebase base");
               const digest = identity.indexDigest ?? identity.manifestDigest; assertDigest(digest);
               const recorded = new RegistrySource(name, registry).ref;
               const configured = target.base && !target.base.startsWith("layout:") ? new RegistrySource(target.base, registry).ref : undefined;
@@ -92,7 +95,11 @@ export async function baseStatus(targets: RebaseTarget[], registry: RegistryOpti
             if (!(error instanceof RebaseDecisionError)) throw error;
             results.push({ ...common, status: error.decision === "requires-policy" ? "outdated" : "not-rebaseable", decision: error.decision, reason: error.reason, currentBase: current, candidateBase: candidate.descriptor.digest, oldBase, base: replacement });
           }
-          } catch (error) { results.push({ ...common, status: "unknown", ...inspectionFailure(error) }); }
+          } catch (error) {
+            results.push(error instanceof UnsupportedFormatError
+              ? { ...common, status: "not-rebaseable", reason: "unsupported-format", format: error.format, formatVersion: error.version, supportedVersions: error.supportedVersions }
+              : { ...common, status: "unknown", ...inspectionFailure(error) });
+          }
         }
       } catch (error) { results.push({ image: target.image, status: "unknown", ...inspectionFailure(error) }); }
     }

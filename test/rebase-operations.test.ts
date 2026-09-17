@@ -1,3 +1,8 @@
+import { BlobStore } from "../packages/oci/blob-store.ts";
+import { LayoutSource, resolveBase } from "../packages/oci/source.ts";
+import { canonicalJSON } from "../packages/oci/digest.ts";
+import { exportLayout } from "../packages/oci/layout.ts";
+import { media } from "../packages/oci/types.ts";
 import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -166,4 +171,21 @@ test("load deadlines are explicit, bounded and forwarded only with smoke accepta
   const args = rebaseArguments({ ...input, "smoke-command": '["/app/check"]' }, "/report");
   expect(args[args.indexOf("--smoke-load-timeout") + 1]).toBe("600");
   for (const value of [0, -1, 1.5, 3601, NaN]) await expect(rebase({ image: "image", oldBase: "old", base: "base", dryRun: true, smokeCommand: ["/app/check"], smokeLoadTimeoutSeconds: value })).rejects.toThrow("1..3600");
+});
+
+
+test("base-status reports future capsule versions without calling them current or transport failures", async () => {
+  const f = await fixture(), store = new BlobStore(f.image.layout!);
+  const image = await resolveBase(new LayoutSource(f.image.layout!), { os: "linux", architecture: "amd64" }, store);
+  const config = structuredClone(image.config), label = "org.bunko.rebase.metadata";
+  config.config!.Labels![label] = JSON.stringify({ ...JSON.parse(config.config!.Labels![label]!), version: 2, future: true });
+  const configDescriptor = await store.put(canonicalJSON(config), media.config);
+  const manifest = await store.put(canonicalJSON({ ...image.manifest, config: configDescriptor }), media.manifest);
+  const output = join(f.root, "future-image");
+  await exportLayout(store, output, manifest, [manifest, configDescriptor, ...image.manifest.layers], "future");
+  const result = await baseStatus([
+    { image: `layout:${output}`, oldBase: f.options.oldBase, base: f.options.oldBase },
+    { image: `layout:${output}` },
+  ]);
+  for (const item of result.results) expect(item).toMatchObject({ status: "not-rebaseable", reason: "unsupported-format", format: "rebase-capsule", formatVersion: 2, supportedVersions: [1] });
 });
