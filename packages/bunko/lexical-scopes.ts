@@ -1,37 +1,42 @@
-import * as ts from "typescript";
+import { children, is, parent, type Node, type SourceFile } from "./parser.ts";
 export interface Scope { parent?: Scope; function: boolean; names: Set<string> }
+const functions = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "ObjectMethod", "ClassMethod", "ClassPrivateMethod", "TSDeclareFunction", "TSDeclareMethod"]);
+const runtimeTS = new Set(["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "TSNonNullExpression", "TSInstantiationExpression", "TSEnumDeclaration", "TSEnumMember", "TSModuleDeclaration", "TSModuleBlock", "TSImportEqualsDeclaration", "TSExternalModuleReference", "TSExportAssignment", "TSParameterProperty"]);
 
 /** Collect value bindings before inspecting references, including hoisted declarations. */
-export function lexicalScopes(source: ts.SourceFile, includeClassHeritage = true) {
-  const scopes = new Map<ts.Node, Scope>(), bindings = new Set<ts.Node>();
+export function lexicalScopes(source: SourceFile, includeClassHeritage = true) {
+  const scopes = new Map<Node, Scope>(), bindings = new Set<Node>();
   const root: Scope = { function: true, names: new Set() };
-  function bind(name: ts.BindingName | ts.Identifier, scope: Scope) {
-    if (ts.isIdentifier(name)) { scope.names.add(name.text); bindings.add(name); }
-    else for (const element of name.elements) if (ts.isBindingElement(element)) bind(element.name, scope);
+  function bind(name: Node | null | undefined, scope: Scope) {
+    if (is(name, "Identifier")) { scope.names.add(name.name); bindings.add(name); }
+    else if (is(name, "ObjectPattern")) for (const prop of name.properties) bind(is(prop, "ObjectProperty") ? prop.value : prop.argument, scope);
+    else if (is(name, "ArrayPattern")) for (const element of name.elements) bind(element, scope);
+    else if (is(name, "RestElement")) bind(name.argument, scope);
+    else if (is(name, "AssignmentPattern")) bind(name.left, scope);
+    else if (is(name, "TSParameterProperty")) bind(name.parameter, scope);
   }
-  function collect(node: ts.Node, outer: Scope) {
-    if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly || ts.isImportSpecifier(node) && node.isTypeOnly || ts.isImportEqualsDeclaration(node) && node.isTypeOnly) return;
-    const runtimeHeritage = ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent) && node.parent.token === ts.SyntaxKind.ExtendsKeyword && (ts.isClassDeclaration(node.parent.parent) || ts.isClassExpression(node.parent.parent));
-    if (ts.isTypeNode(node) && !(includeClassHeritage && runtimeHeritage) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+  function collect(node: Node, outer: Scope) {
+    if (is(node, "ImportDeclaration") && node.importKind === "type" || is(node, "ImportSpecifier") && node.importKind === "type" || is(node, "TSImportEqualsDeclaration") && node.importKind === "type") return;
+    if (node.type.startsWith("TS") && !runtimeTS.has(node.type)) return;
     let scope = outer;
-    const fn = ts.isFunctionLike(node);
-    if (node !== source && (fn || ts.isBlock(node) || ts.isCaseBlock(node) || ts.isCatchClause(node) || ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node) || ts.isClassExpression(node))) {
-      scope = { parent: outer, function: fn, names: new Set() };
-    }
+    const fn = functions.has(node.type);
+    if (node !== source && (fn || ["BlockStatement", "StaticBlock", "SwitchStatement", "CatchClause", "ForStatement", "ForOfStatement", "ForInStatement", "ClassExpression"].includes(node.type))) scope = { parent: outer, function: fn, names: new Set() };
     scopes.set(node, scope);
-    if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) { if (node.name) bind(node.name, outer); }
-    if (ts.isFunctionExpression(node) || ts.isClassExpression(node)) { if (node.name) bind(node.name, scope); }
-    if (ts.isParameter(node)) bind(node.name, scope);
-    if (ts.isVariableDeclaration(node)) {
-      let target = scope;
-      if (ts.isVariableDeclarationList(node.parent) && !(node.parent.flags & ts.NodeFlags.BlockScoped)) while (!target.function && target.parent) target = target.parent;
-      bind(node.name, target);
+    if (is(node, "FunctionDeclaration") || is(node, "ClassDeclaration") || is(node, "TSEnumDeclaration")) bind(node.id, outer);
+    if (is(node, "FunctionExpression") || is(node, "ClassExpression")) bind(node.id, scope);
+    if (fn && "params" in node) for (const param of node.params) bind(param, scope);
+    if (is(node, "CatchClause")) bind(node.param, scope);
+    if (is(node, "VariableDeclarator")) {
+      let target = scope; const p = parent(node);
+      if (is(p, "VariableDeclaration") && p.kind === "var") while (!target.function && target.parent) target = target.parent;
+      bind(node.id, target);
     }
-    if (ts.isImportClause(node) && !node.isTypeOnly && node.name) bind(node.name, scope);
-    if (ts.isNamespaceImport(node) && !((node.parent as ts.ImportClause).isTypeOnly)) bind(node.name, scope);
-    if (ts.isImportSpecifier(node) && !node.isTypeOnly && !(node.parent.parent as ts.ImportClause).isTypeOnly) bind(node.name, scope);
-    if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) bind(node.name, scope);
-    ts.forEachChild(node, (child) => collect(child, scope));
+    if (is(node, "ImportSpecifier") || is(node, "ImportDefaultSpecifier") || is(node, "ImportNamespaceSpecifier")) bind(node.local, scope);
+    if (is(node, "TSImportEqualsDeclaration")) bind(node.id, scope);
+    for (const child of children(node, true)) {
+      if (!includeClassHeritage && (is(node, "ClassDeclaration") || is(node, "ClassExpression")) && child === node.superClass) continue;
+      collect(child, scope);
+    }
   }
   collect(source, root);
   return { scopes, bindings };

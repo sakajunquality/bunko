@@ -16,7 +16,7 @@ Both discovery paths now normalize leading `./` segments and trailing slashes be
 
 ## Dependency syntax scan cost
 
-The cost observation is confirmed. The TypeScript parser still scans all JS/TS dependency files before each bundle; minifying the CLI does not reduce that parsing work.
+The cost observation was confirmed for the implementation measured below. These TypeScript parser timings are historical; see [parser design and validation](PARSER.md) for the current implementation. Minifying the CLI does not itself reduce parsing work.
 
 The reproducible benchmark is:
 
