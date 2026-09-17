@@ -154,7 +154,7 @@ test("offline diagnostics validate configuration without exposing configured val
   const root = await temporary(); directories.push(root);
   const source = await project(join(root, "app"));
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "app", module: "src/server.ts", bunko: { env: { SECRET: "do-not-print" }, build: { define: { SECRET: '"another-secret"' } } } }));
-  await writeFile(join(source, ".npmrc"), "//registry.npmjs.org/:_authToken=${BUNKO_DIAGNOSTIC_MISSING_TOKEN}\n");
+  await writeFile(join(source, ".npmrc"), "//registry.npmjs.org/:_authToken=${BUNKO_NPM_DIAGNOSTIC_MISSING_TOKEN}\n");
   const result = await doctor({ path: source });
   expect(result.targets[0]!.environmentKeys).toEqual(["SECRET"]);
   expect(JSON.stringify(result)).not.toContain("do-not-print"); expect(JSON.stringify(result)).not.toContain("another-secret");
