@@ -1,6 +1,7 @@
 /** Previous-release source CLI acceptance. Requires the pinned commit in local Git
- * history and installed dependencies matching that release. Uses a loopback registry emulator; no Docker. */
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+ * history. Installs its exact public dependency lock without lifecycle scripts.
+ * Uses a loopback registry emulator and static ELF fixtures; no Docker. */
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { MockRegistry } from "../../test/mock-registry.ts";
 import { rebaseBase } from "../../test/rebase-fixture.ts";
@@ -31,9 +32,7 @@ try {
   const [bytes, error, status] = await Promise.all([new Response(archive.stdout).bytes(), new Response(archive.stderr).text(), archive.exited]);
   if (status) throw new Error(`Pinned historical source unavailable: ${error}`);
   await run(["tar", "-xf", "-", "-C", previous], repository, bytes);
-  const oldPackage = JSON.parse(await readFile(join(previous, "package.json"), "utf8")), currentPackage = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
-  if (JSON.stringify(oldPackage.devDependencies) !== JSON.stringify(currentPackage.devDependencies)) throw new Error("Historical dependency set changed; install its exact lock before extending this acceptance fixture");
-  await symlink(join(repository, "node_modules"), join(previous, "node_modules"));
+  await run([process.execPath, "install", "--frozen-lockfile", "--ignore-scripts"], previous);
   const app = await project(join(root, "app"), { bunko: { assets: ["public"] } });
   await mkdir(join(app, "public")); await writeFile(join(app, "public/data"), "shared asset\n");
   const base = (await rebaseBase(join(root, "base"))).directory, cache = join(root, "cache");

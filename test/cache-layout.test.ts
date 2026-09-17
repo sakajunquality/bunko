@@ -115,3 +115,19 @@ test("registry pruning leaves future plan layouts unmanaged", async () => {
   } }, { keepCurrent: true });
   expect(result.unmanaged).toEqual([tag]); expect(result.tags).toEqual([]); expect(result.deleted).toEqual([]);
 });
+
+test("registry keep-current does not retain obsolete plans with a current packing string", async () => {
+  const { canonicalJSON, sha256 } = await import("../packages/oci/digest.ts");
+  const { media } = await import("../packages/oci/types.ts");
+  const key = `sha256:${"a".repeat(64)}` as const, tag = cacheTag("deps-plan", key);
+  const config = canonicalJSON({ schemaVersion: 1, kind: "deps-plan", layout: "closure-plan-v1", packFormat, planKey: key, key });
+  const digest = sha256(config), manifest = { schemaVersion: 2, mediaType: media.manifest, artifactType: "application/vnd.bunko.cache.v1", config: { digest, size: config.length, mediaType: "application/vnd.bunko.cache.plan.config.v1+json" }, layers: [{}] };
+  const result = await pruneRegistry("registry.test/cache", false, { credentials: async () => undefined, fetcher: async (input) => {
+    const path = new URL(input).pathname;
+    if (path.endsWith("/tags/list")) return Response.json({ tags: [tag] });
+    if (path.endsWith(`/manifests/${tag}`)) return Response.json(manifest);
+    if (path.endsWith(`/blobs/${digest}`)) return new Response(Buffer.from(config));
+    throw new Error("Unexpected request");
+  } }, { keepCurrent: true });
+  expect(result.retained).toEqual([]); expect(result.tags.map((item) => item.tag)).toEqual([tag]);
+});
