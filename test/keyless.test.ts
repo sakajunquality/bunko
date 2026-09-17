@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, realpath, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prepareSigning, signingMode, signConfiguredImages, verifyKeylessImage } from "../packages/bunko/keyless.ts";
 import { signingEnvironment } from "../packages/bunko/cosign.ts";
@@ -138,4 +138,34 @@ test("Actions forward explicit TSA-only policy and retain unspecified signing de
   expect(buildArguments(input, "/tmp/action").args.some((arg) => arg.startsWith("--sign-tlog"))).toBe(false);
   expect(() => buildArguments({ ...input, "sign-tlog": "invalid" }, "/tmp/action")).toThrow("Boolean");
   expect(() => rebaseArguments({ ...input, "sign-tlog": "invalid" }, "/report")).toThrow("sign-tlog");
+});
+
+
+test("projected token symlinks are bounded, rotation is observed, and both paths are excluded", async () => {
+  const f = await fixture(), path = join(f.root, "token");
+  await mkdir(join(f.root, "revision1")); await mkdir(join(f.root, "revision2"));
+  await writeFile(join(f.root, "revision1/token"), "TOKEN_ONE\n");
+  await writeFile(join(f.root, "revision2/token"), "TOKEN_TWO\n");
+  await symlink("revision1", join(f.root, "..data")); await symlink("..data/token", path);
+  const first = (await prepareSigning({ sign: "keyless", signIdentityToken: `@${path}` }))!;
+  expect(first.token).toBe("TOKEN_ONE"); expect(first.paths).toContain(path); expect(first.paths).toContain(await realpath(join(f.root, "revision1/token")));
+  await rm(join(f.root, "..data")); await symlink("revision2", join(f.root, "..data"));
+  expect((await prepareSigning({ sign: "keyless", signIdentityToken: `@${path}` }))?.token).toBe("TOKEN_TWO");
+  expect(first.token).toBe("TOKEN_ONE");
+  await writeFile(join(f.root, "revision2/token"), "x".repeat(64 * 1024 + 1));
+  await expect(prepareSigning({ sign: "keyless", signIdentityToken: `@${path}` })).rejects.toThrow("bounded regular");
+  await expect(prepareSigning({ sign: "keyless", signIdentityToken: `@${f.root}` })).rejects.toThrow("bounded regular");
+});
+
+test("empty ambient token permits GitHub identity, but explicit empty token fails", async () => {
+  const names = ["SIGSTORE_ID_TOKEN", "CI_JOB_JWT_V2", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN"];
+  const before = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    process.env.SIGSTORE_ID_TOKEN = ""; process.env.CI_JOB_JWT_V2 = "obsolete-token";
+    await expect(prepareSigning({ sign: "keyless" })).rejects.toThrow("No keyless identity");
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = "https://identity.test"; process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = "github-token";
+    expect((await prepareSigning({ sign: "keyless" }))?.provider).toBe("github-actions");
+    await expect(prepareSigning({ sign: "keyless", signIdentityToken: "" })).rejects.toThrow("Invalid explicit");
+  } finally { for (const name of names) if (before[name] === undefined) delete process.env[name]; else process.env[name] = before[name]; }
 });
