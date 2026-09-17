@@ -1,3 +1,4 @@
+import { cacheTemporaryName, pruneStages, residueMinimumAge } from "./cache-residue.ts";
 import { baseInspectDirectory, baseInspectVersion, baseInspectVersionPattern, validateBaseInspection } from "./base-inspect.ts";
 import { cacheMetadataLimit, closurePlanLayout, packFormat } from "./cache.ts";
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
@@ -8,12 +9,12 @@ import { responseBytes, type RegistryOptions } from "../oci/registry.ts";
 import { media } from "../oci/types.ts";
 import { withCacheLock } from "./cache-lock.ts";
 
-export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number; unreferencedBytes: number; temporaryBytes: number }
+export interface PruneResult { dryRun: boolean; keys: string[]; blobs: string[]; deleted: string[]; bytes: number; managedBytes: number; remainingBytes: number; unreferencedBytes: number; temporaryBytes: number; residueBytes: number; residue: string[] }
 
 export async function pruneLocal(directory: string, execute = false, olderThanSeconds = 7 * 86400, keepBytes?: number): Promise<PruneResult> {
   if (!Number.isSafeInteger(olderThanSeconds) || olderThanSeconds < 0) throw new Error("Prune age must be non-negative integer seconds");
   if (keepBytes !== undefined && (!Number.isSafeInteger(keepBytes) || keepBytes < 0)) throw new Error("Cache budget must be non-negative integer bytes");
-  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0 };
+  const result: PruneResult = { dryRun: !execute, keys: [], blobs: [], deleted: [], bytes: 0, managedBytes: 0, remainingBytes: 0, unreferencedBytes: 0, temporaryBytes: 0, residueBytes: 0, residue: [] };
   try { await lstat(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return result; throw error; }
   return withCacheLock(directory, async () => {
     for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {
@@ -103,7 +104,10 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         sizes.set(record.digest, info.size); present.add(record.digest); result.managedBytes += info.size;
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; sizes.set(record.digest, 0); }
     }
-    // Crash residue is visible, but not deleted without a lease protocol protecting live writers.
+    // Complete CAS publication and old-style copies hold this metadata lock; new
+    // copies live in separately leased staging directories. Retain recent residue.
+    const residueCutoff = Math.min(cutoff, Date.now() - residueMinimumAge);
+    const residue: { path: string; size: number; dev: number; ino: number; mtime: number }[] = [];
     for (const [subdir, temporary] of [["blobs", true], ["blobs/sha256", false]] as const) {
       let names: string[] = [];
       try { names = await readdir(join(directory, subdir)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -112,6 +116,9 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         const info = await lstat(join(directory, subdir, name));
         if (!info.isFile() || info.isSymbolicLink()) continue;
         if (temporary) result.temporaryBytes += info.size; else result.unreferencedBytes += info.size;
+        if (info.nlink === 1 && info.mtimeMs <= residueCutoff && (!temporary || cacheTemporaryName.test(name))) {
+          residue.push({ path: join(directory, subdir, name), size: info.size, dev: info.dev, ino: info.ino, mtime: info.mtimeMs });
+        }
       }
     }
     result.remainingBytes = result.managedBytes;
@@ -140,8 +147,18 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
         result.blobs.push(record.digest); result.bytes += sizes.get(record.digest)!; result.remainingBytes -= sizes.get(record.digest)!;
       }
     }
+    for (const item of residue) {
+      const info = await lstat(item.path);
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.dev !== item.dev || info.ino !== item.ino || info.size !== item.size || info.mtimeMs !== item.mtime) throw new Error("Cache residue changed during prune");
+    }
+    if (execute) for (const candidate of candidates) if (sha256((await safeRead(candidate.path)).bytes) !== sha256(candidate.bytes)) throw new Error("Cache changed during prune");
+    const stages = await pruneStages(directory, residueCutoff, execute);
+    result.residue = [...residue.map((item) => item.path), ...stages.paths];
+    result.residueBytes = residue.reduce((sum, item) => sum + item.size, stages.bytes);
+    // Residue is outside the managed-byte retention budget, even when reclaimed.
     if (execute) {
-      for (const candidate of candidates) if (sha256((await safeRead(candidate.path)).bytes) !== sha256(candidate.bytes)) throw new Error("Cache changed during prune");
+      result.deleted.push(...stages.paths);
+      for (const item of residue) { await rm(item.path); result.deleted.push(item.path); }
       // A crash leaves removable dangling keys rather than unreclaimable blobs.
       for (const digest of result.blobs) { const path = join(directory, "blobs", "sha256", digest.slice(7)); await rm(path); result.deleted.push(path); }
       for (const candidate of candidates) { await rm(candidate.path); result.deleted.push(candidate.path); }
