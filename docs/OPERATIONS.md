@@ -53,3 +53,11 @@ Remote pruning selects all strictly named `bunko-cache-v1-*` tags whose manifest
 Use dedicated cache repositories and provider retention policies where tag-only deletion is unavailable. This feature does not modify retention policies or cloud IAM.
 
 `bun run test:prune-smoke` exercises preview and tag-only deletion against a disposable Distribution registry and verifies the runnable image remains available.
+
+When one target fails during parallel preparation, Bunko stops scheduling targets
+and cancels cooperating work in that preparation group. Owned sibling subprocesses
+receive SIGTERM, followed by SIGKILL after one second if needed. Bunko drains
+in-flight tasks before removing their scratch and preserves the original target
+error. This does not cancel unrelated library calls or publish partially prepared
+targets. Operations that do not observe cancellation still have to finish before
+cleanup; a single native filesystem copy remains cancellable between files only.

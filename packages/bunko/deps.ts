@@ -1,3 +1,4 @@
+import { cleanupAfterTasks } from "../runtime/invocation.ts";
 import { npmEnvironment } from "./npm-environment.ts";
 import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { spawn } from "../runtime/invocation.ts";
@@ -296,6 +297,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   const originalLock = await readFile(join(root, "bun.lock"), "utf8");
   const originals = await Promise.all((plan.workspace?.packages.map((p) => p.path) ?? [""]).map(async (path) => ({ path: join(root, path, "package.json"), text: await readFile(join(root, path, "package.json"), "utf8") })));
   const network = installNetworkEnvironment();
+  let installed = false;
   try {
     const extra = await validateInstallCertificates(network);
     if (plan.npmCertificate) {
@@ -316,7 +318,11 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
     if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability${installerOutputTail(stderr, stdout, root, 20, installerCredentials(plan.npmrc))}`);
     if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
     for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
-  } finally { await Promise.all([rm(auth, { force: true }), rm(certificateFile, { force: true })]); }
+    installed = true;
+  } finally {
+    const cleanup = () => Promise.all([rm(auth, { force: true }), rm(certificateFile, { force: true })]);
+    if (installed) await cleanup(); else await cleanupAfterTasks(cleanup);
+  }
 }
 
 /** Read ELF64 metadata without loading or executing a target binary. */
