@@ -30,11 +30,11 @@ export async function gitLabels(directory: string, log?: (message: string) => vo
   if (!await inCheckout(directory)) return {};
   const warn = () => log?.("Git metadata is incomplete; check repository ownership and Git safe.directory configuration, or use --git-metadata=false.\n");
   if (!executable) { warn(); return {}; }
-  const env = { ...process.env };
-  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]) delete env[key];
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+  for (const key of Object.keys(env)) if (key.startsWith("GIT_") && !["GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL"].includes(key)) delete (env as NodeJS.ProcessEnv)[key];
   const run = async (args: string[]) => {
     try {
-      const child = spawn([executable, "-C", directory, ...args], { stdout: "pipe", stderr: "ignore", env });
+      const child = spawn([executable, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", directory, ...args], { stdout: "pipe", stderr: "ignore", env });
       const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
       try {
         const [stdout, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);

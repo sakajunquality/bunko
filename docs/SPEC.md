@@ -212,7 +212,7 @@ Projection checks escaping links, special files, install-script requirements, an
 
 ## 10. Resolve
 
-`bunko resolve -f FILE|DIR|- --repo PREFIX [--context DIR]` accepts repeated inputs. Input paths are cwd-relative; URI paths are cwd- or context-relative, or absolute. Directories read regular .yaml/.yml/.json files by name; only --recursive visits children. Child symlinks are not followed. Explicit files are deduplicated by canonical path, and repeated stdin is read once.
+`bunko resolve -f FILE|DIR|- --repo PREFIX [--context DIR]` accepts repeated inputs. Input paths are cwd-relative; URI paths are cwd- or context-relative, or absolute, but canonical targets and their workspace roots must remain within the context. An operator can explicitly grant trusted manifests access outside it with `--allow-external-context`. Reference scalars are limited to 4096 characters before template detection. Directories read regular .yaml/.yml/.json files by name; only --recursive visits children. Child symlinks are not followed. Explicit files are deduplicated by canonical path, and repeated stdin is read once.
 
 Use a YAML AST to identify complete bunko://path string values and their source ranges. Do not replace mapping keys or their descendants, comments, strings that do not begin with bunko://, or ${...}/{{...}} templates. URI query/fragment/backslash/control characters are rejected. YAML errors/warnings, unknown tags, duplicate keys, and undefined aliases fail before building.
 

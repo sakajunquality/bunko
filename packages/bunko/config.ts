@@ -1,3 +1,4 @@
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { runtimeKind, nodeMajor, nodePath, nodeArguments } from "./node-runtime.ts";
 import { runtimeLibc, type Libc } from "./libc.ts";
 import { assetMode } from "./asset-policy.ts";
@@ -254,8 +255,8 @@ export function validateDependencySpecs(manifest: Record<string, unknown>, works
 export async function loadProject(options: BuildOptions, workspace?: Workspace): Promise<Project> {
   if (options.tagConflict !== undefined && !["fail", "skip"].includes(options.tagConflict)) throw new Error("Tag conflict policy must be fail or skip");
   const directory = await realpath(resolve(options.path.replace(/^bunko:\/\//, "")));
-  const manifestText = await readFile(join(directory, "package.json"), "utf8");
-  const manifest = object(JSON.parse(manifestText), "package.json");
+  const manifestText = await readConfigInput(directory, "package.json");
+  const manifest = object(parseConfigInput(manifestText, "package.json", JSON.parse), "package.json");
   if (manifest.workspaces !== undefined && !workspace) throw new Error("Workspace root requires target discovery");
   validateDependencySpecs(manifest, workspace);
   await readBunfig(directory);

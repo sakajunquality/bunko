@@ -1,3 +1,4 @@
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { object } from "../oci/digest.ts";
@@ -7,9 +8,9 @@ export interface InstallPolicy { minimumReleaseAge?: number; minimumReleaseAgeEx
 /** Only supported install settings are forwarded; test settings are never run. */
 export async function readBunfig(directory: string): Promise<InstallPolicy> {
   let text: string;
-  try { text = await readFile(join(directory, "bunfig.toml"), "utf8"); }
+  try { text = await readConfigInput(directory, "bunfig.toml"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}; throw error; }
-  const config = object(Bun.TOML.parse(text), "bunfig.toml");
+  const config = object(parseConfigInput(text, "bunfig.toml", Bun.TOML.parse), "bunfig.toml");
   for (const key of Object.keys(config)) if (!["install", "test"].includes(key)) throw new Error(`Unsupported bunfig.toml option: ${key}`);
   if (config.test !== undefined) object(config.test, "bunfig test");
   const install = object(config.install ?? {}, "bunfig install");

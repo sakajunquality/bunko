@@ -21,7 +21,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 */
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { extname, join, resolve as absolute } from "node:path";
+import { extname, join, relative, resolve as absolute } from "node:path";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Node } from "yaml";
 import { canonicalOutput } from "../oci/layout.ts";
 import { repository, repositoryName } from "../oci/publish.ts";
@@ -32,6 +32,7 @@ import { discover } from "./workspace.ts";
 export interface ResolveOptions extends Omit<BuildOptions, "path"> {
   files: string[];
   context?: string;
+  allowExternalContext?: boolean;
   recursive?: boolean;
   selector?: string;
   stdin?: () => Promise<string>;
@@ -41,6 +42,7 @@ interface Input { name: string; source: string; json: boolean; documents: number
 
 function reference(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.startsWith("bunko://")) return;
+  if (value.length > 4096) throw new Error("Invalid bunko reference: exceeds 4096 characters");
   // Template expressions are intentionally left for the caller's renderer.
   if (/\$\{[^}]+\}|\{\{[\s\S]*?\}\}/.test(value)) return;
   if (value === "bunko://" || /[\s{}$\\?#\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid bunko reference: ${value}`);
@@ -188,7 +190,12 @@ export async function resolveDocuments(options: ResolveOptions): Promise<{ outpu
   const uriTargets = new Map<string, string>(), names = new Map<string, string>();
   const groups = new Map<string, { directory: string; paths: Set<string>; workspace: boolean }>();
   for (const uri of new Set(inputs.flatMap((input) => input.replacements.map((r) => r.uri)))) {
-    const found = await discover({ path: absolute(context, uri.slice("bunko://".length)) });
+    const selected = await realpath(absolute(context, uri.slice("bunko://".length)));
+    const localPath = relative(context, selected);
+    if (!options.allowExternalContext && (localPath === ".." || localPath.startsWith("../"))) throw new Error("bunko reference escapes --context; use --allow-external-context only for trusted manifests");
+    const found = await discover({ path: selected });
+    const workspacePath = relative(context, found.directory);
+    if (!options.allowExternalContext && (workspacePath === ".." || workspacePath.startsWith("../"))) throw new Error("Reference workspace escapes --context; select the workspace root as context");
     if (found.targets.length !== 1) throw new Error(`Reference ${uri} selects multiple targets; use a service directory`);
     const path = join(found.directory, found.targets[0]!.path);
     uriTargets.set(uri, path);

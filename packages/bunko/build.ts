@@ -782,6 +782,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       mapped.set(project.directory, staged);
     }
     const plan = await dependencyPlan(projects[0]!, source, true, installCertificate), toolchain = await selectToolchain(options.bunPath);
+    for (const host of new Set(Object.values(plan.resolution).map((value) => new URL(value).host))) if (host !== "registry.npmjs.org") options.log?.(`Using configured npm registry host ${host}\n`);
     assertLockToolchain(plan, toolchain);
     for (const project of projects) assertToolchain(project.toolchainRequirements, toolchain);
     const toolchainDigest = await hashFile(toolchain.path), builder = await builderIdentity();

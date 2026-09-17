@@ -41,3 +41,14 @@ test("a broken checkout reports optional Git metadata failure without exposing i
   expect(await gitLabels(root, (message) => warnings.push(message))).toEqual({});
   expect(warnings).toHaveLength(1);
 });
+
+test("repository fsmonitor commands cannot execute during metadata collection", async () => {
+  const root = await temporary(); roots.push(root);
+  const git = async (...args: string[]) => { const child = Bun.spawn(["git", "-C", root, ...args], { stdout: "ignore", stderr: "pipe" }); if (await child.exited) throw new Error(await new Response(child.stderr).text()); };
+  await git("init"); await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "fixture");
+  const marker = join(root, "executed"); const hook = join(root, "monitor");
+  await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o700 });
+  await git("config", "core.fsmonitor", hook);
+  expect((await gitLabels(root))["org.opencontainers.image.revision"]).toMatch(/^[a-f0-9]{40}$/);
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
