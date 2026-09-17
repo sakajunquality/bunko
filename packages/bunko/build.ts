@@ -1,4 +1,5 @@
 import { assertFormatVersion, type PersistedFormat } from "../compatibility/formats.ts";
+import { cleanupAfterTasks } from "../runtime/invocation.ts";
 import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
@@ -399,7 +400,6 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           if (!hit && iteration === 1) records.push({ schemaVersion: 1, key, kind: "runtime", packFormat, destination: project.bunPath, platform, layer: runtime.layer, inventory: [], native: [] });
         }
         const root = join(temporary, `build-${iteration}-${platform.architecture}`);
-        await copyTree(snapshotRoot, root);
         const noteOmittedAddons = (omitted: number) => { if (omitted) log(`Omitted ${omitted} native addon file/link(s) built for other platforms (${platform.architecture})\n`); };
         let depsLayer: Layer | undefined;
         let inventory: InventoryEntry[] = [], native: NativeBinary[] = [];
@@ -496,6 +496,9 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
           app = applicationMetadata.entries.map((entry) => entry.type === "file" ? { ...entry, type: "file" as const, content: Buffer.alloc(0) } : { ...entry, type: "directory" as const });
           log(`Reusing application output (${platform.architecture})\n`);
         } else {
+          // Cached output and a reusable bundle already own their input files.
+          // Materialize a writable workspace only for an actual source/bundle job.
+          if (project.mode === "source" || !sharedBundle) await copyTree(snapshotRoot, root);
           const installBuildDeps = (filters?: string[]) => phase(options.progress, "build-deps", () => installDependencies(root, plan, toolchain, undefined, installCache, options.offline, filters), undefined, `${platform.os}/${platform.architecture}`);
           const runBundle = () => stage("bundle", () => bundle({ ...project, platform }, toolchain, join(root, project.targetPath), log, root, context.syntax, compileRuntimes[index]));
           const scoped = !sharedBundle && project.mode !== "source" ? buildDependencyFilters(plan, project.targetPath) : undefined;
@@ -660,7 +663,7 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
         return result;
       },
     };
-  } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+  } catch (error) { await cleanupAfterTasks(() => rm(temporary, { recursive: true, force: true })); throw error; }
 }
 
 /** Single-target API retained for callers that expect one BuildResult. */
@@ -819,7 +822,7 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       const input = await targetInputs(source, project, sourceDigest);
       const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtime, signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
-    });
+    }, { cancelOnFailure: true });
     prepared.splice(0, prepared.length, ...ordered);
     for (const item of prepared) item.result.syntaxValidation = { ...syntax.stats };
     const results = prepared.map((item) => item.result);
