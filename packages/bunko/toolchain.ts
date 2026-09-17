@@ -169,7 +169,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? project.runtimeLibc === "musl" ? "bun-linux-x64-musl-baseline" : "bun-linux-x64-baseline" : project.runtimeLibc === "musl" ? "bun-linux-arm64-musl" : "bun-linux-arm64";
     try {
-      const compiled = spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
+      const compiled = spawn([toolchain.path, "build", `./${candidates[0]![0]}`, "--compile", ...(project.runtimeArgs.length ? [`--compile-exec-argv=${project.runtimeArgs.join(" ")}`] : []), `--target=${target}`, `--compile-executable-path=${runtimePath}`, ...(project.build.minify ? ["--minify"] : []), `--outfile=${executable}`, `--config=${join(root, OUTPUT_DIRECTORY, "bunfig.toml")}`, "--env=disable", "--no-env-file"],
         { cwd: outdir, env: { HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C" }, stdout: "pipe", stderr: "pipe" });
       const [, , code] = await Promise.all([drain(compiled.stdout), drain(compiled.stderr), compiled.exited]);
       if (code) throw new Error(`Bun compile failed (exit ${code})`);

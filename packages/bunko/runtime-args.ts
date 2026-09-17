@@ -36,3 +36,12 @@ export function validateRuntimeArgs(args: string[]): string[] {
   }
   return normalized;
 }
+
+/** Compiled executables accept execution options, not source-loader/resolver settings.
+ * Bun's embedding flag is a whitespace-delimited string, so ambiguous argv is refused. */
+export function compileRuntimeArgs(args: string[]): string[] {
+  const allowed = new Set(["--smol", "--no-install", "--no-env-file", "--no-addons", "--expose-gc", "--no-warnings", "--trace-warnings", "--no-deprecation", "--throw-deprecation", "--zero-fill-buffers", "--use-system-ca", "--use-openssl-ca", "--use-bundled-ca", "--cpu-prof", "--heap-prof", "--cpu-prof-name", "--cpu-prof-dir", "--heap-prof-name", "--heap-prof-dir", "--user-agent", "--title"]);
+  const normalized = validateRuntimeArgs(args);
+  for (const argument of normalized) if (!allowed.has(argument.split("=")[0]!) || /[\s'"\\]/.test(argument)) throw new Error("Compile runtime.args requires supported execution flags without whitespace, quotes or backslashes");
+  return normalized;
+}
