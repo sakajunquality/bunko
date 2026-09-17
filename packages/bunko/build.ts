@@ -1,3 +1,4 @@
+import { runtimePreparation } from "./runtime-preparation.ts";
 import { copyTree } from "../runtime/copy.ts";
 import { checkNodeLayers } from "./node-graph.ts";
 import { prepareSigning, signingMode, signConfiguredImages, type PreparedSigning, type SigningMetadata } from "./keyless.ts";
@@ -196,6 +197,7 @@ function reportUndeclaredImports(undeclared: UndeclaredImport[], optionalUndecla
 }
 
 interface BuildContext {
+  runtime: ReturnType<typeof runtimePreparation>;
   signing?: PreparedSigning;
   mappedAssets: Map<string, Awaited<ReturnType<typeof stageAssetMappings>>>;
   syntax: SyntaxCache;
@@ -318,12 +320,12 @@ async function prepareBuild(options: BuildOptions, context: BuildContext): Promi
     }
     const libraryPath = (base: BaseImage) => project.env.LD_LIBRARY_PATH ?? base.config.config?.Env?.findLast((value) => value.startsWith("LD_LIBRARY_PATH="))?.slice(16) ?? "";
     const compileRuntimes: Awaited<ReturnType<typeof downloadRuntime>>[] = [];
-    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform));
+    if (project.mode === "compile") for (const platform of project.platforms) compileRuntimes.push(await stage("runtime", () => context.runtime(platform, project.runtimeLibc), platform));
     for (const [index, runtime] of compileRuntimes.entries()) assertRuntimeBase(runtime.metadata, await filesystem(bases[index]!), libraryPath(bases[index]!));
-    const runtimes: { executable: Buffer; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
+    const runtimes: { executable: { source: string; size: number }; tree: BaseFilesystem; metadata: InjectedRuntime }[] = [];
     if (project.runtimeInject) {
       for (const [index, platform] of project.platforms.entries()) {
-        const runtime = await stage("runtime", () => downloadRuntime(toolchain, platform, { libc: project.runtimeLibc, cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log }), platform);
+        const runtime = await stage("runtime", () => context.runtime(platform, project.runtimeLibc), platform);
         runtime.metadata.path = project.bunPath;
         const tree = await filesystem(bases[index]!);
         runtimes.push({ ...runtime, tree });
@@ -806,9 +808,10 @@ export async function prepareTargets(options: BuildOptions, single = false, sour
       return closures.get(key)!;
     };
     const cachePersistence = {};
+    const runtime = runtimePreparation(temporary, toolchain, { cache: options.localCache === false ? false : options.runtimeCache, offline: options.offline, log: options.log });
     const ordered = await mapJobs(projects, jobs, async (project) => {
       const input = await targetInputs(source, project, sourceDigest);
-      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
+      const item = await phase(options.progress, "prepare", () => prepareBuild({ ...options, registry }, { runtime, signing, runtimeCertificate: runtimeCertificates.get(project.directory), mappedAssets: mapped.get(project.directory)!, syntax, builder, inputDigest: input.digest, inputPaths: input.paths, toolchainDigest, cachePersistence, project, source, sourceDigest, plan, toolchain, git, multiple, reports, sources, closure, closureNotices, closureProjects: sharedDeps ? projects : [project] }), project.name, undefined, project.directory);
       prepared.push(item); return item;
     });
     prepared.splice(0, prepared.length, ...ordered);

@@ -139,7 +139,7 @@ test.skipIf(!Bun.which("gpgv"))("corrupt cached archives cannot bypass signed ch
   await writeFile(join(dir,"SHASUMS256.txt.asc"),await readFile(new URL("./fixtures/runtime/bun-1.3.13-checksums.asc",import.meta.url)));
   const archive=join(dir,"bun-linux-aarch64.zip"); await writeFile(archive,"corrupt cached bytes");
   const requests:string[]=[], logs:string[]=[];
-  await expect(downloadRuntime(toolchain,platform,{cache:root,log:(line)=>logs.push(line),fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
+  await expect(downloadRuntime(toolchain,platform,{destination:join(root,"executable"),cache:root,log:(line)=>logs.push(line),fetcher:async(url)=>{requests.push(url);return new Response("unverified replacement");}})).rejects.toThrow("checksum mismatch");
   expect(logs.join("")).toContain("cache entry failed verification");
   expect(requests.length).toBe(1); expect(requests[0]!.endsWith("/bun-linux-aarch64.zip")).toBe(true);
   expect(await readFile(archive,"utf8")).toBe("corrupt cached bytes");

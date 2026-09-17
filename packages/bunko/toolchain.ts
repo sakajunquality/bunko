@@ -5,7 +5,7 @@ import { runtimeNotices } from "./runtime-notices.ts";
 import { validateLocations, type LocationDiagnostics } from "./location-diagnostics.ts";
 import { workerCode } from "./worker-code.ts";
 import { packageLicense } from "./inventory.ts";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { isBuiltin } from "node:module";
 import { canonicalJSON, object } from "../oci/digest.ts";
@@ -165,7 +165,7 @@ export async function bundle(project: Project, toolchain: Toolchain, root: strin
     if (Object.keys(outputs).length !== 1) throw new Error("Compile mode requires a single JavaScript output; use bundle mode for HTML, CSS or other emitted assets");
     if (!compileRuntime || compileRuntime.metadata.libc !== project.runtimeLibc || compileRuntime.metadata.version !== toolchain.version || compileRuntime.metadata.expectedRevision !== toolchain.revision || compileRuntime.metadata.cpu !== (project.platform.architecture === "amd64" ? "x64-baseline" : "aarch64")) throw new Error("Compile mode requires a verified matching Bun release runtime");
     const runtimePath = join(root, OUTPUT_DIRECTORY, "compile-runtime");
-    await writeFile(runtimePath, compileRuntime.executable, { mode: 0o600 });
+    await copyFile(compileRuntime.executable.source, runtimePath);
     const executable = "bunko-app";
     const target = project.platform.architecture === "amd64" ? project.runtimeLibc === "musl" ? "bun-linux-x64-musl-baseline" : "bun-linux-x64-baseline" : project.runtimeLibc === "musl" ? "bun-linux-arm64-musl" : "bun-linux-arm64";
     try {
