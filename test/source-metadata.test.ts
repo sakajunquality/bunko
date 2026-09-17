@@ -52,3 +52,37 @@ test("repository fsmonitor commands cannot execute during metadata collection", 
   expect((await gitLabels(root))["org.opencontainers.image.revision"]).toMatch(/^[a-f0-9]{40}$/);
   expect(await Bun.file(marker).exists()).toBe(false);
 });
+
+
+test.each(["clean", "process"])("repository %s filters cannot execute during metadata collection", async (kind) => {
+  const root = await temporary(); roots.push(root);
+  const git = async (...args: string[]) => { const child = Bun.spawn(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" }); const output = await new Response(child.stdout).text(); if (await child.exited) throw new Error(await new Response(child.stderr).text()); return output.trim(); };
+  await git("init");
+  await writeFile(join(root, ".gitattributes"), "tracked filter=attack\n");
+  await writeFile(join(root, "tracked"), "initial\n");
+  await git("add", ".");
+  await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture");
+  const marker = join(root, "executed");
+  await git("config", `filter.attack.${kind}`, `touch '${marker}'; cat`);
+  await writeFile(join(root, "tracked"), "changed\n");
+  const warnings: string[] = [];
+  const labels = await gitLabels(root, (message) => warnings.push(message));
+  expect(labels["org.opencontainers.image.revision"]).toMatch(/^[a-f0-9]{40}$/);
+  expect(labels["org.bunko.git.dirty"]).toBeUndefined();
+  expect(warnings).toHaveLength(1);
+  expect(await Bun.file(marker).exists()).toBe(false);
+});
+
+test("gitlinks omit dirty metadata without inspecting submodule configuration", async () => {
+  const root = await temporary(); roots.push(root);
+  const git = async (...args: string[]) => { const child = Bun.spawn(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" }); const output = await new Response(child.stdout).text(); if (await child.exited) throw new Error(await new Response(child.stderr).text()); return output.trim(); };
+  await git("init");
+  await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "fixture");
+  const revision = await git("rev-parse", "HEAD");
+  await git("update-index", "--add", "--cacheinfo", `160000,${revision},submodule`);
+  const warnings: string[] = [];
+  const labels = await gitLabels(root, (message) => warnings.push(message));
+  expect(labels["org.opencontainers.image.revision"]).toBe(revision);
+  expect(labels["org.bunko.git.dirty"]).toBeUndefined();
+  expect(warnings).toHaveLength(1);
+});

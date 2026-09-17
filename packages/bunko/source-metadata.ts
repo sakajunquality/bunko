@@ -45,7 +45,14 @@ export async function gitLabels(directory: string, log?: (message: string) => vo
   const revision = await run(["rev-parse", "HEAD"]);
   if (!revision || !/^[a-f0-9]{40,64}$/.test(revision)) { warn(); return {}; }
   const result: Record<string, string> = { "org.opencontainers.image.revision": revision };
-  const status = await run(["status", "--porcelain", "--untracked-files=normal"]);
+  // Status may invoke clean/process filters, including filters in submodule repositories.
+  // Preserve revision/source, but do not claim a clean tree when safe inspection is unavailable.
+  const configNames = await run(["config", "--null", "--name-only", "--list"]);
+  const index = await run(["ls-files", "--stage", "-z"]);
+  const safeStatus = configNames !== undefined && index !== undefined
+    && !configNames.split("\0").some((name) => /^filter\..*\.(clean|process)$/.test(name))
+    && !index.split("\0").some((entry) => entry.startsWith("160000 "));
+  const status = safeStatus ? await run(["status", "--porcelain", "--untracked-files=normal"]) : undefined;
   if (status === undefined) warn(); else result["org.bunko.git.dirty"] = String(Boolean(status));
   const remote = await run(["remote", "get-url", "origin"]), source = remote ? sourceURL(remote) : undefined;
   if (source) result["org.opencontainers.image.source"] = source;
