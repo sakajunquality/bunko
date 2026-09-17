@@ -18,6 +18,7 @@ import { packLayer, type TarEntry } from "../packages/oci/tar.ts";
 import { media } from "../packages/oci/types.ts";
 import { dependencyFixture } from "./dependency-fixture.ts";
 import { baseLayout, cli, inspectTar, project, temporary } from "./helpers.ts";
+import { parseSource } from "../packages/bunko/parser.ts";
 import { MockRegistry } from "./mock-registry.ts";
 
 const directories: string[] = [];
@@ -241,4 +242,13 @@ test("syntax guards preserve valid sloppy CommonJS while rejecting actual macro 
     expect(() => rejectMacroSyntax(`const fs = require('fs'); ${syntax}`, file)).not.toThrow();
     expect(() => rejectMacroSyntax(`const fs = require('macro:bad'); ${syntax}`, file)).toThrow("macros");
   }
+});
+
+test("documents unsupported deferred imports and decorator placement", async () => {
+  const { rejectMacroSyntax } = await import("../packages/bunko/syntax.ts");
+  for (const code of ['import defer * as value from "./value.js";', 'import.defer("./value.js");']) {
+    expect(() => rejectMacroSyntax(code, "source.ts")).toThrow("Deferred imports are not supported");
+  }
+  expect(parseSource("@dec export class A {}", "source.ts").errors).toHaveLength(0);
+  expect(() => parseSource("export @dec class A {}", "source.ts")).toThrow("Unsupported or invalid executable syntax");
 });
