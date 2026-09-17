@@ -26,6 +26,8 @@ test("release assets carry matching versions, checksums, and parser licenses", a
   const notices = Buffer.from(assets.get("THIRD_PARTY_NOTICES.md")!).toString();
   const typescriptNotices = (await readFile("node_modules/typescript/ThirdPartyNoticeText.txt", "utf8")).replaceAll("\r\n", "\n").replace(/[ \t]+$/gm, "");
   expect(notices).toContain(typescriptNotices.trim());
+  expect(notices).toContain(`## TypeScript ${metadata.devDependencies.typescript}`);
+  expect(notices).toContain(`bundles yaml ${metadata.devDependencies.yaml}`);
   expect(bundle).toContain("Copyright (c) 1991-2017 Unicode, Inc.");
   await expect(prepareRelease(distribution)).rejects.toThrow();
   await expect(prepareRelease(join(root, "wrong-tag"), "v9.9.9")).rejects.toThrow("must match");

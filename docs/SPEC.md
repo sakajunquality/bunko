@@ -126,7 +126,9 @@ Preserve base layer bytes and DiffIDs. Inherit environment, user, and ordinary l
 - Entrypoint: `[runtime.bunPath, workdir + emitted server path]`.
 - Cmd: configured args, default `[]`.
 - WorkingDir: configured value or `/app`.
-- User: explicit setting, then the base User unless it is root, then `65532:65532`. A base User counts as root when it is empty or its user part (before any `:`) is a numeric zero (including `00`) or `root`, for example `0`, `0:0`, `00:00`, `root`, `root:root`, `root:0` or `0:root`; other values such as `1000`, `nonroot` or `65532:65532` are inherited.
+- User: explicit canonical numeric `uid[:gid]`, then a canonical nonzero numeric base UID, then `65532:65532`. Named or noncanonical base users are not inherited. Explicit UID 0 is permitted.
+- Base `Volumes` and `StopSignal` are inherited. `ExposedPorts` is inherited only when application ports are unspecified. Docker `Healthcheck` is not copied. Inherited volumes can be writable even with a read-only container root.
+- Base OCI labels are inherited by default except revision and Bunko-owned labels. Base title, description, version, URL and license describe the base, not necessarily the application; set `inheritBaseOciLabels: false` and explicit application labels to avoid misleading registry presentation. This default remains unchanged for compatibility.
 - Env: base, then NODE_ENV=production, then application overrides; ordered by key.
 - History: preserve and append only when the base has history; verify empty_layer/DiffID counts.
 

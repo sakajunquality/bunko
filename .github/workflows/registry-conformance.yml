@@ -22,11 +22,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 jobs:
   conformance:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -1,5 +1,6 @@
+import { hostname } from "node:os";
 import { pause } from "../runtime/invocation.ts";
-import { lstat, mkdir, rm } from "node:fs/promises";
+import { lstat, mkdir, rm, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 /** A cooperating-process lock serializes writers and pruning. Readers verify
@@ -19,15 +20,28 @@ async function lockDirectory<T>(directory: string, operation: () => Promise<T>, 
   await mkdir(directory, { recursive: true, mode: 0o700 });
   if (!(await lstat(directory)).isDirectory() || (await lstat(directory)).isSymbolicLink()) throw new Error("Cache must be a real directory");
   const lock = join(directory, ".bunko-lock");
-  const deadline = Date.now() + waitMilliseconds;
+  const deadline = Date.now() + Math.min(waitMilliseconds, 5 * 60_000);
   for (;;) {
     try { await mkdir(lock, { mode: 0o700 }); break; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() >= deadline) throw new Error("Cache is locked by another operation; inspect .bunko-lock before recovering a crashed process");
+      if (await deadLocalOwner(lock)) throw new Error(`Cache lock has a dead local owner: ${lock}. Stop all cache users and inspect the lock before manual recovery; no lock was deleted.`);
+      if (Date.now() >= deadline) throw new Error(`Cache is locked by another operation: ${lock}; inspect its owner before recovering a crashed process`);
       await pause(50);
     }
   }
-  try { await Bun.write(join(lock, "owner.json"), JSON.stringify({ pid: process.pid })); return await operation(); }
+  try { await Bun.write(join(lock, "owner.json"), JSON.stringify({ schemaVersion: 1, pid: process.pid, hostname: hostname(), startedAt: new Date().toISOString() })); return await operation(); }
   finally { await rm(lock, { recursive: true, force: true }); }
+}
+
+/** Liveness is diagnostic only: a PID check cannot authorize race-free lock deletion. */
+async function deadLocalOwner(lock: string): Promise<boolean> {
+  try {
+    const info = await lstat(lock), file = join(lock, "owner.json"), ownerInfo = await lstat(file);
+    if (!info.isDirectory() || info.isSymbolicLink() || !ownerInfo.isFile() || ownerInfo.isSymbolicLink() || ownerInfo.size > 4096) return false;
+    const owner = JSON.parse(await readFile(file, "utf8"));
+    if (owner.schemaVersion !== 1 || owner.hostname !== hostname() || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) return false;
+    try { process.kill(owner.pid, 0); return false; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+  } catch { return false; }
 }

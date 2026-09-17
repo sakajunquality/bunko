@@ -12,7 +12,7 @@ export async function runImage(result: BuildResult, directory: string) {
   const config = JSON.parse(Buffer.from(await store.read(result.config)).toString());
   const executable = result.images[0]?.nodeRuntime ? Bun.which("node", { PATH: process.env.PATH }) : process.execPath;
   if (!executable) throw new Error("Node runtime tests require Node on PATH");
-  const run = Bun.spawn([executable, join(directory, config.config.Entrypoint[1])], { cwd: directory, stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH! } });
+  const run = Bun.spawn([executable, ...config.config.Entrypoint.slice(1).map((arg: string) => arg.startsWith("/") ? join(directory, arg) : arg)], { cwd: directory, stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH! } });
   const [stdout, stderr, exit] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
   if (exit !== 0) throw new Error(stderr);
   return stdout.trim();

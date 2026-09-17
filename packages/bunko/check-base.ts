@@ -71,7 +71,7 @@ export async function checkBase(options: Pick<BuildOptions, "base" | "baseLayout
           }
           const container = `bunko-check-${randomUUID()}`;
           const child = spawn(["docker", "run", "--name", container, "--rm", "--pull=never", "--platform", `${selected.os}/${selected.architecture}`,
-            "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m",
+            "--network=none", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m,mode=1777", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m",
             "--user=65532:65532", "--entrypoint", executable, image, kind === "node" ? "--version" : "--revision"],
           { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
           const timer = setTimeout(() => child.kill(), 30_000);
