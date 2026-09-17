@@ -63,7 +63,7 @@ Bun's own compiler supports more input forms than bunko currently exposes. In pa
 | Computed application imports, macros | Unsupported. |
 | Multiple named entrypoints | Unsupported; use bundle mode. |
 | Bytecode and external sourcemaps | Unsupported. |
-| Bun runtime argument configuration | Rejected in compile mode; application `args` remain supported. |
+| Bun runtime argument configuration | Execution-only subset embedded with `--compile-exec-argv`; application `args` remain separate. |
 
 See [application compatibility](APPLICATION_COMPATIBILITY.md) and the [build contract](SPEC.md) for detailed input rules. A declared data file and an extra file emitted by the bundler are different cases: the former is explicitly packaged; the latter currently prevents compilation.
 
