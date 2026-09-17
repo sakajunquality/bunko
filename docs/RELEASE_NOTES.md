@@ -1,3 +1,9 @@
+# v0.12.2
+
+This patch redacts credential-shaped data and random build scratch paths from CLI errors and failure reports. Native dependency diagnostics now recognize paired sharp-style `linuxmusl` and implicit glibc addon names using ELF requirements. Binaries remain included; advisory suppression requires a matching alternative for the base libc and does not prove runtime ABI compatibility.
+
+Documentation clarifies supported parser syntax and measured performance, Bun compatibility ranges, compile assets/runtime arguments, and cache behavior. Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`; no new cache or image format migration is introduced.
+
 # v0.12.1
 
 This patch release hardens cancellation scratch retention, deferred import handling, cache identity/pruning safety, Docker credential matching and CI fixture reproducibility. Runtime-layer cache validation continues to authenticate the uncompressed DiffID while allowing equivalent compressed repacks, so a runtime descriptor digest can change without a runtime-content change.
