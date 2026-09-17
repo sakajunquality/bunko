@@ -19,9 +19,14 @@ updates:
     patterns: ["*"]
     multi-ecosystem-group: dependencies
     ignore:
-      # See issue #185. TypeScript 7 removed the JavaScript compiler API used by bunko.
+      # TypeScript 7 typechecker acceptance is separate from the parser migration (#185).
       - dependency-name: typescript
         versions: [">=7"]
+      # Babel 8 removes legacy assert grammar. See docs/PARSER.md; review before June 2027.
+      - dependency-name: "@babel/parser"
+        versions: [">=8"]
+      - dependency-name: "@babel/types"
+        versions: [">=8"]
     cooldown:
       default-days: 7
   - package-ecosystem: docker

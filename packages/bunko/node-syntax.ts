@@ -1,4 +1,4 @@
-import * as ts from "typescript";
+import { forEachChild, is, isImportMeta, isNonReferenceIdentifier, isReferencedJSXName, member, moduleSpecifier, parent, stringValue, type Node } from "./parser.ts";
 import { lexicalScopes } from "./lexical-scopes.ts";
 import { sourceAnalysis } from "./source-analysis.ts";
 import { readdir, readFile } from "node:fs/promises";
@@ -8,63 +8,58 @@ import { join, relative } from "node:path";
 export function rejectBunRuntime(code: string, file: string, analysis = sourceAnalysis(code, file), sourceMode = false): void {
   if (!/Bun|\bbun\b|\bimport\b|\\/.test(code) && !(sourceMode && /\.[cm]?tsx?[\'"`]/.test(code))) return;
   const source = analysis(), { scopes, bindings } = lexicalScopes(source);
-  const unbound = (node: ts.Identifier) => { for (let s = scopes.get(node); s; s = s.parent) if (s.names.has(node.text)) return false; return !bindings.has(node); };
+  const unbound = (node: Node & { name: string }) => { for (let s = scopes.get(node); s; s = s.parent) if (s.names.has(node.name)) return false; return !bindings.has(node); };
   const unknown = Symbol("unknown");
-  function value(node: ts.Expression): string | boolean | typeof unknown {
-    if (ts.isParenthesizedExpression(node)) return value(node.expression);
-    if (ts.isStringLiteralLike(node)) return node.text;
-    if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
-    if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
-    if (ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Bun" && unbound(node.expression)) return "undefined";
-    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) { const inner = value(node.operand); return inner === unknown ? unknown : !inner; }
-    if (ts.isBinaryExpression(node)) {
+  function value(node: Node): string | boolean | typeof unknown {
+    if (is(node, "ParenthesizedExpression")) return value(node.expression);
+    const text = stringValue(node); if (text !== undefined) return text;
+    if (is(node, "BooleanLiteral")) return node.value;
+    if (is(node, "UnaryExpression") && node.operator === "typeof" && is(node.argument, "Identifier") && node.argument.name === "Bun" && unbound(node.argument)) return "undefined";
+    if (is(node, "UnaryExpression") && node.operator === "!") { const inner = value(node.argument); return inner === unknown ? unknown : !inner; }
+    if (is(node, "BinaryExpression")) {
       const left = value(node.left), right = value(node.right);
       if (left === unknown || right === unknown) return unknown;
       if (typeof left === "string" && typeof right === "string") {
-        if (node.operatorToken.kind === ts.SyntaxKind.LessThanToken) return left < right;
-        if (node.operatorToken.kind === ts.SyntaxKind.LessThanEqualsToken) return left <= right;
-        if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanToken) return left > right;
-        if (node.operatorToken.kind === ts.SyntaxKind.GreaterThanEqualsToken) return left >= right;
+        if (node.operator === "<") return left < right;
+        if (node.operator === "<=") return left <= right;
+        if (node.operator === ">") return left > right;
+        if (node.operator === ">=") return left >= right;
       }
-      if ([ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken].includes(node.operatorToken.kind)) return left === right;
-      if ([ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(node.operatorToken.kind)) return left !== right;
+      if (["==", "==="].includes(node.operator)) return left === right;
+      if (["!=", "!=="].includes(node.operator)) return left !== right;
     }
     return unknown;
   }
-  function visit(node: ts.Node) {
+  function visit(node: Node) {
     if (!scopes.has(node)) return;
-    if (ts.isConditionalExpression(node) || ts.isIfStatement(node)) {
-      visit(ts.isIfStatement(node) ? node.expression : node.condition);
-      const condition = ts.isIfStatement(node) ? node.expression : node.condition, result = value(condition);
-      const yes = ts.isIfStatement(node) ? node.thenStatement : node.whenTrue;
-      const no = ts.isIfStatement(node) ? node.elseStatement : node.whenFalse;
-      if (result === unknown || Boolean(result)) visit(yes);
-      if (no && (result === unknown || !result)) visit(no);
+    if (is(node, "ConditionalExpression") || is(node, "IfStatement")) {
+      visit(node.test); const result = value(node.test);
+      if (result === unknown || Boolean(result)) visit(node.consequent);
+      if (node.alternate && (result === unknown || !result)) visit(node.alternate);
       return;
     }
-    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)) {
+    if (is(node, "LogicalExpression") && ["&&", "||"].includes(node.operator)) {
       visit(node.left); const left = value(node.left);
-      if (left === unknown || (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ? Boolean(left) : !left)) visit(node.right);
+      if (left === unknown || (node.operator === "&&" ? Boolean(left) : !left)) visit(node.right);
       return;
     }
     let incompatible = false;
-    if (ts.isIdentifier(node) && node.text === "Bun" && unbound(node)) {
-      const p = node.parent;
-      incompatible = !((ts.isPropertyAccessExpression(p) && p.name === node) || ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) && p.name === node) || ts.isTypeOfExpression(p) || ts.isBindingElement(p) && p.propertyName === node || ts.isLabeledStatement(p) || ts.isBreakStatement(p) || ts.isContinueStatement(p) || ts.isImportSpecifier(p) || ts.isExportSpecifier(p));
+    if ((is(node, "Identifier") || isReferencedJSXName(node)) && node.name === "Bun" && unbound(node)) {
+      const p = parent(node);
+      incompatible = !isNonReferenceIdentifier(node) && !(is(p, "UnaryExpression") && p.operator === "typeof");
     }
-    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      const base = node.expression, name = ts.isPropertyAccessExpression(node) ? node.name.text : node.argumentExpression && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : undefined;
-      if (ts.isMetaProperty(base) && base.keywordToken === ts.SyntaxKind.ImportKeyword && ["require", "dir", "path"].includes(name ?? "")) incompatible = true;
-      if (ts.isIdentifier(base) && ["globalThis", "global"].includes(base.text) && unbound(base) && name === "Bun") incompatible = true;
+    const access = member(node);
+    if (access) {
+      if (isImportMeta(access.base) && ["require", "dir", "path"].includes(access.name ?? "")) incompatible = true;
+      if ((is(access.base, "Identifier") || isReferencedJSXName(access.base)) && ["globalThis", "global"].includes(access.base.name) && unbound(access.base) && access.name === "Bun") incompatible = true;
     }
-    let specifier: ts.Node | undefined;
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier = node.moduleSpecifier;
-    if (ts.isExternalModuleReference(node)) specifier = node.expression;
-    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text === "require" && unbound(node.expression))) specifier = node.arguments[0];
-    if (specifier && ts.isStringLiteralLike(specifier) && (specifier.text === "bun" || specifier.text.startsWith("bun:"))) incompatible = true;
-    if (sourceMode && specifier && ts.isStringLiteralLike(specifier) && /\.[cm]?tsx?$/.test(specifier.text)) throw new Error("Node source mode does not support TypeScript imports; prebuild to JavaScript");
-    if (incompatible) { const point = source.getLineAndCharacterOfPosition(node.getStart(source)); throw new Error(`Bun-only runtime API in ${file}:${point.line + 1}; use Node-compatible APIs for runtime.kind node`); }
-    ts.forEachChild(node, visit);
+    let specifier = moduleSpecifier(node);
+    if ((is(node, "CallExpression") || is(node, "OptionalCallExpression")) && is(node.callee, "Identifier") && !unbound(node.callee)) specifier = undefined;
+    const text = stringValue(specifier);
+    if (text === "bun" || text?.startsWith("bun:")) incompatible = true;
+    if (sourceMode && text !== undefined && /\.[cm]?tsx?$/.test(text)) throw new Error("Node source mode does not support TypeScript imports; prebuild to JavaScript");
+    if (incompatible) throw new Error(`Bun-only runtime API in ${file}:${node.loc!.start.line}; use Node-compatible APIs for runtime.kind node`);
+    forEachChild(node, visit);
   }
   visit(source);
 }

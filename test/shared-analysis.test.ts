@@ -5,9 +5,9 @@ test("worker validators share one real AST while preserving lazy prefilters", as
   // Isolate module instrumentation from the rest of the test suite.
   const script = `
     import {mock} from 'bun:test';
-    import * as ts from 'typescript';
-    const create = ts.createSourceFile; let count = 0;
-    mock.module('typescript', () => ({...ts, createSourceFile: (...args) => { count++; return create(...args); }}));
+    import * as parser from '@babel/parser';
+    const create = parser.parse; let count = 0;
+    mock.module('@babel/parser', () => ({...parser, parse: (...args) => { count++; return create(...args); }}));
     const {sourceAnalysis} = await import('./packages/bunko/source-analysis.ts');
     const {moduleLocations} = await import('./packages/bunko/location-diagnostics.ts');
     const {rejectMacroSyntax, rejectApplicationImports} = await import('./packages/bunko/syntax.ts');

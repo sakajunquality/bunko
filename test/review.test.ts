@@ -233,3 +233,11 @@ test("starter editor metadata is excluded without relaxing source symlink valida
   await symlink("server.ts", join(source, "src/link.ts"));
   await expect(snapshot(source, join(root, "rejected"))).rejects.toThrow("Source symlinks");
 });
+
+test("syntax guards preserve valid sloppy CommonJS while rejecting actual macro imports", async () => {
+  const { rejectMacroSyntax } = await import("../packages/bunko/syntax.ts");
+  for (const file of ["source.cjs", "source.js"]) for (const syntax of ["const n = 010;", "var implements = 1;", "var yield = 1;", "with ({}) {}", "function f(a, a) {}"]) {
+    expect(() => rejectMacroSyntax(`const fs = require('fs'); ${syntax}`, file)).not.toThrow();
+    expect(() => rejectMacroSyntax(`const fs = require('macro:bad'); ${syntax}`, file)).toThrow("macros");
+  }
+});

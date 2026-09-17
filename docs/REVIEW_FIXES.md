@@ -28,6 +28,6 @@ The change removes an inappropriate total transfer deadline. It does not add res
 
 `--target .` continues to select the workspace root explicitly. The review's broader structural refactors are outside this change.
 
-The TypeScript 5.9.3 parser is bundled into the CLI, increasing the unminified artifact to approximately 9.2 MB. It does not require an external npm installation at runtime. Its Apache 2.0 license is retained in the bundle and in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). This favors a maintained syntax parser over another partial JavaScript lexer.
+At the time of this validation, the TypeScript 5.9.3 parser was bundled into the CLI (approximately 9.2 MB). The current implementation uses a bundled Babel parser; see [parser design and validation](PARSER.md). Current license notices are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 The status-GET Location fallback tolerates Registry implementations that omit the header. The [OCI Distribution specification](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#chunked-upload) still requires Location in that response; this compatibility fallback is not a claim that omission conforms to the specification or that Quay has been tested live.

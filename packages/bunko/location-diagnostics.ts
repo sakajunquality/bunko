@@ -1,5 +1,5 @@
 import { lexicalScopes, type Scope } from "./lexical-scopes.ts";
-import * as ts from "typescript";
+import { forEachChild, is, isImportMeta, isNonReferenceIdentifier, isReferencedJSXName, member, parseSource, type Node, type SourceFile } from "./parser.ts";
 
 export const locationMessage = "Bundling may relocate this module-relative path. Use an explicit runtime asset root and verify file reads in the image.";
 export interface LocationWarning { code: "BUNKO_MODULE_LOCATION"; file: string; line: number; column: number; expression: string }
@@ -12,35 +12,28 @@ const globals = new Set(["__dirname", "__filename"]);
 export const diagnosticLimit = 100;
 
 /** Advisory syntax analysis only; neither imports nor application code are executed. */
-export function moduleLocations(code: string, file: string, analysis?: () => ts.SourceFile): LocationWarning[] {
+export function moduleLocations(code: string, file: string, analysis?: () => SourceFile): LocationWarning[] {
   // Escaped identifiers also need parsing, even when their spelling hides a location API.
   if (!/import\s*\.|__dirname|__filename|\\/.test(code)) return [];
-  const source = analysis?.() ?? ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+  const source = analysis?.() ?? parseSource(code, file);
   const { scopes, bindings } = lexicalScopes(source, false);
   const found = new Map<string, LocationWarning>();
-  function visit(node: ts.Node) {
+  function visit(node: Node) {
     const scope = scopes.get(node);
     if (!scope) return;
     let expression: string | undefined;
-    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      const base = node.expression;
-      const name = ts.isPropertyAccessExpression(node) ? node.name.text : node.argumentExpression && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : undefined;
-      if (ts.isMetaProperty(base) && base.keywordToken === ts.SyntaxKind.ImportKeyword && base.name.text === "meta" && name && expressions.has(name)) expression = `import.meta.${name}`;
-    }
-    if (ts.isIdentifier(node) && globals.has(node.text) && !bindings.has(node)) {
-      const p = node.parent;
-      const key = (ts.isPropertyAccessExpression(p) && p.name === node) || ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p)) && p.name === node)
-        || (ts.isBindingElement(p) && p.propertyName === node) || (ts.isEnumMember(p) && p.name === node) || (ts.isJsxAttribute(p) && p.name === node)
-        || ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isLabeledStatement(p) || ts.isBreakStatement(p) || ts.isContinueStatement(p);
+    const access = member(node);
+    if (access && isImportMeta(access.base) && access.name && expressions.has(access.name)) expression = `import.meta.${access.name}`;
+    if ((is(node, "Identifier") || isReferencedJSXName(node)) && globals.has(node.name) && !bindings.has(node)) {
       let shadowed = false;
-      for (let s: Scope | undefined = scope; s; s = s.parent) if (s.names.has(node.text)) { shadowed = true; break; }
-      if (!key && !shadowed) expression = node.text;
+      for (let s: Scope | undefined = scope; s; s = s.parent) if (s.names.has(node.name)) { shadowed = true; break; }
+      if (!isNonReferenceIdentifier(node) && !shadowed) expression = node.name;
     }
     if (expression && !found.has(expression)) {
-      const point = source.getLineAndCharacterOfPosition(node.getStart(source));
-      found.set(expression, { code: "BUNKO_MODULE_LOCATION", file, line: point.line + 1, column: point.character + 1, expression });
+      const point = node.loc!.start;
+      found.set(expression, { code: "BUNKO_MODULE_LOCATION", file, line: point.line, column: point.column + 1, expression });
     }
-    ts.forEachChild(node, visit);
+    forEachChild(node, visit);
   }
   visit(source);
   return [...found.values()];

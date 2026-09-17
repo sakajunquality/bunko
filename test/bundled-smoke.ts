@@ -9,7 +9,7 @@ if (import.meta.main) {
     const bundle = resolve("dist/bunko.js"), script = join(directory, "bunko.js");
     const text = await readFile(bundle, "utf8");
     if (!text.includes("Copyright Eemeli Aro")) throw new Error("Bundled YAML license is missing");
-    if (!text.includes("Copyright Microsoft Corporation") || !text.includes("Apache License")) throw new Error("Bundled TypeScript license is missing");
+    if (!text.includes("@babel/parser 7.29.8") || !text.includes("Copyright (C) 2012-2014 by various contributors")) throw new Error("Bundled Babel license is missing");
     await copyFile(bundle, script);
     const input = '# bundled parser, no external node_modules\nimage: &a existing/image:tag\ncopy: *a\n';
     const child = Bun.spawn([process.execPath, script, "resolve", "-f", "-"], { cwd: directory, stdin: new Blob([input]), stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH! } });
@@ -28,6 +28,6 @@ if (import.meta.main) {
     if (restoreExit !== 0 || restoreOut) throw new Error(`Isolated bundled cache restore failed: ${restoreExit} ${restoreErr}`);
     const first = JSON.parse(await readFile(join(directory, "first.json"), "utf8")), second = JSON.parse(await readFile(join(directory, "second.json"), "utf8"));
     if (first.root.digest !== second.root.digest || !second.cache.some((entry: { source?: string }) => entry.source?.endsWith("/portable"))) throw new Error("Bundled typed cache restore changed the image or missed the cache");
-    console.log("PASS: bundled resolve and guarded builds run without external npm dependencies; YAML and TypeScript licenses included");
+    console.log("PASS: bundled resolve and guarded builds run without external npm dependencies; YAML and Babel licenses included");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

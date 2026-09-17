@@ -155,3 +155,8 @@ test.each(["bundle", "source"] as const)("unused dependency adapters do not bloc
     expect(await runImage(result, join(f.root, `run-${label}`))).toContain("portable-node");
   }
 });
+
+test("Node guard treats JSX component names and member objects as runtime references", () => {
+  for (const code of ["const x = <Bun />", "const x = <Bun.file />", "const x = <globalThis.Bun />"]) expect(() => rejectBunRuntime(code, "component.tsx")).toThrow("Bun-only runtime API");
+  for (const code of ["function render(Bun) { return <Bun.file /> }", "const x = <Component Bun='attribute' />", "const x = <Components.Bun />"]) expect(() => rejectBunRuntime(code, "component.tsx")).not.toThrow();
+});

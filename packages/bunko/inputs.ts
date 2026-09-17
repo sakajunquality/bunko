@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, dirname, posix } from "node:path";
 import { isBuiltin } from "node:module";
-import { preProcessFile } from "typescript";
+import { forEachChild, moduleSpecifier, parseSource, stringValue, type Node } from "./parser.ts";
 import type { Project } from "./config.ts";
 import { canonicalJSON, sha256 } from "../oci/digest.ts";
 import type { Digest } from "../oci/types.ts";
@@ -42,8 +42,18 @@ export async function targetInputs(root: string, project: Project, fallback: Dig
       const code = await readFile(join(root, path), "utf8");
       // Escaped specifiers and HTML/CSS loaders need the conservative path.
       if (code.includes("\\")) return { digest: fallback };
-      for (const ref of preProcessFile(code, true, true).importedFiles) {
-        const specifier = ref.fileName;
+      const imports: string[] = [];
+      try {
+        const source = parseSource(code, path);
+        if (source.errors?.length) return { digest: fallback };
+        const pending: Node[] = [source];
+        while (pending.length) {
+          const node = pending.pop()!, specifier = moduleSpecifier(node);
+          if (specifier) { const text = stringValue(specifier); if (text === undefined) return { digest: fallback }; imports.push(text); }
+          forEachChild(node, (child) => { pending.push(child); });
+        }
+      } catch { return { digest: fallback }; }
+      for (const specifier of imports) {
         let dependency;
         if (specifier.startsWith(".")) dependency = owner(posix.normalize(posix.join(dirname(path), specifier)));
         else {
@@ -60,5 +70,5 @@ export async function targetInputs(root: string, project: Project, fallback: Dig
   const included = files.filter((path) => !owner(path) || selected.has(owner(path)!.path) || /\.jsonc?$/.test(path));
   const records = [];
   for (const path of included) records.push({ path, digest: await hashFile(join(root, path)), executable: Boolean((await stat(join(root, path))).mode & 0o111) });
-  return { digest: sha256(canonicalJSON({ format: "member-inputs-v1", records })), paths: new Set(included) };
+  return { digest: sha256(canonicalJSON({ format: "member-inputs-v2", records })), paths: new Set(included) };
 }
