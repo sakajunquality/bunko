@@ -94,6 +94,7 @@ Options:
   --asset-context <NAME=DIR>  Named local asset input; repeatable
   --context <dir>         Base directory for bunko:// references (default: cwd)
   -l, --selector <query>  Select manifest documents by metadata.labels
+  --allow-external-context  Permit trusted references outside --context
   --recursive             Include nested input directories for resolve
   --target <name/path>     Select a workspace member; repeatable, root invocation only
   --execute               Execute prune deletions (default: preview only)
@@ -239,6 +240,7 @@ export async function main(argv: string[]): Promise<number> {
       "image-refs": { type: "string" },
       filename: { type: "string", short: "f", multiple: true },
       context: { type: "string" },
+      "allow-external-context": { type: "boolean" },
       "asset-context": { type: "string", multiple: true },
       selector: { type: "string", short: "l" },
       recursive: { type: "boolean" },
@@ -535,14 +537,14 @@ export async function main(argv: string[]): Promise<number> {
     if (values.offline && telemetry) throw new Error("Offline builds cannot export telemetry");
     const execute = async () => {
     if (command === "apply") {
-      const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector,
+      const result = await applyDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, allowExternalContext: values["allow-external-context"], recursive: values.recursive, selector: values.selector,
         kubectlPath: values["kubectl-path"], kubeContext: values["kube-context"], namespace: values.namespace, serverSide: values["server-side"],
         fieldManager: values["field-manager"], kubeDryRun: values["kube-dry-run"] as "none" | "client" | "server" | undefined });
       process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.exit;
     }
     if (values["kubectl-path"] || values["kube-context"] || values.namespace || values["server-side"] || values["field-manager"] || values["kube-dry-run"]) throw new Error("Kubernetes options require apply");
     if (command === "resolve") {
-      const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, recursive: values.recursive, selector: values.selector });
+      const result = await resolveDocuments({ ...buildOptions, files: values.filename ?? [], context: values.context, allowExternalContext: values["allow-external-context"], recursive: values.recursive, selector: values.selector });
       process.stdout.write(result.output);
       return 0;
     }

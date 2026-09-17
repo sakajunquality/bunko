@@ -1,3 +1,4 @@
+import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { gitSourceIgnore } from "./source-policy.ts";
 import { assetExcluder } from "./asset-policy.ts";
 import { object } from "../oci/digest.ts";
@@ -56,7 +57,7 @@ export async function requiredInputs(root: string, projects: Project[], excluded
     visited.add(path);
     if (isIgnored(path) || await gitIgnored?.(path)) throw new Error(`Ignored required input: ${path}`);
     required.add(path);
-    const value = object(Bun.JSONC.parse(await readFile(join(root, path), "utf8")), "tsconfig");
+    const value = object(parseConfigInput(await readConfigInput(root, path), "tsconfig", Bun.JSONC.parse), "tsconfig");
     for (const parent of value.extends === undefined ? [] : Array.isArray(value.extends) ? value.extends : [value.extends]) {
       if (typeof parent !== "string" || !parent.startsWith(".")) continue;
       const candidate = resolve(root, dirname(path), parent.endsWith(".json") ? parent : parent + ".json");

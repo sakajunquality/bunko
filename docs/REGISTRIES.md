@@ -249,3 +249,9 @@ For a private registry with a separate authentication service, configure its exa
 Pass this file through `--registry-config`. Entries are scoped to the registry or mirror that owns the credential, never shared globally. An explicit array replaces the additional defaults for that registry; the registry's own origin remains trusted. Wildcards, paths, queries, fragments and userinfo are rejected. HTTP origins additionally require the token-service host in `--insecure-registry`; listing an HTTP origin does not disable transport validation. Token-service redirects remain forbidden. Only add authentication services trusted to receive that registry's credentials.
 
 This changes the default for custom registries with a cross-origin token service: existing users must add the explicit origin. GHCR and same-origin services continue to work, as does Docker Hub's standard authentication service.
+
+### Host environment permission for npm
+
+Project `.npmrc` files select both a credential variable and its recipient. Expansion is restricted to `BUNKO_NPM_*` variables, or exact names the operator grants through `BUNKO_NPM_CREDENTIAL_ENV=NPM_TOKEN,OTHER_TOKEN`. The allowlist itself cannot be expanded. Unapproved names fail even during credential-free diagnostics. Grant only the variables intended for that project's registry; this permission does not make an untrusted registry trustworthy. Prefer short-lived, read-only npm tokens on isolated runners.
+
+Credential keys must be host-scoped (for example `//registry.npmjs.org/:_authToken=${BUNKO_NPM_TOKEN}`), and their HTTPS host must match the default npm host or a registry/scoped registry declared in the same file. Unscoped credentials are rejected. Non-default registry hosts are reported without paths or credential values. The environment permission also applies to `.npmrc` `cafile` expansion. Existing `${NPM_TOKEN}` users must explicitly set the operator allowlist or rename the variable.
