@@ -23,7 +23,7 @@ export async function pruneLocal(directory: string, execute = false, olderThanSe
     for (const name of await readdir(directory)) {
       if (!["keys", "plans", "blobs", baseInspectDirectory, cacheLayoutFile, ".bunko-lock", ".bunko-lock.sqlite"].includes(name) && !stageName.test(name) && !/^\.tmp-layout-[a-f0-9-]{36}$/.test(name) && !/^\.bunko-lock\.recovered-[a-f0-9-]{36}$/.test(name)) {
         result.unmanaged.push(name);
-        try { unmanagedReferences ||= (await lstat(join(directory, name))).isDirectory(); } catch { unmanagedReferences = true; }
+        try { const info = await lstat(join(directory, name)); unmanagedReferences ||= info.isDirectory() || info.isSymbolicLink(); } catch { unmanagedReferences = true; }
       }
     }
     for (const path of ["keys", "plans", "plans/deps", baseInspectDirectory, `${baseInspectDirectory}/${baseInspectVersion}`, "blobs", "blobs/sha256"]) {

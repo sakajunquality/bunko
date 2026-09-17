@@ -7,6 +7,7 @@ interface Invocation {
   cleanup: Set<Bun.Subprocess>;
   cancelledGroups: Set<number>;
   directories: Set<string>;
+  retainScratch: boolean;
 }
 const current = new AsyncLocalStorage<Invocation>();
 interface AbortScope { signal: AbortSignal; draining: Set<Promise<unknown>>; detach: Set<() => void>; cleanups: (() => Promise<unknown>)[] }
@@ -30,6 +31,7 @@ export async function runAbortScope<T>(task: (abort: (reason: unknown) => void) 
       } catch (error) {
         if (!failed) throw error;
         if (failure && (typeof failure === "object" || typeof failure === "function")) Object.defineProperty(failure, retainScratch, { value: true, configurable: true });
+        current.getStore()!.retainScratch = true;
         process.stderr.write("bunko: task cleanup could not complete; scratch may be retained\n");
       } finally { for (const detach of scope.detach) detach(); }
     }
@@ -149,7 +151,7 @@ export async function pause(milliseconds: number): Promise<void> {
 /** CLI-owned lifecycle: abort work, drain children, then remove registered scratch.
  * A hard deadline exits without deleting paths that might still have active writers. */
 export async function runInvocation(task: () => Promise<number>, graceMs = 10_000): Promise<number> {
-  const invocation: Invocation = { controller: new AbortController(), children: new Set(), cleanup: new Set(), cancelledGroups: new Set(), directories: new Set() };
+  const invocation: Invocation = { controller: new AbortController(), children: new Set(), cleanup: new Set(), cancelledGroups: new Set(), directories: new Set(), retainScratch: false };
   let exit: number | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined, deadline: ReturnType<typeof setTimeout> | undefined;
   const stop = (signal: "SIGINT" | "SIGTERM") => {
@@ -198,7 +200,7 @@ export async function runInvocation(task: () => Promise<number>, graceMs = 10_00
             }
             if (invocation.cancelledGroups.size) await new Promise((resolve) => setTimeout(resolve, 10));
           }
-          const removed = await Promise.allSettled([...invocation.directories].map((path) => rm(path, { recursive: true, force: true })));
+          const removed = invocation.retainScratch ? [] : await Promise.allSettled([...invocation.directories].map((path) => rm(path, { recursive: true, force: true })));
           if (removed.some((item) => item.status === "rejected")) process.stderr.write("bunko: some invocation scratch could not be removed\n");
         }
       }
