@@ -25,11 +25,14 @@ test("local defaults follow the host while explicit platforms and other output d
   const selected = async (options = {}) => (await loadProject({ path, ...options })).platform.architecture;
   expect(await selected({ local: true })).toBe(process.arch === "arm64" ? "arm64" : "amd64");
   expect(await selected()).toBe("amd64");
-  expect(await selected({ kind: true })).toBe("amd64");
+  expect(await selected({ kind: true })).toBe(process.arch === "arm64" ? "arm64" : "amd64");
   expect(await selected({ tarball: "image.tar" })).toBe("amd64");
   await writeFile(join(path, "package.json"), JSON.stringify({ name: "hello", module: "src/server.ts", bunko: { platforms: ["linux/arm64"] } }));
   expect(await selected({ local: true })).toBe("arm64");
+  expect(await selected({ kind: "dev" })).toBe("arm64");
   process.env.BUNKO_DEFAULT_PLATFORMS = "linux/amd64";
   expect(await selected({ local: true })).toBe("amd64");
+  expect(await selected({ kind: "dev" })).toBe("amd64");
   expect(await selected({ local: true, platform: "linux/arm64" })).toBe("arm64");
+  expect(await selected({ kind: "dev", platform: "linux/arm64" })).toBe("arm64");
 });

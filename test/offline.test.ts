@@ -131,7 +131,10 @@ test("prepared registry bases retain original nested index identity without fetc
     expect(config.config.Labels["org.bunko.base.digest"]).toBe(manifest.digest);
     expect(config.config.Labels["org.bunko.base.index.digest"]).toBe(onlineConfig.config.Labels["org.bunko.base.index.digest"]);
   }
-  await expect(build({ ...options, baseLayout: prepared, offline: true, platform: "linux/arm64", output: join(directory, "absent") })).rejects.toThrow();
+  for (const offline of [false, true]) {
+    await expect(build({ ...options, baseLayout: prepared, offline, platform: "linux/arm64", output: join(directory, `absent-${offline}`) }))
+      .rejects.toThrow(`does not contain blob ${missing.digest} required for linux/arm64; prepare the base again with --platform linux/arm64`);
+  }
 });
 
 test("single-manifest layouts do not label their transport envelope as an image index", async () => {
@@ -141,4 +144,18 @@ test("single-manifest layouts do not label their transport envelope as an image 
     const resolved = await resolveBase(new LayoutSource(base), { os: "linux", architecture: "amd64" }, new BlobStore(join(directory, "store")));
     expect(resolved.indexDigest).toBeUndefined();
   }
+});
+
+for (const kind of ["manifest", "config", "layer"] as const) test(`missing local base ${kind} identifies the platform and recovery`, async () => {
+  const directory = await root(), input = await baseLayout(join(directory, "base")), source = new BlobStore(input);
+  const d = (await Bun.file(join(input, "index.json")).json()).manifests[0];
+  const manifest = JSON.parse(Buffer.from(await source.read(d)).toString());
+  const missing = kind === "manifest" ? d : kind === "config" ? manifest.config : manifest.layers[0];
+  await rm(source.path(missing.digest));
+  const store = new BlobStore(join(directory, "destination"));
+  const consume = async () => {
+    const base = await resolveBase(new LayoutSource(input), { os: "linux", architecture: "amd64" }, store, true);
+    for (const layer of base.manifest.layers) await store.ensure(layer);
+  };
+  await expect(consume()).rejects.toThrow(`OCI layout ${JSON.stringify(input)} does not contain blob ${missing.digest} required for linux/amd64`);
 });

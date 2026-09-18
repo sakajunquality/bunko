@@ -22,6 +22,19 @@ async function layoutMetadata(path: string, limit: number): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** A missing local blob is distinct from corrupt content and other filesystem failures. */
+export class MissingLayoutBlobError extends Error {
+  constructor(readonly directory: string, readonly digest: string, cause: unknown) {
+    super(`OCI layout ${JSON.stringify(directory)} does not contain blob ${digest}`, { cause });
+    this.name = "MissingLayoutBlobError";
+  }
+}
+
+function missingLayoutBlob(error: unknown, directory: string, digest: string): never {
+  if ((error as NodeJS.ErrnoException)?.code === "ENOENT") throw new MissingLayoutBlobError(directory, digest, error);
+  throw error;
+}
+
 export class LayoutSource implements ImageSource {
   constructor(readonly directory: string) { }
   async root() {
@@ -38,7 +51,8 @@ export class LayoutSource implements ImageSource {
     const candidates = index.manifests.map(descriptor).filter((entry) => !entry.artifactType || [media.config, media.dockerConfig].includes(entry.artifactType as typeof media.config));
     if (candidates.length !== 1) return { ...root, layout: true, layoutDigest: root.descriptor.digest };
     const selected = candidates[0]!;
-    const bytes = await layoutMetadata(new BlobStore(this.directory).path(selected.digest), 8 * 1024 * 1024);
+    const bytes = await layoutMetadata(new BlobStore(this.directory).path(selected.digest), 8 * 1024 * 1024)
+      .catch((error) => missingLayoutBlob(error, this.directory, selected.digest));
     if (bytes.length !== selected.size || sha256(bytes) !== selected.digest) throw new Error(`Blob digest/size mismatch: ${selected.digest}`);
     return { descriptor: selected, bytes, layoutDigest: root.descriptor.digest };
   }
@@ -46,7 +60,11 @@ export class LayoutSource implements ImageSource {
     const path = new BlobStore(this.directory).path(d.digest);
     // Open only when consumed: a missing file must reject the reader, even when its
     // caller awaits destination setup before attaching stream error handlers.
-    return (async function* () { yield* createReadStream(path); })();
+    const directory = this.directory;
+    return (async function* () {
+      try { yield* createReadStream(path); }
+      catch (error) { missingLayoutBlob(error, directory, d.digest); }
+    })();
   }
 }
 
@@ -185,13 +203,21 @@ export function validateImageConfig(value: unknown, platform: Platform, layerCou
 }
 
 export async function resolveBase(source: ImageSource, platform: Platform, store: BlobStore, lazy = false): Promise<BaseImage> {
-  const root = await (source instanceof LayoutSource ? source.baseRoot() : source.root());
+  const fail = (error: unknown): never => {
+    if (error instanceof MissingLayoutBlobError) throw new Error(`${error.message} required for ${platform.os}/${platform.architecture}; prepare the base again with --platform ${platform.os}/${platform.architecture}, or restore the missing blob`, { cause: error });
+    throw error;
+  };
+  async function* blob(d: Descriptor): AsyncIterable<Uint8Array> {
+    try { yield* await source.blob(d); }
+    catch (error) { fail(error); }
+  }
+  const root = await (source instanceof LayoutSource ? source.baseRoot() : source.root()).catch(fail);
   const declared = root.descriptor.platform;
   if (declared && (declared.os !== platform.os || declared.architecture !== platform.architecture || (declared.variant ?? (declared.architecture === "arm64" ? "v8" : undefined)) !== (platform.variant ?? (platform.architecture === "arm64" ? "v8" : undefined)))) throw new Error(`Expected exactly one base for ${platform.os}/${platform.architecture}, found 0`);
   await store.putStream(ReadableBytes(root.bytes), root.descriptor.mediaType, root.descriptor);
   async function metadata(d: Descriptor): Promise<Record<string, unknown>> {
     if (d.size > 8 * 1024 * 1024) throw new Error("Base metadata exceeds size limit");
-    if (d.digest !== root.descriptor.digest) await store.putStream(await source.blob(d), d.mediaType, d);
+    if (d.digest !== root.descriptor.digest) await store.putStream(blob(d), d.mediaType, d);
     return object(JSON.parse(Buffer.from(await store.read(d)).toString()), "Base metadata");
   }
   let indexDigest: BaseImage["indexDigest"];
@@ -225,8 +251,8 @@ export async function resolveBase(source: ImageSource, platform: Platform, store
   for (const original of selected.manifest.layers) {
     if (original.mediaType === media.zstd && original.size > 2 * 1024 ** 3) throw new Error("Zstd base layer exceeds compressed size limit");
     if (![media.tar, media.gzip, media.dockerGzip, media.zstd].includes(original.mediaType as typeof media.tar)) throw new Error(`Unsupported base layer type: ${original.mediaType}`);
-    if (lazy) store.defer(original, () => source.blob(original), source instanceof RegistrySource ? source.ref : undefined);
-    else await store.putStream(await source.blob(original), original.mediaType, original);
+    if (lazy) store.defer(original, async () => blob(original), source instanceof RegistrySource ? source.ref : undefined);
+    else await store.putStream(blob(original), original.mediaType, original);
     layers.push({ mediaType: original.mediaType === media.dockerGzip ? media.gzip : original.mediaType, digest: original.digest, size: original.size, ...(original.annotations ? { annotations: original.annotations } : {}) });
   }
   return {

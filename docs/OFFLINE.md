@@ -40,3 +40,5 @@ The outer layout `index.json` is a transport envelope. For a layout containing o
 Matching source index and selected manifest digests do not promise byte-identical final images between registry and layout builds. Registry base-name annotations and provenance describe the source transport, and caller configuration or metadata can differ. Repeatability requires identical effective inputs. Older prepared layouts that replaced the original index cannot recover its digest; prepare them again from the original registry reference.
 
 Rebase accepts the old envelope identity from images built through v0.12.2 only when it matches the verified supplied layout envelope, in addition to matching the manifest, config and layers. Newly produced metadata uses the image identity.
+
+A prepared layout may retain index descriptors for platforms whose blobs were not selected. Requesting an unavailable platform fails with the layout, missing digest and requested platform. Prepare the base again with the required `--platform`, or restore the missing blob if the layout is incomplete. The original source index identity is preserved.
