@@ -220,3 +220,14 @@ If work has not drained within ten seconds, the CLI exits and retains scratch ra
 ## Node runtime output
 
 Bun-built applications can opt into Node execution with `runtime.kind: "node"` (or `--runtime-kind node`). Bundle and JavaScript source modes support glibc and musl; compile and runtime injection remain Bun-only. The build toolchain and dependency lock remain Bun. See [Node runtime support](NODE_RUNTIME.md).
+
+## Dependency download concurrency
+
+To reduce request bursts against a rate-limited npm registry or proxy, set `networkConcurrency` under `[install]` in the project (workspace root) `bunfig.toml`:
+
+```toml
+[install]
+networkConcurrency = 8
+```
+
+This controls both build and Linux production installs. Without a project setting, `BUN_CONFIG_NETWORK_CONCURRENCY=8` provides an invocation override. Values must be integers from 1 to 65535. The limit is per installer, not global across `--jobs` or CI runners. See [application compatibility](APPLICATION_COMPATIBILITY.md#bunfigtoml) for precedence, retry behavior and cache semantics.

@@ -1,11 +1,12 @@
-import { cleanupAfterTasks } from "../runtime/invocation.ts";
+import { transientInstallFailure } from "./install-retry.ts";
+import { cleanupAfterTasks, pause, throwIfCancelled } from "../runtime/invocation.ts";
 import { npmEnvironment } from "./npm-environment.ts";
 import { readConfigInput, parseConfigInput } from "./config-input.ts";
 import { spawn } from "../runtime/invocation.ts";
 import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
 import { installerCredentials, installerOutputTail } from "./install-diagnostics.ts";
-import { readBunfig, installConfig, type InstallPolicy } from "./bunfig.ts";
+import { readBunfig, installConfig, installConcurrency, type InstallPolicy } from "./bunfig.ts";
 import { catalogs } from "./catalogs.ts";
 import { packageLicense } from "./inventory.ts";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
@@ -281,6 +282,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (!plan.lock) return;
   assertLockToolchain(plan, toolchain);
   if (offline) throw new Error("Offline dependency installation is unavailable; prepare matching application/dependency caches while online");
+  const concurrency = installConcurrency(plan.installPolicy ?? {});
   const config = join(root, OUTPUT_DIRECTORY, "install.toml");
   await mkdir(dirname(config), { recursive: true });
   await writeFile(config, installConfig(plan.installPolicy ?? {}));
@@ -289,6 +291,7 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   const auth = join(root, ".npmrc");
   if (plan.npmrc) await writeFile(auth, plan.npmrc, { mode: 0o600 });
   const args = [toolchain.path, "install", "--frozen-lockfile", "--ignore-scripts", "--linker=isolated", "--backend=copyfile", "--no-progress", `--config=${config}`, `--registry=${plan.registry}`];
+  if (concurrency !== undefined) args.push(`--network-concurrency=${concurrency}`);
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
   else for (const filter of filters ?? []) args.push(`--filter=${filter}`);
   // Keep downloads outside node_modules even in the isolated installer environment.
@@ -306,18 +309,26 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
       network.NODE_EXTRA_CA_CERTS = certificateFile;
       args.push(`--cafile=${certificateFile}`);
     }
-    const child = spawn(args, { cwd: root, env: {
-      HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
-      BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
-      ...network,
-    }, stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    // Installer diagnostics may contain private URLs or credentials, so the caller
-    // gets the operation, exit code and only a redacted tail of the output; raw
-    // authentication-bearing text is never surfaced.
-    if (code !== 0) throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability${installerOutputTail(stderr, stdout, root, 20, installerCredentials(plan.npmrc))}`);
-    if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
-    for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
+    for (let attempt = 1; ; attempt++) {
+      const child = spawn(args, { cwd: root, env: {
+        HOME: home, XDG_CONFIG_HOME: join(home, "config"), PATH: process.env.PATH ?? "", TZ: "UTC", LANG: "C", LC_ALL: "C", NODE_ENV: target ? "production" : "development",
+        BUN_FEATURE_FLAG_DISABLE_NATIVE_DEPENDENCY_LINKER: "1", BUN_FEATURE_FLAG_DISABLE_IGNORE_SCRIPTS: "1",
+        ...network,
+      }, stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      throwIfCancelled();
+      if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
+      for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
+      if (code === 0) break;
+      const transient = code === 1 && transientInstallFailure(stdout, stderr);
+      if (!transient || attempt === 3) {
+        const hint = transient ? `; transient download failures persisted after ${attempt} attempts; check registry/proxy rate limits and lower install.networkConcurrency in bunfig.toml` : "";
+        throw new Error(`Bun ${target ? "Linux production" : "build"} dependency install failed (exit ${code}); check the lock, registry access, and package availability${hint}${installerOutputTail(stderr, stdout, root, 20, installerCredentials(plan.npmrc))}`);
+      }
+      // Reuse verified downloads and Bun's resumable install tree. Frozen inputs
+      // were checked above, including on failure; retries cannot accept mutations.
+      await pause(attempt * 1000);
+    }
     installed = true;
   } finally {
     const cleanup = () => Promise.all([rm(auth, { force: true }), rm(certificateFile, { force: true })]);
