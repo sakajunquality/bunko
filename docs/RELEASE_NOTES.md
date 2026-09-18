@@ -1,4 +1,4 @@
-# Unreleased
+# v0.12.4
 
 ## Breaking changes
 
