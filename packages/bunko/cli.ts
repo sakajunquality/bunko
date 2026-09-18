@@ -143,7 +143,7 @@ Options:
   --compatibility-policy <file>  Explicit digest-bound ABI transition contract for rebase
   --base <reference>       OCI/Docker base (default: oven/bun:<Bun version>-distroless)
   --base-layout <dir>      Use a complete local OCI layout as the base
-  --platform <list>        linux/amd64,linux/arm64 (default: host with --local, otherwise linux/amd64)
+  --platform <list>        linux/amd64,linux/arm64 (default: host with --local/--kind, otherwise linux/amd64)
   --bun-path <file>        Bun executable used for bundling and installation
   --cache-dir <dir>        Persistent layer cache (or BUNKO_CACHE_DIR)
   --cache-export-error <warn|fail>  Cache export failure policy (default: warn)

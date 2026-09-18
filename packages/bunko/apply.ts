@@ -1,3 +1,4 @@
+import { redactErrorMessage } from "./install-diagnostics.ts";
 import { runWithDeadline } from "../runtime/invocation.ts";
 import { spawn, mkdtemp } from "../runtime/invocation.ts";
 import { referenceOutput } from "./references.ts";
@@ -12,6 +13,35 @@ export interface ApplyOptions extends ResolveOptions {
   kubectlPath?: string; kubeContext?: string; namespace?: string; serverSide?: boolean;
   kubeValidate?: "strict" | "warn" | "ignore" | "true" | "false";
   fieldManager?: string; kubeDryRun?: "none" | "client" | "server";
+}
+
+/** Drain both pipes with bounded retention. Drop oversized lines rather than retaining
+ * a truncated credential without its key; redact complete lines before display truncation. */
+async function preflightOutput(stream: ReadableStream<Uint8Array>, retain: boolean): Promise<string> {
+  const reader = stream.getReader(), decoder = new TextDecoder();
+  const lines: string[] = []; let pending = "", dropping = false;
+  const consume = (text: string) => {
+    for (const part of text.split(/(?<=\n)/)) {
+      const ended = part.endsWith("\n");
+      if (!dropping && pending.length + part.length <= 4096) pending += part;
+      else { pending = ""; dropping = true; }
+      if (ended) {
+        if (!dropping && pending.trim()) { lines.push(pending); if (lines.length > 20) lines.shift(); }
+        pending = ""; dropping = false;
+      }
+    }
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (retain) consume(decoder.decode(value, { stream: true }));
+    }
+    if (retain) consume(decoder.decode());
+    if (!dropping && pending.trim()) { lines.push(pending); if (lines.length > 20) lines.shift(); }
+    return redactErrorMessage(lines.join("")).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+      .split("\n").map((line) => line.length > 512 ? `${line.slice(0, 512)}…` : line).join("\n").trim();
+  } finally { reader.releaseLock(); }
 }
 
 /** Preflight the cluster before publication, then apply the resolved documents. Kubernetes itself
@@ -36,13 +66,15 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
   const resolutionReport = join(temporary, "resolve.json");
   let phase = "resolve";
   let resolution: unknown;
+  let preflightExit: number | null = null, preflightDiagnostic = "";
   try {
     const resolved = await resolveDocuments({ ...options, report: resolutionReport }, async () => {
       phase = "preflight";
       const args = [kubectl, "get", "--raw=/version", "--request-timeout=10s"];
       if (options.kubeContext !== undefined) args.push("--context", options.kubeContext);
       const child = spawn(args, { env: process.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-      const [, , exit] = await runWithDeadline(child, Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]), 15_000, "kubectl preflight");
+      const [, stderr, exit] = await runWithDeadline(child, Promise.all([preflightOutput(child.stdout, false), preflightOutput(child.stderr, true), child.exited]), 15_000, "kubectl preflight");
+      preflightExit = exit; preflightDiagnostic = stderr;
       if (exit !== 0) throw new Error(`kubectl preflight failed (exit ${exit}); check kubeconfig, --kube-context and cluster connectivity. No images were published.`);
       phase = "resolve";
     });
@@ -65,7 +97,10 @@ export async function applyDocuments(options: ApplyOptions): Promise<{ exit: num
     return { exit, stdout, stderr };
   } catch (error) {
     if (await Bun.file(resolutionReport).exists()) resolution = JSON.parse(await readFile(resolutionReport, "utf8"));
-    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, resolution, error: error instanceof Error ? error.message : "Apply failed" }, error);
+    if (report && !written.has(report)) await writeFailureReport(report, { schemaVersion: 5, command: "apply", status: "failed", phase, ...(phase === "preflight" ? { exit: preflightExit } : {}), resolution, error: error instanceof Error ? error.message : "Apply failed" }, error);
+    // Resolve and apply reports deliberately exclude kubectl output. Enrich only
+    // the thrown CLI diagnostic after both safe reports have been serialized.
+    if (phase === "preflight" && preflightDiagnostic && error instanceof Error) error.message += `\nKubectl output (redacted, bounded):\n${preflightDiagnostic}`;
     throw error;
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }

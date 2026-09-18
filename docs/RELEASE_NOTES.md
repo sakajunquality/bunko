@@ -1,3 +1,14 @@
+# Unreleased
+
+## Breaking changes
+
+- `--kind` now defaults to the host architecture, matching `--local`. On arm64 hosts the implicit target changes from linux/amd64 to linux/arm64. Explicit CLI, environment and manifest platform selections retain precedence. Select `--platform` explicitly when the kind nodes differ from the host.
+
+## Fixes
+
+- Missing prepared-base blobs identify the layout, digest and requested platform with recovery guidance, without changing the original base index identity.
+- Kubernetes preflight failures show bounded, redacted diagnostics and record the exit status. Reports retain a safe summary without kubectl diagnostic output, and failed preflight still prevents publication.
+
 # v0.12.3
 
 This patch includes the previously merged build and deployment fixes: reject random build snapshot paths embedded in bundles, share verified base blobs across parallel targets, default local Docker loading to the host architecture, preflight Kubernetes before publication with configurable validation, and preserve original base image identity across prepared OCI layouts.

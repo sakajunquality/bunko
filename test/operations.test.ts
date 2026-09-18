@@ -177,7 +177,7 @@ test("failed cluster preflight prevents registry writes even with client dry-run
   await expect(applyDocuments({ context: root, files: [input], baseLayout: base, kubectlPath: kubectl, kubeContext: "test-context", kubeDryRun: "client", kubeValidate: "false", repo: "registry.test/team", registry: { fetcher: remote.fetch, credentials: async () => undefined }, localCache: false, registryCache: false, gitMetadata: false, report })).rejects.toThrow("kubectl preflight failed (exit 4)");
   expect(remote.requests.every((request) => ["GET", "HEAD"].includes(request.method))).toBe(true);
   expect(JSON.parse(await readFile(argsFile, "utf8"))).toEqual(["get", "--raw=/version", "--request-timeout=10s", "--context", "test-context"]);
-  expect(JSON.parse(await readFile(report, "utf8")).phase).toBe("preflight");
+  expect(JSON.parse(await readFile(report, "utf8"))).toMatchObject({ phase: "preflight", exit: 4 });
 });
 
 for (const validate of ["strict", "warn", "ignore", "true", "false"]) test(`apply CLI forwards --validate=${validate}`, async () => {
@@ -187,4 +187,33 @@ for (const validate of ["strict", "warn", "ignore", "true", "false"]) test(`appl
   const child = Bun.spawn([process.execPath, "packages/bunko/cli.ts", "apply", "-f", input, "--context", root, "--kubectl-path", kubectl, `--validate=${validate}`], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(stderr).toBe(""); expect(exit).toBe(0); expect(JSON.parse(stdout)).toContain(`--validate=${validate}`);
+});
+
+test("preflight displays bounded redacted diagnostics without copying them into either report", async () => {
+  const root = await fixture(), input = join(root, "input.yaml"), kubectl = join(root, "kubectl"), report = join(root, "report.json");
+  await writeFile(input, "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: test}\n");
+  const secret = "ghp_" + "a".repeat(36), oversized = "sensitive-oversized-line:" + "x".repeat(100_000);
+  await writeFile(kubectl, `#!${process.execPath}\nprocess.stdout.write("x".repeat(200_000));process.stderr.write(${JSON.stringify(oversized)}+"\\n");process.stderr.write('Authorization: Bear');await Bun.sleep(5);process.stderr.write(${JSON.stringify("er " + secret + "\n")});console.error('error: context "diagnostic-marker" does not exist');process.exit(7);`, { mode: 0o755 });
+  let failure: unknown;
+  try { await applyDocuments({ files: [input], context: root, kubectlPath: kubectl, report }); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Error);
+  const message = (failure as Error).message;
+  expect(message).toContain('context "diagnostic-marker" does not exist');
+  expect(message).toContain("<redacted>");
+  expect(message).not.toContain(secret);
+  expect(message).not.toContain("sensitive-oversized-line");
+  expect(message.length).toBeLessThan(12_000);
+  const bytes = await readFile(report, "utf8"), value = JSON.parse(bytes);
+  expect(value).toMatchObject({ phase: "preflight", exit: 7, status: "failed" });
+  expect(value.resolution.status).toBe("failed");
+  expect(bytes).not.toContain("diagnostic-marker");
+  expect(bytes).not.toContain(secret);
+});
+
+test("preflight spawn failure reports an unknown exit without inventing a subprocess status", async () => {
+  const root = await fixture(), input = join(root, "input.yaml"), kubectl = join(root, "kubectl"), report = join(root, "report.json");
+  await writeFile(input, "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: test}\n");
+  await writeFile(kubectl, "#!/nonexistent-bunko-test-interpreter\n", { mode: 0o755 });
+  await expect(applyDocuments({ files: [input], context: root, kubectlPath: kubectl, report })).rejects.toThrow();
+  expect(JSON.parse(await readFile(report, "utf8"))).toMatchObject({ phase: "preflight", exit: null, status: "failed" });
 });

@@ -15,4 +15,4 @@ All builds and manifest validation finish before any loading. A failed load can 
 
 `test/local-resolve-smoke.ts` validates a disposable kind Pod with registry requests forbidden during resolution after preparing a local base. It never selects a production context.
 
-With `--local`, an unspecified platform defaults to the host architecture: `linux/arm64` on Apple Silicon or ARM64 Linux, and `linux/amd64` on x64 hosts. An explicit `--platform`, `BUNKO_DEFAULT_PLATFORMS`, or manifest `bunko.platforms` retains precedence. For a remote Docker daemon, select its architecture explicitly. Registry, tarball, and kind output retain the `linux/amd64` default.
+With `--local` or `--kind`, an unspecified platform defaults to the host architecture: `linux/arm64` on Apple Silicon or ARM64 Linux, and `linux/amd64` on x64 hosts. An explicit `--platform`, `BUNKO_DEFAULT_PLATFORMS`, or manifest `bunko.platforms` retains precedence. For a remote Docker daemon or a kind cluster whose nodes differ from the host, select the target architecture explicitly; this default does not inspect the daemon or cluster. Registry and tarball output retain the `linux/amd64` default.
