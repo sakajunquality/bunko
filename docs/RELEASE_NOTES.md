@@ -1,3 +1,11 @@
+# v0.12.3
+
+This patch includes the previously merged build and deployment fixes: reject random build snapshot paths embedded in bundles, share verified base blobs across parallel targets, default local Docker loading to the host architecture, preflight Kubernetes before publication with configurable validation, and preserve original base image identity across prepared OCI layouts.
+
+Documentation now distinguishes fresh base inspection from trusted local cache replay and describes the shipped runtime preparation/cancellation behavior. Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`; this patch introduces no new persisted format.
+
+The subsequent OCI audit identified unresolved edge cases involving hardlinks, runnable descriptors carrying artifactType, omitted document mediaType fields, and nested manifest body idle timeouts. This documentation update does not fix those cases or claim complete OCI conformance.
+
 # v0.12.2
 
 This patch redacts credential-shaped data and random build scratch paths from CLI errors and failure reports. Native dependency diagnostics now recognize paired sharp-style `linuxmusl` and implicit glibc addon names using ELF requirements. Binaries remain included; advisory suppression requires a matching alternative for the base libc and does not prove runtime ABI compatibility.
