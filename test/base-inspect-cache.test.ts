@@ -351,10 +351,10 @@ test("an offline warm build reports a missing base blob at the point it is neede
   await rm(blob);
   const phases: string[] = [];
   await expect(build(options(f, { output: join(f.root, "warm"), offline: true,
-    progress: (event: any) => { if (event.status === "completed") phases.push(event.phase); } }) as any)).rejects.toThrow(blob);
+    progress: (event: any) => { if (event.status === "completed") phases.push(event.phase); } }) as any)).rejects.toThrow(`OCI layout ${JSON.stringify(f.base)} does not contain blob sha256:${blob.split("/").at(-1)} required for linux/amd64`);
   // The inspection itself succeeded from the record; the layout export is where the bytes were needed.
   expect(phases).toContain("base-inspect");
-  await expect(build(options(f, { output: join(f.root, "cold-again"), offline: true, localCache: false }) as any)).rejects.toThrow(blob);
+  await expect(build(options(f, { output: join(f.root, "cold-again"), offline: true, localCache: false }) as any)).rejects.toThrow(`does not contain blob sha256:${blob.split("/").at(-1)} required for linux/amd64`);
   expect(cold.images).toHaveLength(1);
 }, 120000);
 
@@ -396,5 +396,5 @@ test("a missing layout blob rejects consumption after destination setup", async 
   const stream = await new LayoutSource(join(root, "missing-layout")).blob(descriptor);
   // Consumers may await filesystem setup before reading the returned iterable.
   await Bun.sleep(25);
-  await expect(new BlobStore(join(root, "destination")).putStream(stream, media.tar, descriptor)).rejects.toThrow("ENOENT");
+  await expect(new BlobStore(join(root, "destination")).putStream(stream, media.tar, descriptor)).rejects.toThrow(`does not contain blob ${descriptor.digest}`);
 });
