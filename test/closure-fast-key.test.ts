@@ -66,6 +66,35 @@ test("an unchanged closure skips the Linux install and projection while reproduc
   expect((await readdir(join(cacheDir, "plans", "deps"))).filter((name) => name.endsWith(".json"))).toHaveLength(0);
 }, 15_000);
 
+test("tuning project concurrency preserves warm closure plans and dependency layers", async () => {
+  const root = await fixture(), f = await dependencyFixture(root), base = await baseLayout(join(root, "base"));
+  const options = { path: f.source, baseLayout: base, push: false, gitMetadata: false, cacheDir: join(root, "cache"), installCache: f.cache, depsStrategy: "closure" as const };
+  const first = await build({ ...options, output: join(root, "cold") });
+  for (const concurrency of [4, 8]) {
+    await writeFile(join(f.source, "bunfig.toml"), `[install]\nnetworkConcurrency = ${concurrency}\n`);
+    const warm = recorder();
+    const result = await build({ ...options, ...warm.options, output: join(root, `warm-${concurrency}`) });
+    expect(warm.state.log).toContain("Reusing dependency closure (amd64)");
+    expect(warm.state.log).not.toContain("Planning Linux dependency closure");
+    expect(result.cache.find((event) => event.kind === "deps")!.status).toBe("local");
+    expect(result.layers.find((layer) => layer.kind === "deps")).toEqual(first.layers.find((layer) => layer.kind === "deps"));
+  }
+  expect((await readdir(join(options.cacheDir, "plans", "deps"))).filter((name) => name.endsWith(".json"))).toHaveLength(1);
+}, 15_000);
+
+test("transport tuning preserves production and closure keys while age policy remains keyed", async () => {
+  const root = await fixture(), f = await dependencyFixture(root);
+  const project = await loadProject({ path: f.source, depsStrategy: "closure" });
+  const plan = await dependencyPlan(project, f.source), toolchain = await selectToolchain();
+  const platform = { os: "linux" as const, architecture: "amd64" as const }, base = "sha256:" + "0".repeat(64);
+  const keys = (input: typeof plan) => [cacheKey(dependencyInputs(input, toolchain, platform, base, project)), cacheKey(closurePlanInputs(input, toolchain, platform, base, [project]))];
+  for (const policy of [{}, { minimumReleaseAge: 86400, minimumReleaseAgeExcludes: ["@types/*"] }]) {
+    const original = keys({ ...plan, installPolicy: policy });
+    for (const networkConcurrency of [1, 8, 48]) expect(keys({ ...plan, installPolicy: { ...policy, networkConcurrency } })).toEqual(original);
+    expect(keys({ ...plan, installPolicy: { ...policy, minimumReleaseAge: 172800 } })).not.toEqual(original);
+  }
+});
+
 test("sharedDeps reuses one union closure per platform and keeps target aliases", async () => {
   const root = await fixture(), f = await workspaceFixture(root), base = await baseLayout(join(root, "base"));
   await writeFile(join(f.source, "package.json"), canonicalJSON({ ...f.manifests[""], bunko: { sharedDeps: true } }));

@@ -6,7 +6,7 @@ import { spawn } from "../runtime/invocation.ts";
 import { validateInstallCertificates, npmCertificate, installNetworkEnvironment, type NpmCertificate } from "./install-network.ts";
 import { ignoredInstallScripts } from "./install-scripts.ts";
 import { installerCredentials, installerOutputTail } from "./install-diagnostics.ts";
-import { readBunfig, installConfig, installConcurrency, type InstallPolicy } from "./bunfig.ts";
+import { readBunfig, installConfig, installConcurrency, resolutionPolicy, type InstallPolicy } from "./bunfig.ts";
 import { catalogs } from "./catalogs.ts";
 import { packageLicense } from "./inventory.ts";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
@@ -317,8 +317,9 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
       }, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       throwIfCancelled();
-      if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw new Error("Frozen install changed bun.lock");
-      for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw new Error("Frozen install changed package.json");
+      const mutationDiagnostic = (file: string) => new Error(`Frozen install changed ${file}${code === 0 ? "" : ` (installer exit ${code})${installerOutputTail(stderr, stdout, root, 20, installerCredentials(plan.npmrc))}`}`);
+      if (await readFile(join(root, "bun.lock"), "utf8") !== originalLock) throw mutationDiagnostic("bun.lock");
+      for (const original of originals) if (await readFile(original.path, "utf8") !== original.text) throw mutationDiagnostic("package.json");
       if (code === 0) break;
       const transient = code === 1 && transientInstallFailure(stdout, stderr);
       if (!transient || attempt === 3) {
@@ -436,5 +437,6 @@ export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, pla
   const relevant = (manifest: Record<string, unknown>) => Object.fromEntries(fields.filter((key) => manifest[key] !== undefined).map((key) => [key, manifest[key]]));
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
   const definitions = catalogs(plan.manifest);
-  return { ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}), nativeAddonPolicy: "target-elf-v1", manifests, ...(Object.keys(plan.installPolicy ?? {}).length ? { installPolicy: plan.installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: project.runtimeLibc, strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
+  const installPolicy = resolutionPolicy(plan.installPolicy ?? {});
+  return { ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}), nativeAddonPolicy: "target-elf-v1", manifests, ...(Object.keys(installPolicy).length ? { installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: project.runtimeLibc, strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
 }

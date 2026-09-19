@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installConcurrency, readBunfig } from "../packages/bunko/bunfig.ts";
+import { installConcurrency, installConfig, readBunfig } from "../packages/bunko/bunfig.ts";
 import { dependencyPlan, installDependencies } from "../packages/bunko/deps.ts";
 import { transientInstallFailure } from "../packages/bunko/install-retry.ts";
 import { loadProject } from "../packages/bunko/config.ts";
@@ -13,6 +13,7 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 const transport = "error: failed to download fixture-msg@1.0.0: ConnectionRefused";
 
+// GET diagnostics are defensive coverage; isolated installs use "failed to download".
 test("only recognized transient download failures are retried", () => {
   for (const line of [transport, "error: failed to download x@1: 503 Service Unavailable", "error: failed to download x@1: HTTP 5xx", "error: GET https://registry.example/x - 429", "error: failed to download x@1: ECONNRESET"]) {
     expect(transientInstallFailure("", line)).toBe(true);
@@ -28,11 +29,13 @@ test("project install concurrency is validated and overrides the environment", a
   expect(installConcurrency(await readBunfig(root), { BUN_CONFIG_NETWORK_CONCURRENCY: "8" })).toBe(4);
   expect(installConcurrency({}, { BUN_CONFIG_NETWORK_CONCURRENCY: "8" })).toBe(8);
   expect(installConcurrency({}, {})).toBeUndefined();
+  expect(installConcurrency({}, { BUN_CONFIG_NETWORK_CONCURRENCY: "" })).toBeUndefined();
+  expect(Bun.TOML.parse(installConfig({ networkConcurrency: 4, minimumReleaseAge: 86400 }))).toEqual({ install: { linker: "isolated", minimumReleaseAge: 86400 } });
   for (const value of [0, -1, 1.5, 65536, "secret-value"]) {
     await writeFile(join(root, "bunfig.toml"), `[install]\nnetworkConcurrency = ${JSON.stringify(value)}\n`);
     await expect(readBunfig(root)).rejects.toThrow("install.networkConcurrency must be an integer");
   }
-  for (const value of ["", "0", "-1", "1.5", "65536", "secret-value"]) expect(() => installConcurrency({}, { BUN_CONFIG_NETWORK_CONCURRENCY: value })).toThrow("BUN_CONFIG_NETWORK_CONCURRENCY must be an integer");
+  for (const value of ["0", "-1", "1.5", "65536", "secret-value"]) expect(() => installConcurrency({}, { BUN_CONFIG_NETWORK_CONCURRENCY: value })).toThrow("BUN_CONFIG_NETWORK_CONCURRENCY must be an integer");
 });
 
 async function fixture(outputs: string[], extra = "") {
@@ -83,6 +86,17 @@ test("permanent failures and frozen-input mutations stop immediately", async () 
   for (const [output, extra, message] of [["error: GET https://registry.example/x - 401", "", "exit 1"], [transport, "writeFileSync('bun.lock','changed');", "Frozen install changed bun.lock"]]) {
     const f = await fixture([output!], extra);
     await expect(installDependencies(f.source, f.plan, f.toolchain, undefined, f.cache)).rejects.toThrow(message!);
+    expect(JSON.parse(await readFile(f.count, "utf8"))).toHaveLength(1);
+  }
+});
+
+test("mutated inputs retain redacted installer diagnostics without retrying", async () => {
+  for (const file of ["bun.lock", "package.json"]) {
+    const f = await fixture([`${transport}\nAuthorization: Bearer private-test-secret`], `writeFileSync('${file}', 'changed');`);
+    const failure = await installDependencies(f.source, f.plan, f.toolchain).then(() => "", (error: Error) => error.message);
+    expect(failure).toContain(`Frozen install changed ${file} (installer exit 1)`);
+    expect(failure).toContain("ConnectionRefused");
+    expect(failure).not.toContain("private-test-secret");
     expect(JSON.parse(await readFile(f.count, "utf8"))).toHaveLength(1);
   }
 });

@@ -230,4 +230,4 @@ To reduce request bursts against a rate-limited npm registry or proxy, set `netw
 networkConcurrency = 8
 ```
 
-This controls both build and Linux production installs. Without a project setting, `BUN_CONFIG_NETWORK_CONCURRENCY=8` provides an invocation override. Values must be integers from 1 to 65535. The limit is per installer, not global across `--jobs` or CI runners. See [application compatibility](APPLICATION_COMPATIBILITY.md#bunfigtoml) for precedence, retry behavior and cache semantics.
+This controls both build and Linux production installs. Without a project setting, `BUN_CONFIG_NETWORK_CONCURRENCY=8` provides an invocation override. An empty environment variable is treated as unset. Values must be integers from 1 to 65535. Neither form changes dependency or closure-plan cache identity. The limit is per installer, not global across `--jobs` or CI runners. See [application compatibility](APPLICATION_COMPATIBILITY.md#bunfigtoml) for precedence, retry behavior and cache semantics.

@@ -22,8 +22,14 @@ export async function readBunfig(directory: string): Promise<InstallPolicy> {
   return { ...(networkConcurrency === undefined ? {} : { networkConcurrency }), ...(age !== undefined ? { minimumReleaseAge: age as number } : {}), ...(excludes !== undefined ? { minimumReleaseAgeExcludes: excludes as string[] } : {}) };
 }
 
+/** Transport controls do not change dependency bytes or belong in Bun's TOML. */
+export function resolutionPolicy(policy: InstallPolicy): Omit<InstallPolicy, "networkConcurrency"> {
+  const { networkConcurrency: _, ...resolution } = policy;
+  return resolution;
+}
+
 export function installConfig(policy: InstallPolicy): string {
-  return '[install]\nlinker = "isolated"\n' + Object.entries(policy).map(([key, value]) => `${key} = ${JSON.stringify(value)}\n`).join("");
+  return '[install]\nlinker = "isolated"\n' + Object.entries(resolutionPolicy(policy)).map(([key, value]) => `${key} = ${JSON.stringify(value)}\n`).join("");
 }
 
 /** Keep transport tuning bounded and reject values without echoing environment contents. */
@@ -33,8 +39,8 @@ export function validateNetworkConcurrency(value: unknown, name: string): number
 }
 
 export function installConcurrency(policy: InstallPolicy, environment: NodeJS.ProcessEnv = process.env): number | undefined {
-  if (policy.networkConcurrency !== undefined) return validateNetworkConcurrency(policy.networkConcurrency, "install.networkConcurrency");
+  if (policy.networkConcurrency !== undefined) return policy.networkConcurrency;
   const value = environment.BUN_CONFIG_NETWORK_CONCURRENCY;
-  if (value === undefined) return;
-  return validateNetworkConcurrency(/^[0-9]+$/.test(value) ? Number(value) : NaN, "BUN_CONFIG_NETWORK_CONCURRENCY");
+  if (value === undefined || value === "") return;
+  return validateNetworkConcurrency(Number(value), "BUN_CONFIG_NETWORK_CONCURRENCY");
 }
