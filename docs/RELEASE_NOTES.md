@@ -1,3 +1,11 @@
+# v0.12.5
+
+Dependency installs accept `[install].networkConcurrency` in the root `bunfig.toml`, or `BUN_CONFIG_NETWORK_CONCURRENCY` when the project setting is absent. Empty environment values are treated as unset. This transport control does not change dependency or closure-plan cache identity; existing matching closure plans remain reusable.
+
+Recognized transient download failures receive at most two retries with cancellation-aware backoff. Authentication, integrity, certificate, lockfile and unknown failures are not retried. Frozen-input mutations prevent retry while preserving redacted installer diagnostics. Complete HTTP 429 responses reported by Bun only as `HTTP 4xx` remain non-retryable; use the concurrency setting to reduce request bursts. Bun's own retries can extend the duration of each attempt.
+
+Host Bun support and persisted formats remain unchanged. The truncated-response recovery fixture is verified with Bun 1.4.2; Bun 1.3.13 can continue internal retries instead of returning promptly. The reporter's private registry was not accessed.
+
 # v0.12.4
 
 ## Breaking changes
