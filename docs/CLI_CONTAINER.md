@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.4 reference is `ghcr.io/sakajunquality/bunko:v0.12.4`, with verified multiarchitecture index `sha256:4819a5bc95248421f13a8d48ee42212fe97bce0951ff9192c6c69346cd0eafa1`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.2, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.5 reference is `ghcr.io/sakajunquality/bunko:v0.12.5`, with verified multiarchitecture index `sha256:471715f3e0c88b845247f06187b5c241f16944c0e15154694844f28c3e1d5562`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:4819a5bc95248421f13a8d48ee42212fe97bce0951ff9192c6c69346cd0eafa1 \
+  ghcr.io/sakajunquality/bunko@sha256:471715f3e0c88b845247f06187b5c241f16944c0e15154694844f28c3e1d5562 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -152,7 +152,7 @@ These options are available in v0.10.0 and later. Pin the current verified conta
 
 A builder with `--auth-source github` can use an explicitly supplied `GITHUB_TOKEN` without a Docker configuration. On GKE/Cloud Build use `--auth-source google` and grant the workload's service account Artifact Registry access; bunko uses the metadata token endpoint. Explicit `GOOGLE_OAUTH_ACCESS_TOKEN` also works. Neither path installs a helper or requires a Docker socket. Other Docker helper configurations still require a derived image containing the helper.
 
-For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.12.4 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
+For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.12.5 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
 
 ```yaml
 args: [build, /work, --repo, LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/app, --bare, --auth-source, google]
@@ -178,6 +178,10 @@ For EKS, configure IRSA or EKS Pod Identity on the Job service account and use `
 ## v0.12.3 publication
 
 [Container workflow 35305646230](https://github.com/sakajunquality/bunko/actions/runs/35305646230) validated, attested and promoted index `sha256:02cee62eed8c117ece5f3f31240c6272935fe3b776986d8c82bbbb31c2ad5765` from recipe source `e2cd9359d6c49d1f6de30a6c8faf339455c36e6a`. Independent exact-source attestation, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match GitHub v0.12.3. See [release evidence](validation/v0.12.3.md).
+
+## v0.12.5 publication
+
+[Container workflow 35444675635](https://github.com/sakajunquality/bunko/actions/runs/35444675635) validated, attested and promoted index `sha256:471715f3e0c88b845247f06187b5c241f16944c0e15154694844f28c3e1d5562` from recipe source `2ed0b81b03bfcc960631dc83c8fa6c324e68dd9a`. Independent exact-source attestation, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match GitHub v0.12.5. See [release evidence](validation/v0.12.5.md).
 
 ## v0.12.4 publication
 

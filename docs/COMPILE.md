@@ -4,10 +4,10 @@ Bunko's `compile` mode creates a Linux executable containing the application and
 
 ## Prerequisites and first build
 
-Bunko v0.12.4 generally accepts host Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`. Compile mode additionally requires the selected compiler to match an authenticated runtime archive; those archives are currently pinned to official Bun 1.3.13 and 1.4.2. Use one of those exact releases and GnuPG's `gpgv` for compilation. Other accepted host patches require a reviewed runtime pin before compile mode can use them. Linux and macOS build hosts are supported. Network access is needed for uncached base images and authenticated runtime assets. Docker is unnecessary for image construction; running the resulting container locally requires a container runtime.
+Bunko v0.12.5 generally accepts host Bun `>=1.3.13 <1.4 || >=1.4.2 <1.5`. Compile mode additionally requires the selected compiler to match an authenticated runtime archive; those archives are currently pinned to official Bun 1.3.13 and 1.4.2. Use one of those exact releases and GnuPG's `gpgv` for compilation. Other accepted host patches require a reviewed runtime pin before compile mode can use them. Linux and macOS build hosts are supported. Network access is needed for uncached base images and authenticated runtime assets. Docker is unnecessary for image construction; running the resulting container locally requires a container runtime.
 
 ```sh
-bunx @sakajunquality/bunko@0.12.4 build examples/compile \
+bunx @sakajunquality/bunko@0.12.5 build examples/compile \
   --platform linux/amd64 \
   --push=false \
   --oci-layout /tmp/bunko-compiled-image \
@@ -40,7 +40,7 @@ Targets are Linux amd64 and arm64. The default is glibc; `--runtime-libc musl` s
 For a registry build, authenticate first and replace the destination with your repository:
 
 ```sh
-bunx @sakajunquality/bunko@0.12.4 build examples/compile \
+bunx @sakajunquality/bunko@0.12.5 build examples/compile \
   --platform linux/amd64,linux/arm64 \
   --repo ghcr.io/YOUR_USER/compiled-example --bare --tag demo
 ```
