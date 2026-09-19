@@ -5,7 +5,7 @@ This dependency-free application compiles into a Linux executable containing the
 Run the commands below from the repository root. Install a supported official Bun release (for example 1.4.2) and GnuPG's `gpgv` first. Docker is only needed for the final container execution.
 
 ```sh
-bunx @sakajunquality/bunko@0.12.4 build examples/compile \
+bunx @sakajunquality/bunko@0.12.5 build examples/compile \
   --platform linux/amd64 \
   --push=false \
   --tarball /tmp/bunko-compile-example.tar \
