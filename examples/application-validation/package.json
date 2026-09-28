@@ -2,7 +2,7 @@
   "name": "application-validation",
   "private": true,
   "type": "module",
-  "dependencies": { "hono": "4.13.7", "pg": "8.23.0", "@node-rs/xxhash": "1.7.7" },
+  "dependencies": { "hono": "4.13.8", "pg": "8.23.0", "@node-rs/xxhash": "1.7.8" },
   "bunko": {
     "entrypoints": { "server": "src/server.ts", "worker": "src/worker.ts", "migrate": "src/migrate.ts" },
     "defaultEntrypoint": "server",
