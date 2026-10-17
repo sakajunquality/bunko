@@ -1,6 +1,6 @@
 # Third-party notices
 
-The distributed CLI bundles yaml 2.9.0 (https://github.com/eemeli/yaml), ISC license.
+The distributed CLI bundles yaml 2.9.1 (https://github.com/eemeli/yaml), ISC license.
 
 Copyright Eemeli Aro <eemeli@gmail.com>
 
@@ -16,9 +16,9 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
-## @babel/parser 7.29.8
+## @babel/parser 7.29.9
 
-Source: https://github.com/babel/babel/tree/v7.29.8/packages/babel-parser
+Source: https://github.com/babel/babel/tree/v7.29.9/packages/babel-parser
 
 Copyright (C) 2012-2014 by various contributors (see AUTHORS)
 

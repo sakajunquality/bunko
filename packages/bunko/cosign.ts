@@ -7,14 +7,15 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** Preserve credential-helper and proxy settings, but not alternate signature
- * destinations or public-service overrides. Never expose raw helper output. */
-export function signingEnvironment(keyless = false): Record<string, string> {
-  const env: Record<string, string> = { HOME: homedir(), PATH: process.env.PATH ?? "" };
+ * destinations or public-service overrides. Never expose raw helper output.
+ * `source` lets tests avoid mutating proxy variables, which Bun's fetch retains process-wide. */
+export function signingEnvironment(keyless = false, source: Record<string, string | undefined> = process.env): Record<string, string> {
+  const env: Record<string, string> = { HOME: homedir(), PATH: source.PATH ?? "" };
   const allowed = ["HOME", "PATH", "COSIGN_PASSWORD", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"];
-  for (const key of allowed) if (process.env[key] !== undefined) env[key] = process.env[key]!;
-  for (const [key, value] of Object.entries(process.env)) if (value !== undefined &&
+  for (const key of allowed) if (source[key] !== undefined) env[key] = source[key]!;
+  for (const [key, value] of Object.entries(source)) if (value !== undefined &&
     /^(AWS_|GOOGLE_|CLOUDSDK_|AZURE_|ARM_|VAULT_|DOCKER_)/.test(key)) env[key] = value;
-  if (keyless) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "BUILDKITE_AGENT_ENDPOINT", "BUILDKITE_AGENT_NAME", "BUILDKITE_JOB_ID"]) if (process.env[key] !== undefined) env[key] = process.env[key]!;
+  if (keyless) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "BUILDKITE_AGENT_ENDPOINT", "BUILDKITE_AGENT_NAME", "BUILDKITE_JOB_ID"]) if (source[key] !== undefined) env[key] = source[key]!;
   return env;
 }
 
