@@ -52,13 +52,8 @@ test("cosign output capture is bounded and deadline or signal termination cannot
 });
 
 test("lowercase proxies and intentional empty proxy overrides survive signing isolation", () => {
-  const keys = ["http_proxy", "https_proxy", "all_proxy", "no_proxy", "ALL_PROXY", "COSIGN_REPOSITORY"];
-  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  try {
-    for (const key of keys) process.env[key] = "fixture";
-    process.env.https_proxy = "";
-    const env = signingEnvironment();
-    expect(env.http_proxy).toBe("fixture"); expect(env.https_proxy).toBe(""); expect(env.all_proxy).toBe("fixture"); expect(env.no_proxy).toBe("fixture"); expect(env.ALL_PROXY).toBe("fixture");
-    expect(env.COSIGN_REPOSITORY).toBeUndefined();
-  } finally { for (const key of keys) { if (old[key] === undefined) delete process.env[key]; else process.env[key] = old[key]; } }
+  const source = Object.fromEntries(["http_proxy", "all_proxy", "no_proxy", "ALL_PROXY", "COSIGN_REPOSITORY"].map((key) => [key, "fixture"]));
+  const env = signingEnvironment(false, { ...source, https_proxy: "" });
+  expect(env.http_proxy).toBe("fixture"); expect(env.https_proxy).toBe(""); expect(env.all_proxy).toBe("fixture"); expect(env.no_proxy).toBe("fixture"); expect(env.ALL_PROXY).toBe("fixture");
+  expect(env.COSIGN_REPOSITORY).toBeUndefined();
 });
