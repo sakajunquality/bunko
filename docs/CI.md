@@ -13,7 +13,7 @@ steps:
   - uses: sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516 # v0.2.0
     with:
       version: v0.12.5
-      bun-version: 1.4.2
+      bun-version: 1.4.4
   - uses: sakajunquality/bunko/build@2ed0b81b03bfcc960631dc83c8fa6c324e68dd9a # v0.12.5
     env:
       GITHUB_TOKEN: ${{ github.token }}

@@ -42,7 +42,7 @@ steps:
   - uses: sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516 # v0.2.0
     with:
       version: v0.12.5
-      bun-version: 1.4.2
+      bun-version: 1.4.4
   - run: bunko version
 ```
 
@@ -77,7 +77,7 @@ The `version` input is optional starting with v0.1.3. Earlier immutable tags ret
 
 The installation log records the selected version and its source, for example `Selected bunko v0.12.5 from GITHUB_ACTION_REF`. For stronger pinning, select a reviewed Action commit SHA; a commit that includes this resolution installs the release its checkout declares, so `version` stays optional there too. Registry login is separate from installing bunko; configure Docker credentials before a build that publishes an image.
 
-Action tags cut before this resolution existed retain their preparation-time CLI default, which is the previous release; the immutable v0.1.2 tag defaults to CLI 0.1.1 unless `version` is passed. Starting with v0.1.3 the tag installs its own CLI version and `version` is optional. `bun-version` remains a literal default, so projects requiring an older toolchain should still set it to their supported exact version. For this existing entry point, releasing does not require a follow-up CLI-default bump: the tag and tagged `package.json` carry it. The dedicated setup-bunko repository has its own explicit default and release process.
+Action tags cut before this resolution existed retain their preparation-time CLI default, which is the previous release; the immutable v0.1.2 tag defaults to CLI 0.1.1 unless `version` is passed. Starting with v0.1.3 the tag installs its own CLI version and `version` is optional. `bun-version` defaults to `1.4.4` on the development branch and remains a literal default, so projects requiring an older toolchain should still set it to their supported exact version. For this existing entry point, releasing does not require a follow-up CLI-default bump: the tag and tagged `package.json` carry it. The dedicated setup-bunko repository has its own explicit default and release process.
 
 ## Manual installation
 

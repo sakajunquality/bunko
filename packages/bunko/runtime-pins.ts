@@ -12,5 +12,11 @@ export const runtimePins: Record<string, Record<string, string>> = {
     "bun-linux-aarch64": "sha256:54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7",
     "bun-linux-x64-musl-baseline": "sha256:76e1db84e98f22f78de0a87e309bfbbf297732847f9720db36750646c85c8c18",
     "bun-linux-aarch64-musl": "sha256:71760b6c8ea30623b81a4907cb815d48e2ea266f2e73e751534a44a0607950df"
+  },
+  "1.4.4": {
+    "bun-linux-x64-baseline": "sha256:e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76",
+    "bun-linux-aarch64": "sha256:baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e",
+    "bun-linux-x64-musl-baseline": "sha256:6e9c37098b293920aed28bfb51ab240e26d23bfdd9bbfecb3ad428ac166549bc",
+    "bun-linux-aarch64-musl": "sha256:57f01b02ac7113c61c935f28f38c2eab849e3c970dab21f8b640a87b1ef65009"
   }
 };
