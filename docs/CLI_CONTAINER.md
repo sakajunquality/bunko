@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.4, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.5 reference is `ghcr.io/sakajunquality/bunko:v0.12.5`, with verified multiarchitecture index `sha256:471715f3e0c88b845247f06187b5c241f16944c0e15154694844f28c3e1d5562`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.4, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.5 image uses Bun 1.4.2; its reference is `ghcr.io/sakajunquality/bunko:v0.12.5`, with verified multiarchitecture index `sha256:471715f3e0c88b845247f06187b5c241f16944c0e15154694844f28c3e1d5562`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
