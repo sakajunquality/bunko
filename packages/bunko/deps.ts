@@ -294,6 +294,9 @@ export async function installDependencies(root: string, plan: DependencyPlan, to
   if (concurrency !== undefined) args.push(`--network-concurrency=${concurrency}`);
   if (target) args.push("--production", "--os=linux", `--cpu=${target.architecture === "amd64" ? "x64" : "arm64"}`);
   else for (const filter of filters ?? []) args.push(`--filter=${filter}`);
+  // Bun 1.4.4 filters optional packages by host libc even with --os/--cpu.
+  // Retain both Linux variants for target-base validation and inactive-addon selection.
+  if (target && Bun.semver.satisfies(toolchain.version, ">=1.4.4")) args.push("--libc=*");
   // Keep downloads outside node_modules even in the isolated installer environment.
   args.push(`--cache-dir=${cacheDirectory ?? join(root, OUTPUT_DIRECTORY, "install-cache")}`);
   const certificateFile = join(home, "npm-ca.pem");
@@ -438,5 +441,5 @@ export function dependencyInputs(plan: DependencyPlan, toolchain: Toolchain, pla
   const manifests = plan.workspace ? Object.fromEntries(plan.workspace.packages.map((pkg) => [pkg.path, relevant(pkg.manifest)])) : relevant(plan.manifest);
   const definitions = catalogs(plan.manifest);
   const installPolicy = resolutionPolicy(plan.installPolicy ?? {});
-  return { ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}), nativeAddonPolicy: "target-elf-v1", manifests, ...(Object.keys(installPolicy).length ? { installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: project.runtimeLibc, strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
+  return { ...(project.runtimeKind === "node" ? { runtimeKind: "node", runtimePath: project.bunPath, nodeVersion: project.nodeVersion } : {}), nativeAddonPolicy: "target-elf-v1", ...(Bun.semver.satisfies(toolchain.version, ">=1.4.4") ? { installLibc: "*" } : {}), manifests, ...(Object.keys(installPolicy).length ? { installPolicy } : {}), ...(Object.keys(definitions.catalog).length || Object.keys(definitions.catalogs).length ? { catalogs: definitions } : {}), workspaceSources: plan.workspaceSources, targetPath: project.targetPath || undefined, layout: plan.workspace ? "workspace-v2" : "standalone-v2", lock: plan.lock, patches: plan.patches, resolution: plan.resolution, registry: plan.registry, toolchain: { version: toolchain.version, revision: toolchain.revision }, platform, base, libc: project.runtimeLibc, strategy: "production", linker: "isolated", scripts: false, ...(project.allowIgnoredScripts?.length ? { allowIgnoredScripts: project.allowIgnoredScripts } : {}), external: project.external };
 }
