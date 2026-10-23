@@ -26,7 +26,7 @@ Unit tests (`test/*.test.ts`) do not require Docker or external service credenti
 
 Many smoke tests (`test/*-smoke.ts`, run via `bun run test:<name>`) need Docker and network access for prerequisites. Use `package.json` for the exact script-to-file mapping; check each runner for its requirements and cleanup scope. The native CA smoke also requires Go; signed runtime injection requires `gpgv`. Set `BUNKO_SMOKE_PLATFORMS=linux/amd64` to restrict platform selection, which is what CI does. `scripts/validation/*` are the application-validation, fonts, runtime-injection and telemetry smoke runners.
 
-CI matrix: Linux and macOS × Bun 1.3.13, 1.4.0, 1.4.2. The supported range is `>=1.3.13 <1.5` (`package.json` engines).
+CI matrix: Linux and macOS × Bun 1.3.13, 1.4.4. The supported range is `>=1.3.13 <1.4 || >=1.4.2 <1.5` (`package.json` engines).
 
 ## Architecture
 
