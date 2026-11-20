@@ -23,7 +23,8 @@ try {
     if (!["linux/amd64", "linux/arm64"].includes(platform)) throw new Error("Unsupported container validation platform");
     const architecture = platform.split("/")[1]!, image = process.env.BUNKO_CONTAINER_IMAGE ?? `bunko.local/cli-candidate:${architecture}`;
     const output = join(root, architecture); await mkdir(output); await chmod(output, 0o777);
-    const config = JSON.parse(await command(["docker", "image", "inspect", image]))[0].Config;
+    // The containerd image store reports an empty config for a non-native image unless the platform is named.
+    const config = JSON.parse(await command(["docker", "image", "inspect", "--platform", platform, image]))[0].Config;
     if (config.User !== "65532:65532") throw new Error("Builder image must default to nonroot");
     if (await command(["docker", "run", "--rm", "--platform", platform, "--network=none", "--read-only", "--cap-drop=ALL", image, "version"]) !== version) throw new Error("Unexpected container CLI version");
     await command(["docker", "run", "--rm", "--platform", platform, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", "--env", "XDG_CACHE_HOME=/tmp/cache", "--mount", `type=bind,source=${source},target=/work,readonly`, "--mount", `type=bind,source=${output},target=/out`, image,
