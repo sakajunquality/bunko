@@ -1,3 +1,11 @@
+# v0.12.6
+
+Bun 1.4.4 is validated as a host toolchain alongside 1.3.13. Bun 1.4.4 filters optional packages by the host libc even when `--os`/`--cpu` are given, so target installs now pass `--libc=*` on Bun 1.4.4 and later, retaining both glibc and musl variants for target-base validation and inactive-addon selection. Dependency cache identity records this install policy on those hosts, causing a one-time cold dependency build there; hosts on earlier Bun versions keep their existing identity. Compile mode and signed runtime injection add pinned official Bun 1.4.4 Linux archives next to 1.3.13 and 1.4.2.
+
+The CLI bundles ignore 7.0.14, tar-stream 3.2.2, yaml 2.9.1 and @babel/parser 7.29.9. The CLI container uses the Bun 1.4.4 base image with the Debian snapshot advanced to 2026-11-20, which picks up the fixed libbrotli1, apt and zlib1g packages reported by the scheduled container scan.
+
+Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`; this patch introduces no new persisted format. The OCI audit's hardlink identity, runnable artifactType classification, optional document mediaType and nested manifest idle-timeout findings remain open.
+
 # v0.12.5
 
 Dependency installs accept `[install].networkConcurrency` in the root `bunfig.toml`, or `BUN_CONFIG_NETWORK_CONCURRENCY` when the project setting is absent. Empty environment values are treated as unset. This transport control does not change dependency or closure-plan cache identity; existing matching closure plans remain reusable.
