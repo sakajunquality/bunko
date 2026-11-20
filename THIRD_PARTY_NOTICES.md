@@ -92,7 +92,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-## tar-stream 3.2.1
+## tar-stream 3.2.2
 
 The MIT License (MIT)
 
@@ -116,7 +116,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-## b4a 1.8.1
+## b4a 1.9.0
 
                                  Apache License
                            Version 2.0, January 2004
@@ -321,7 +321,7 @@ THE SOFTWARE.
    limitations under the License.
 
 
-## bare-fs 4.8.1
+## bare-fs 4.8.4
 
                                  Apache License
                            Version 2.0, January 2004
@@ -1831,7 +1831,7 @@ THE SOFTWARE.
    limitations under the License.
 
 
-## ignore 7.0.9
+## ignore 7.0.14
 
 Source: https://github.com/kaelzhang/node-ignore. MIT license, reproduced from the pinned npm package.
 
