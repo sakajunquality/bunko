@@ -42,7 +42,7 @@ steps:
   - uses: sakajunquality/setup-bunko@2f4d5712dcafc7a1dd6488769b1e2806de33b516 # v0.2.0
     with:
       version: v0.12.6
-      bun-version: 1.4.5
+      bun-version: 1.4.4
   - run: bunko version
 ```
 

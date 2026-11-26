@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: sakajunquality/bunko@70a297ee3f5f1ca0971c5703c6fde26648fc98c0 # v0.12.6
         with:
-          bun-version: 1.4.5
+          bun-version: 1.4.4
           verify-attestation: 'true'
       - name: Authenticate to GHCR
         env:

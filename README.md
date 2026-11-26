@@ -12,7 +12,7 @@ Start with the [task-oriented cookbook](docs/COOKBOOK.md). See the [feature guid
 
 ## Install a release
 
-Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.12.6 release](https://github.com/sakajunquality/bunko/releases/tag/v0.12.6) into the same directory. Install Bun 1.4.5 (or another supported version), then verify the files before running the CLI:
+Download `bunko.js`, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `PROVENANCE.jsonl` from the [v0.12.6 release](https://github.com/sakajunquality/bunko/releases/tag/v0.12.6) into the same directory. Install Bun 1.4.4 (or another supported version), then verify the files before running the CLI:
 
 ```sh
 # Linux; on macOS use: shasum -a 256 --check SHA256SUMS
