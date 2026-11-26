@@ -1,3 +1,11 @@
+# v0.12.7
+
+Bun 1.4.5 is validated as a host toolchain alongside 1.3.13, and compile mode and signed runtime injection add pinned official Bun 1.4.5 Linux archives next to 1.3.13, 1.4.2 and 1.4.4. Each new archive digest is checked against the official clear-signed checksum document. Bun 1.4.5 needs no behavior change: the `--libc=*` target-install policy introduced for Bun 1.4.4 applies to it unchanged, so dependency cache identity is unaffected on hosts that already ran 1.4.4.
+
+The CLI container moves to the Bun 1.4.5 base image with the Debian snapshot advanced to 2026-11-25. The setup Action's `bun-version` default is now 1.4.5.
+
+Host Bun support remains `>=1.3.13 <1.4 || >=1.4.2 <1.5`; this patch introduces no new persisted format and changes no bundled dependency. The OCI audit's hardlink identity, runnable artifactType classification, optional document mediaType and nested manifest idle-timeout findings remain open.
+
 # v0.12.6
 
 Bun 1.4.4 is validated as a host toolchain alongside 1.3.13. Bun 1.4.4 filters optional packages by the host libc even when `--os`/`--cpu` are given, so target installs now pass `--libc=*` on Bun 1.4.4 and later, retaining both glibc and musl variants for target-base validation and inactive-addon selection. Dependency cache identity records this install policy on those hosts, causing a one-time cold dependency build there; hosts on earlier Bun versions keep their existing identity. Compile mode and signed runtime injection add pinned official Bun 1.4.4 Linux archives next to 1.3.13 and 1.4.2.
