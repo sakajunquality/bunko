@@ -1,6 +1,6 @@
 # CLI container
 
-The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.5, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.6 image uses Bun 1.4.4; its reference is `ghcr.io/sakajunquality/bunko:v0.12.6`, with verified multiarchitecture index `sha256:5a25538057320cff2ddde0ae98ce8cf10dc686cc3a2f157b368cc81ef19aff95`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
+The current container recipe packages the published, checksum-verified JavaScript CLI with pinned Bun 1.4.5, GnuPG's `gpgv`, Git and CA certificates. The published 0.12.7 reference is `ghcr.io/sakajunquality/bunko:v0.12.7`, with verified multiarchitecture index `sha256:c890617b7d31c1b52c3207f7ac9db493c5d1ed3647a6a7b44cd1aff3c0efa6a8`. This recipe supports Bun lockfile v2. Pin the published index digest for reproducible consumption. Container publication and source release publication are separate operations.
 
 The image defaults to UID/GID 65532 and includes no Docker daemon or cloud credential helpers. Build inputs can be mounted read-only. `/tmp`, the output directory and the selected cache directory need writable storage; a Docker socket is unnecessary. A source directory must contain the application manifest and lockfile where required.
 
@@ -11,7 +11,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
   --env HOME=/tmp/bunko-home --env XDG_CACHE_HOME=/tmp/bunko-cache \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --mount "type=bind,source=$PWD/output,target=/out" \
-  ghcr.io/sakajunquality/bunko@sha256:5a25538057320cff2ddde0ae98ce8cf10dc686cc3a2f157b368cc81ef19aff95 \
+  ghcr.io/sakajunquality/bunko@sha256:c890617b7d31c1b52c3207f7ac9db493c5d1ed3647a6a7b44cd1aff3c0efa6a8 \
   build /work --push=false --oci-layout /out/image --report /out/report.json
 ```
 
@@ -152,7 +152,7 @@ These options are available in v0.10.0 and later. Pin the current verified conta
 
 A builder with `--auth-source github` can use an explicitly supplied `GITHUB_TOKEN` without a Docker configuration. On GKE/Cloud Build use `--auth-source google` and grant the workload's service account Artifact Registry access; bunko uses the metadata token endpoint. Explicit `GOOGLE_OAUTH_ACCESS_TOKEN` also works. Neither path installs a helper or requires a Docker socket. Other Docker helper configurations still require a derived image containing the helper.
 
-For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.12.6 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
+For the Kubernetes Job example, retain the nonroot/read-only security settings and writable temporary/cache volumes. Use the reviewed v0.12.7 digest shown above. For GKE, configure `serviceAccountName` for workload identity and replace the args with:
 
 ```yaml
 args: [build, /work, --repo, LOCATION-docker.pkg.dev/PROJECT/REPOSITORY/app, --bare, --auth-source, google]
@@ -178,6 +178,10 @@ For EKS, configure IRSA or EKS Pod Identity on the Job service account and use `
 ## v0.12.3 publication
 
 [Container workflow 35305646230](https://github.com/sakajunquality/bunko/actions/runs/35305646230) validated, attested and promoted index `sha256:02cee62eed8c117ece5f3f31240c6272935fe3b776986d8c82bbbb31c2ad5765` from recipe source `e2cd9359d6c49d1f6de30a6c8faf339455c36e6a`. Independent exact-source attestation, anonymous pulls and nonroot/read-only/network-disabled execution passed on amd64 and arm64. Both in-image CLI hashes match GitHub v0.12.3. See [release evidence](validation/v0.12.3.md).
+
+## v0.12.7 publication
+
+[Container workflow 45935766199](https://github.com/sakajunquality/bunko/actions/runs/45935766199), dispatched automatically by the release, validated, attested and promoted index `sha256:c890617b7d31c1b52c3207f7ac9db493c5d1ed3647a6a7b44cd1aff3c0efa6a8` from recipe source `124bc1bac48ad2ebcd72b7558fbe34b5ba8ca656`. The index attestation verifies against the container workflow, `refs/heads/main` and that source commit, and is rejected for a different source ref. See [release evidence](validation/v0.12.7.md).
 
 ## v0.12.6 publication
 
