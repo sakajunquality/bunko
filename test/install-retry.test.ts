@@ -58,12 +58,12 @@ if(output){console.error(output);process.exit(1);}
 }
 
 test("production installs retain both libc variants without overriding host installs or older Bun", async () => {
-  for (const version of ["1.3.13", "1.4.2", "1.4.4"]) {
+  for (const version of ["1.3.13", "1.4.2", "1.4.4", "1.4.5"]) {
     for (const target of [undefined, { os: "linux" as const, architecture: "amd64" as const }]) {
       const f = await fixture([]);
       await installDependencies(f.source, f.plan, { ...f.toolchain, version }, target, f.cache);
       const [args] = JSON.parse(await readFile(f.count, "utf8")) as string[][];
-      expect(args!.filter((arg) => arg.startsWith("--libc="))).toEqual(target && version === "1.4.4" ? ["--libc=*"] : []);
+      expect(args!.filter((arg) => arg.startsWith("--libc="))).toEqual(target && Bun.semver.satisfies(version, ">=1.4.4") ? ["--libc=*"] : []);
     }
   }
 });
