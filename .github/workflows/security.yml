@@ -65,7 +65,7 @@ jobs:
             --build-arg "BUNKO_VERSION=$(bun -p 'require("./package.json").version')" \
             -t bunko.local/security-candidate .
       - name: Report all container vulnerability matches
-        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
         with:
           image: bunko.local/security-candidate
           fail-build: false
@@ -75,7 +75,7 @@ jobs:
           output-file: ${{ runner.temp }}/container-vulnerabilities.json
           cache-db: false
       - name: Reject high and critical findings with available fixes
-        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
         with:
           image: bunko.local/security-candidate
           fail-build: true

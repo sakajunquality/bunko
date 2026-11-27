@@ -58,12 +58,12 @@
     "test:node": "bun scripts/validation/node-smoke.ts"
   },
   "devDependencies": {
-    "@babel/parser": "7.29.9",
-    "@babel/types": "7.29.8",
-    "@types/bun": "1.4.4",
+    "@babel/parser": "7.29.14",
+    "@babel/types": "7.29.14",
+    "@types/bun": "1.4.5",
     "@types/tar-stream": "3.1.5",
     "@types/yauzl": "3.4.0",
-    "ignore": "7.0.14",
+    "ignore": "7.0.16",
     "tar-stream": "3.2.2",
     "typescript": "7.0.2",
     "yaml": "2.9.1",
