@@ -3,9 +3,21 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { runtimePins } from "../../packages/bunko/runtime-pins.ts";
 const base = "oven/bun@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f";
 const bare = "alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b";
 const glibc = "gcr.io/distroless/base-debian12@sha256:7f0c72cd138b442ae0deeb69c08b1acf5525439ba251a49ad93c320a061567e5";
+/** Official Alpine images per pinned release: an existing-runtime check needs the base's Bun to equal the host toolchain. */
+const alpine: Record<string, string> = {
+  "1.3.13": "oven/bun@sha256:4de475389889577f346c636f956b42a5c31501b654664e9ae5726f94d7bb5349",
+  "1.4.2": base,
+  "1.4.4": "oven/bun@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a",
+  "1.4.5": "oven/bun@sha256:da816670775f4c2b4e990b6b1847cf5540dcdc721a42033dd331ce7a88ba6a3b"
+};
+const unmatched = Object.keys(runtimePins).filter((version) => !Object.hasOwn(alpine, version));
+if (unmatched.length) throw new Error(`Add a digest-pinned oven/bun:<version>-alpine base for pinned Bun ${unmatched.join(", ")}`);
+const existing = alpine[Bun.version];
+if (!existing) throw new Error(`No Alpine base with an existing Bun ${Bun.version}; run with a pinned release: ${Object.keys(alpine).join(", ")}`);
 const cli = [process.execPath, resolve("dist/bunko.js")];
 const platforms = (process.env.BUNKO_SMOKE_PLATFORMS ?? "linux/amd64,linux/arm64").split(",");
 const root = await mkdtemp(join(tmpdir(), "bunko-musl-smoke-")), images = new Set<string>(), containers = new Set<string>();
@@ -51,10 +63,8 @@ try { const text=await (await fetch('https://localhost:'+server.port)).text(); c
     const result=await run([...cli,'check-base','--base',reference!,'--runtime-libc','musl','--runtime-inject','release','--platform',platforms[0]!]);
     if(!result.code||!result.err.includes(expected!)) throw new Error(`Expected rejection: ${expected}: ${result.err}`);
   }
-  if (Bun.version === "1.4.2") {
-  const direct=JSON.parse(await good([...cli,'check-base','--base',base,'--runtime-libc','musl','--platform',platforms.join(','),'--run']));
+  const direct=JSON.parse(await good([...cli,'check-base','--base',existing,'--runtime-libc','musl','--platform',platforms.join(','),'--run']));
   if(direct.platforms.some((p:any)=>!p.runtimeVerified)) throw new Error('Existing Alpine Bun failed execution');
-  }
   console.log('musl negative base checks passed');
 } finally {
   for(const container of containers) await run(["docker","rm","--force",container]);
