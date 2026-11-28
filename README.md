@@ -46,7 +46,7 @@ bun run dev build examples/hello --repo ghcr.io/OWNER
 
 Success prints one `ghcr.io/OWNER/hello@sha256:...` line. `--bare` treats `--repo` as the exact repository. Default tags are `latest` and the Git revision; override them with `--tag v1 --tag latest`. See [authentication setup](docs/REGISTRIES.md).
 
-rc.4 and later also support [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), [runtime/workspace configuration](docs/CONFIGURATION.md), and [system font mappings](docs/FONTS.md). These additions are not present in the immutable rc.3 CLI or container.
+Bunko also supports [source-preserving mode](docs/SOURCE_MODE.md), [prepared bases and offline builds](docs/OFFLINE.md), [runtime/workspace configuration](docs/CONFIGURATION.md), and [system font mappings](docs/FONTS.md).
 
 ## Custom bases without Bun
 
@@ -79,7 +79,7 @@ bun run dev build examples/workspace --push=false \
   --oci-layout .bunko-output/workspace --platform linux/amd64,linux/arm64
 ```
 
-Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. rc.4 and later support explicit `bunko.defaults`; see [configuration](docs/CONFIGURATION.md).
+Automatic root selection excludes `bunko.enabled:false` and prefers members with `bunko` configuration. Otherwise it selects members with `bin` or `module`. Put service configuration in each member's `package.json.bunko`; root application settings are not inherited implicitly. Explicit `bunko.defaults` are supported; see [configuration](docs/CONFIGURATION.md).
 
 Publication starts after every selected target builds successfully. Stdout contains one digest per target in a fixed order. `--report` records partial publication failures and replaces an earlier run's report file. `--bare` and `--tarball` require a single target.
 
